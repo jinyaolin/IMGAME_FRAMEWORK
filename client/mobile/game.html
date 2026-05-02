@@ -543,6 +543,8 @@
     client.on('stage_started', (data) => {
       setStatus(`階段：${data.stageName}`);
       clearCountdown();
+      // Leaving identity_draw stage → close overlay so player sees the new stage UI
+      if (data.stageType !== 'identity_draw') hideIdentityOverlay();
     });
     client.on('round_started', (data) => {
       setStatus(`第 ${data.roundNumber} 回合 (共 ${data.totalRounds} 回合)`);

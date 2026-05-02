@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Host 控制台</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #080818;
+      color: #ddddf0;
+      font-family: system-ui, sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #10102a;
+      border-bottom: 1px solid #2a2a5a;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1rem; letter-spacing: .1em; color: #aaaaff; }
+    .badge { background: #1a1a40; border: 1px solid #3a3aaa; border-radius: 6px; padding: 4px 12px; font-size: .8rem; color: #8888cc; }
+    .badge span { color: #ffdd44; font-weight: 700; letter-spacing: .1em; }
+
+    .layout { display: grid; grid-template-columns: 280px 1fr 260px; flex: 1; gap: 0; overflow: hidden; }
+
+    /* ── Column shared ── */
+    .col { padding: 16px; border-right: 1px solid #1a1a3a; overflow-y: auto; }
+    .col:last-child { border-right: none; }
+    .col-title { font-size: .7rem; letter-spacing: .1em; color: #6666aa; margin-bottom: 12px; text-transform: uppercase; }
+
+    /* ── Buttons ── */
+    .btn { border: none; border-radius: 8px; padding: 10px 20px; font-size: .9rem; font-weight: 700; cursor: pointer; transition: opacity .15s, transform .1s; }
+    .btn:disabled { opacity: .3; cursor: not-allowed; }
+    .btn:not(:disabled):active { transform: scale(.97); }
+    .btn-primary  { background: #5555ff; color: #fff; }
+    .btn-success  { background: #33bb66; color: #fff; }
+    .btn-warning  { background: #cc8800; color: #fff; }
+    .btn-danger   { background: #cc3333; color: #fff; }
+    .btn-neutral  { background: #2a2a5a; color: #aaaaff; border: 1px solid #4444aa; }
+    .btn-full     { width: 100%; margin-bottom: 8px; display: block; }
+
+    /* ── Players column ── */
+    .player-row { background: #12122a; border: 1px solid #2a2a4a; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+    .player-row .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.on  { background: #44ff88; }
+    .dot.off { background: #555; }
+    .player-row .info { flex: 1; min-width: 0; }
+    .player-row .pname { font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .player-row .pmeta { font-size: .7rem; color: #8888aa; margin-top: 2px; }
+    .pkick { background: none; border: 1px solid #4a1a1a; border-radius: 6px; color: #aa4444; font-size: .7rem; padding: 3px 8px; cursor: pointer; flex-shrink: 0; }
+    .pkick:hover { background: #2a0a0a; }
+
+    /* ── Module grid (lobby) ── */
+    .section { margin-bottom: 20px; }
+    .section-title { font-size: .78rem; color: #8888bb; margin-bottom: 10px; }
+    .module-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .module-card { background: #12122a; border: 2px solid #2a2a5a; border-radius: 10px; padding: 14px; cursor: pointer; transition: border-color .15s; }
+    .module-card:hover    { border-color: #5555ff; }
+    .module-card.selected { border-color: #5555ff; background: #1a1a40; }
+    .module-card .mname   { font-size: .9rem; font-weight: 700; }
+    .module-card .mdesc   { font-size: .7rem; color: #7777aa; margin-top: 4px; }
+    .module-card .mcount  { font-size: .68rem; color: #5555aa; margin-top: 6px; }
+
+    /* ── Phase badge ── */
+    .phase-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #1a1a3a; border: 1px solid #4444aa;
+      border-radius: 20px; padding: 4px 14px;
+      font-size: .78rem; color: #aaaaff;
+      letter-spacing: .08em;
+    }
+    .phase-dot { width: 6px; height: 6px; border-radius: 50%; background: #5555ff; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── Game panel ── */
+    #gamePanel { display: none; }
+
+    .gp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .gp-module-name { font-size: 1rem; font-weight: 700; color: #aaaaff; }
+
+    /* Round progress */
+    .gp-round-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .gp-round-label { font-size: .75rem; color: #6666aa; white-space: nowrap; }
+    .round-dots { display: flex; gap: 5px; }
+    .rdot { width: 10px; height: 10px; border-radius: 50%; background: #2a2a4a; transition: background .3s; }
+    .rdot.done    { background: #5555ff; }
+    .rdot.current { background: #ffdd44; box-shadow: 0 0 6px #ffdd44; }
+    .progress-bar { flex: 1; height: 4px; background: #2a2a4a; border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #5555ff; border-radius: 2px; transition: width .5s ease; }
+
+    /* Phase section */
+    .gp-phase-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .gp-phase-label { font-size: .8rem; color: #8888bb; }
+
+    /* Player action grid */
+    .gp-player-grid { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+    .gp-player-row {
+      display: flex; align-items: center; gap: 10px;
+      background: #10102a; border: 1px solid #2a2a4a; border-radius: 8px; padding: 8px 12px;
+      transition: border-color .3s;
+    }
+    .gp-player-row.played  { border-color: #33bb66; }
+    .gp-player-row.waiting { border-color: #2a2a4a; }
+    .gp-player-row.disconnected { opacity: .45; }
+    .gp-status-icon { font-size: 1rem; width: 20px; text-align: center; flex-shrink: 0; }
+    .gp-pname  { flex: 1; font-size: .88rem; }
+    .gp-pscore { font-size: .78rem; color: #ffdd44; }
+    .gp-pstatus{ font-size: .7rem; color: #6666aa; }
+
+    /* Reveal cards (host view) */
+    .gp-reveals { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-bottom: 16px; }
+    .gp-reveal-card {
+      background: #1a1a3a; border: 2px solid #3a3a7a; border-radius: 10px;
+      padding: 10px 8px; text-align: center;
+    }
+    .gp-reveal-card.winner { border-color: #ffdd44; background: #2a2a1a; }
+    .gp-rc-name  { font-size: .75rem; font-weight: 700; }
+    .gp-rc-value { font-size: 1.4rem; color: #ffdd44; line-height: 1.2; }
+    .gp-rc-player{ font-size: .65rem; color: #8888aa; margin-top: 2px; }
+    .gp-winner-tag { font-size: .6rem; color: #ffdd44; }
+
+    /* Action buttons zone */
+    .gp-actions { display: flex; flex-direction: column; gap: 8px; }
+
+    /* ── Result panel ── */
+    #resultPanel { display: none; }
+
+    .rp-title { font-size: 1.1rem; font-weight: 700; color: #ffdd44; margin-bottom: 4px; }
+    .rp-sub   { font-size: .78rem; color: #8888aa; margin-bottom: 20px; }
+
+    .rp-leaderboard { margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .rp-row { display: flex; align-items: center; gap: 10px; }
+    .rp-rank { font-size: 1.2rem; width: 28px; text-align: center; flex-shrink: 0; }
+    .rp-name { font-size: .9rem; flex: 1; }
+    .rp-score{ font-size: .85rem; color: #ffdd44; flex-shrink: 0; }
+    .rp-bar-wrap { width: 80px; flex-shrink: 0; }
+    .rp-bar  { height: 6px; background: #2a2a4a; border-radius: 3px; overflow: hidden; }
+    .rp-bar-fill { height: 100%; background: #5555ff; border-radius: 3px; transition: width .8s ease; }
+    .rp-row.champion .rp-bar-fill { background: #ffdd44; }
+
+    /* ── Log column ── */
+    #logList { display: flex; flex-direction: column; gap: 5px; }
+    .log-entry { background: #0e0e22; border-left: 2px solid #333388; padding: 5px 10px; border-radius: 0 4px 4px 0; font-size: .7rem; color: #9999cc; }
+    .log-entry .ts { color: #555577; margin-right: 6px; }
+    .log-entry.err { border-left-color: #883333; color: #cc8888; }
+
+    /* ── QR preview ── */
+    #qrPreview { text-align: center; margin-bottom: 16px; }
+    #qrPreview img { width: 110px; height: 110px; background: #fff; padding: 6px; border-radius: 8px; }
+    #qrPreview p { font-size: .68rem; color: #6666aa; margin-top: 6px; word-break: break-all; }
+
+    /* ── Setup screen ── */
+    #setupScreen { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 16px; padding: 40px; }
+    #setupScreen h2 { font-size: 1.4rem; color: #aaaaff; }
+    #setupScreen p  { color: #6666aa; font-size: .9rem; }
+    #mainLayout { display: none; flex: 1; overflow: hidden; }
+
+    .hidden { display: none !important; }
+    .divider { border: none; border-top: 1px solid #1a1a3a; margin: 14px 0; }
+
+    /* ── Module details (read-only summary) ── */
+    .md-section { margin-bottom: 10px; }
+    .md-label { font-size: .7rem; color: #6666aa; letter-spacing: .08em; margin-bottom: 4px; }
+    .md-kv    { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: .76rem; }
+    .md-kv .k { color: #7777aa; }
+    .md-kv .v { color: #ddddee; font-weight: 600; }
+    .md-list  { font-size: .76rem; color: #aaaacc; line-height: 1.5; }
+    .md-list .row { display:flex; align-items:center; gap: 6px; padding: 2px 0; }
+    .md-list .pill { font-size:.6rem; background:#1a1a4a; color:#8888cc; border-radius:4px; padding:1px 6px; }
+    .md-list .muted { color:#555577; }
+
+    /* ── Legacy editor tabs (kept for compatibility, no longer used) ── */
+    #configEditor { margin-top: 12px; border: 1px solid #2a2a5a; border-radius: 10px; overflow: hidden; }
+    .cfg-tabs { display: flex; background: #0e0e24; border-bottom: 1px solid #2a2a5a; }
+    .cfg-tab {
+      flex: 1; padding: 8px 4px; font-size: .72rem; font-weight: 700;
+      background: none; border: none; color: #6666aa; cursor: pointer;
+      letter-spacing: .04em; transition: color .15s, background .15s;
+    }
+    .cfg-tab.active { color: #aaaaff; background: #14142a; border-bottom: 2px solid #5555ff; }
+    .cfg-tab-content { padding: 14px; display: none; max-height: 380px; overflow-y: auto; }
+    .cfg-tab-content.active { display: block; }
+
+    /* fieldConfig form */
+    .field-row { margin-bottom: 12px; }
+    .field-label { font-size: .72rem; color: #8888bb; margin-bottom: 4px; display: block; }
+    .field-input {
+      width: 100%; background: #0a0a1a; border: 1px solid #3a3a6a;
+      border-radius: 6px; color: #ddddf0; font-size: .85rem; padding: 6px 10px; outline: none;
+    }
+    .field-input:focus { border-color: #5555ff; }
+    select.field-input { cursor: pointer; }
+
+    /* Deck manager */
+    .deck-block { background: #0e0e22; border: 1px solid #2a2a4a; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+    .deck-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; user-select: none; }
+    .deck-type-badge { font-size: .65rem; background: #1a1a4a; color: #8888cc; border-radius: 4px; padding: 2px 6px; }
+    .deck-header-name { flex: 1; font-size: .85rem; font-weight: 700; }
+    .deck-toggle { font-size: .7rem; color: #6666aa; }
+    .deck-cards { padding: 0 12px 10px; display: none; }
+    .deck-cards.open { display: block; }
+    .deck-draw-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: .72rem; color: #8888aa; }
+    .deck-draw-row input { width: 48px; background: #0a0a1a; border: 1px solid #3a3a6a; border-radius: 4px; color: #ddddf0; padding: 3px 6px; font-size: .78rem; text-align: center; }
+
+    .card-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+    .card-row input {
+      background: #0a0a1a; border: 1px solid #2a2a4a; border-radius: 4px;
+      color: #ddddf0; font-size: .72rem; padding: 4px 6px; outline: none;
+    }
+    .card-row input:focus { border-color: #5555ff; }
+    .card-row .ci-name { flex: 2; }
+    .card-row .ci-val  { width: 44px; text-align: center; }
+    .card-row .ci-desc { flex: 3; }
+    .card-row .ci-team { flex: 1; }
+    .card-row .ci-del  { background: none; border: 1px solid #4a1a1a; border-radius: 4px; color: #aa4444; font-size: .65rem; padding: 3px 7px; cursor: pointer; flex-shrink: 0; }
+    .card-row .ci-del:hover { background: #2a0a0a; }
+    .card-row-header { display: flex; gap: 6px; margin-bottom: 4px; }
+    .card-row-header span { font-size: .62rem; color: #555577; }
+    .card-row-header .ci-name { flex: 2; }
+    .card-row-header .ci-val  { width: 44px; }
+    .card-row-header .ci-desc { flex: 3; }
+    .card-row-header .ci-team { flex: 1; }
+    .add-card-btn { font-size: .72rem; color: #5555ff; background: none; border: 1px dashed #3a3a7a; border-radius: 4px; padding: 4px 10px; cursor: pointer; width: 100%; margin-top: 6px; }
+    .add-card-btn:hover { background: #14142a; }
+
+    /* Stage editor */
+    .stage-row { display: flex; align-items: flex-start; gap: 10px; background: #0e0e22; border: 1px solid #2a2a4a; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+    .stage-order { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .stage-order button { background: none; border: 1px solid #3a3a6a; border-radius: 3px; color: #8888cc; font-size: .6rem; padding: 1px 5px; cursor: pointer; line-height: 1.4; }
+    .stage-order button:hover { background: #1a1a3a; }
+    .stage-main { flex: 1; min-width: 0; }
+    .stage-name-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .stage-name { font-size: .88rem; font-weight: 700; }
+    .stage-type-badge { font-size: .62rem; background: #1a1a40; color: #6688ff; border-radius: 4px; padding: 2px 7px; }
+    .stage-disabled .stage-name { color: #555; }
+    .stage-advance { font-size: .68rem; color: #6666aa; margin-bottom: 4px; }
+    .stage-deck-ref { font-size: .68rem; color: #5566aa; }
+    .toggle-switch { position: relative; display: inline-block; width: 32px; height: 18px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; inset: 0; background: #2a2a4a; border-radius: 18px; cursor: pointer; transition: .2s; }
+    .toggle-slider:before { content:''; position: absolute; width: 12px; height: 12px; left: 3px; bottom: 3px; background: #666; border-radius: 50%; transition: .2s; }
+    input:checked + .toggle-slider { background: #5555ff; }
+    input:checked + .toggle-slider:before { transform: translateX(14px); background: #fff; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🎮 HOST 控制台</h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <a href="/editor" target="_blank"
+       style="font-size:.82rem;color:#aaaaff;text-decoration:none;border:1px solid #3a3a6a;
+              padding:6px 12px;border-radius:6px;background:#14142a;">
+      📝 模組編輯器
+    </a>
+    <div class="badge"
+         style="cursor:pointer;"
+         onclick="openDisplayPage()"
+         title="點擊打開 Display 頁面">房間 <span id="headerRoom">------</span> 📺</div>
+  </div>
+</header>
+
+<!-- Setup screen -->
+<div id="setupScreen">
+  <h2>建立新房間</h2>
+  <p>點擊按鈕建立遊戲房間，然後分享 QR Code 給玩家</p>
+  <button class="btn btn-primary" onclick="createRoom()" style="padding:14px 40px;font-size:1rem;">建立房間</button>
+</div>
+
+<!-- Main layout -->
+<div id="mainLayout" class="layout">
+
+  <!-- ── Left: Players ── -->
+  <div class="col">
+    <div class="col-title">玩家 (<span id="playerCount">0</span>)</div>
+    <div id="playerList"><div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">等待玩家加入…</div></div>
+  </div>
+
+  <!-- ── Center: Control panels ── -->
+  <div class="col">
+
+    <!-- PANEL A: Lobby -->
+    <div id="lobbyPanel">
+      <div style="margin-bottom:12px">
+        <span class="phase-badge"><span class="phase-dot"></span><span id="phaseBadgeText">LOBBY</span></span>
+      </div>
+
+      <div class="section">
+        <div class="section-title">選擇遊戲模組</div>
+        <div class="module-grid" id="moduleGrid">
+          <div style="color:#555;font-size:.8rem;">載入中…</div>
+        </div>
+      </div>
+
+      <!-- Read-only module details (shown after module selected) -->
+      <div id="moduleDetails" class="hidden"
+           style="margin-top:12px;background:#0e0e22;border:1px solid #2a2a4a;border-radius:10px;padding:14px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="font-size:.95rem;font-weight:700;color:#aaaaff;" id="mdName">—</span>
+          <span style="font-family:monospace;font-size:.68rem;color:#6666aa;background:#0a0a1a;padding:2px 7px;border-radius:4px;" id="mdId">—</span>
+        </div>
+        <div id="mdDesc" style="font-size:.78rem;color:#8888bb;margin-bottom:10px;line-height:1.5;"></div>
+
+        <div class="md-section">
+          <div class="md-label">基本參數</div>
+          <div id="mdFields" class="md-kv"></div>
+        </div>
+        <div class="md-section">
+          <div class="md-label">牌組</div>
+          <div id="mdDecks" class="md-list"></div>
+        </div>
+        <div class="md-section" style="margin-bottom:0;">
+          <div class="md-label">啟用階段</div>
+          <div id="mdStages" class="md-list"></div>
+        </div>
+
+        <div style="margin-top:12px;text-align:right;">
+          <a id="mdEditorLink" href="/editor" target="_blank"
+             style="font-size:.74rem;color:#6688ff;text-decoration:none;">→ 在編輯器中開啟</a>
+        </div>
+      </div>
+
+      <div class="section" style="margin-top:12px;">
+        <button class="btn btn-success btn-full" id="startBtn" onclick="startGame()" disabled>啟動遊戲模組</button>
+        <div id="startHint" style="font-size:.73rem;color:#cc8800;text-align:center;min-height:1.2em;margin-bottom:4px;"></div>
+      </div>
+    </div>
+
+    <!-- PANEL B: Game in progress -->
+    <div id="gamePanel">
+
+      <div class="gp-header">
+        <span class="gp-module-name" id="gpModuleName">—</span>
+        <span class="phase-badge"><span class="phase-dot" id="gpPhaseDot"></span><span id="gpPhaseLabel">—</span></span>
+      </div>
+
+      <!-- Auto-advance status (visible when an automatic trigger is pending) -->
+      <div id="gpAdvanceBadge" class="hidden"
+           style="background:#0e0e22;border:1px solid #2a4a6a;border-left-width:4px;
+                  border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.82rem;">
+        <span id="gpAdvanceText">⏱ 自動推進中…</span>
+        <span id="gpAdvanceTimer" style="float:right;font-family:monospace;color:#66bbff;"></span>
+      </div>
+
+      <!-- Round progress -->
+      <div class="gp-round-row">
+        <span class="gp-round-label">回合</span>
+        <div class="round-dots" id="gpRoundDots"></div>
+        <div class="progress-bar"><div class="progress-fill" id="gpProgressFill" style="width:0%"></div></div>
+        <span style="font-size:.72rem;color:#6666aa;" id="gpRoundText">0/0</span>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Player action grid -->
+      <div class="section-title" style="margin-bottom:8px;" id="gpGridLabel">玩家狀態</div>
+      <div class="gp-player-grid" id="gpPlayerGrid"></div>
+
+      <!-- Reveal cards (only in reveal phase) -->
+      <div id="gpRevealSection" class="hidden">
+        <hr class="divider">
+        <div class="section-title" style="margin-bottom:8px;">本回合出牌</div>
+        <div class="gp-reveals" id="gpReveals"></div>
+        <div id="gpWinnerLine" style="font-size:.82rem;color:#ffdd44;text-align:center;margin-bottom:12px;"></div>
+      </div>
+
+      <!-- Context action buttons -->
+      <hr class="divider">
+      <div class="gp-actions" id="gpActions"></div>
+    </div>
+
+    <!-- PANEL C: Result -->
+    <div id="resultPanel">
+      <div style="font-size:2rem;margin-bottom:8px;">🏆</div>
+      <div class="rp-title">遊戲結束</div>
+      <div class="rp-sub" id="rpWinners"></div>
+      <div class="rp-leaderboard" id="rpLeaderboard"></div>
+      <hr class="divider">
+      <button class="btn btn-success btn-full" onclick="hostAction('restart')">重新開始（同模組）</button>
+      <button class="btn btn-neutral btn-full" onclick="hostAction('back_to_lobby')">換遊戲模組</button>
+    </div>
+
+  </div>
+
+  <!-- ── Right: QR + Log ── -->
+  <div class="col">
+    <div id="qrPreview">
+      <img id="qrImg" src="" alt="">
+      <p id="joinUrlText"></p>
+    </div>
+    <div class="col-title">事件記錄</div>
+    <div id="logList"></div>
+  </div>
+
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared/socket.js"></script>
+<script>
+  let roomId          = null;
+  let selectedModule  = null;
+  let selectedManifest= null;
+  let currentPlayers  = [];
+  let availableModules= [];
+  let currentPhase    = 'lobby';   // lobby | playing | result
+  const client = new GameClient();
+
+  // ── Create room ────────────────────────────────────────────────
+  async function createRoom() {
+    const res  = await fetch('/api/rooms', { method: 'POST' });
+    const data = await res.json();
+    roomId = data.roomId;
+    document.getElementById('setupScreen').style.display = 'none';
+    document.getElementById('mainLayout').style.display  = 'grid';
+    client.connect();
+    client.on('connect', () => client.joinHost(roomId));
+    setupEvents();
+  }
+
+  // ── Open Display page ───────────────────────────────────────────
+  function openDisplayPage() {
+    if (!roomId) {
+      alert('請先建立房間');
+      return;
+    }
+    const displayUrl = `${window.location.origin}/display?room=${roomId}`;
+    window.open(displayUrl, '_blank');
+  }
+
+  // ── Events ────────────────────────────────────────────────────
+  function setupEvents() {
+    client.on('host_joined', d => {
+      setRoom(d.roomId);
+      setPhaseBadge(d.phase || 'lobby');
+      availableModules = d.availableModules || [];
+      renderModules(availableModules);
+      renderPlayers(d.players || []);
+      setQR(d.roomId);
+      addLog('Host 已連線');
+    });
+
+    client.on('player_joined',      d => { renderPlayers(d.players || []); addLog(`${d.player?.name} 加入`); });
+    client.on('player_left',        d => { renderPlayers(d.players || []); addLog('玩家離開'); });
+    client.on('player_ready',       d => { renderPlayers(d.players || []); updateLobbyBtns(); addLog('玩家準備完成'); });
+    client.on('player_disconnected',d => addLog('玩家斷線'));
+    client.on('player_reconnected', d => addLog('玩家重連'));
+
+    client.on('game_started', d => {
+      currentPhase = 'playing';
+      setPhaseBadge('playing');
+      showPanel('game');
+      // Reset player score display on restart (if currentPlayers exists)
+      if (currentPlayers && currentPlayers.length > 0) {
+        currentPlayers = currentPlayers.map(p => ({ ...p, score: 0, handCount: 0 }));
+        renderPlayers(currentPlayers);
+      }
+      addLog(`遊戲開始：${d.module}`);
+    });
+
+    // ── Stage & Round Events ───────────────────────────────────────
+    client.on('stage_started', (d) => {
+      console.log('[Host] Stage started:', d.stageId, d.stageName);
+      addLog(`📍 階段開始：${d.stageName}`);
+      // Clear countdown display but keep badge visible
+      const badge = document.getElementById('gpAdvanceBadge');
+      badge.classList.add('hidden');
+      const tEl = document.getElementById('gpAdvanceTimer');
+      if (tEl) tEl.textContent = '';
+    });
+
+    client.on('round_started', (d) => {
+      console.log('[Host] Round started:', d.roundNumber, 'of', d.totalRounds);
+      addLog(`🔄 第 ${d.roundNumber} 回合 (共 ${d.totalRounds} 回合)`);
+      // Clear countdown display but keep badge visible for next round
+      const badge = document.getElementById('gpAdvanceBadge');
+      badge.classList.add('hidden');
+      const tEl = document.getElementById('gpAdvanceTimer');
+      if (tEl) tEl.textContent = '';
+    });
+
+    client.on('card_played', (d) => {
+      const player = currentPlayers && currentPlayers.find(p => p.id === d.playerId);
+      const playerName = player?.name || d.playerId;
+      console.log('[Host] Card played:', playerName);
+      if (playerName) addLog(`${playerName} 已出牌`);
+    });
+
+    client.on('cards_revealed', (d) => {
+      console.log('[Host] Cards revealed:', d);
+      addLog('🃏 翻牌！');
+
+      // Log winners if winner data is available
+      if (d.winners && d.winners.length > 0 && currentPlayers) {
+        const winnerNames = d.winners.map(id => {
+          const player = currentPlayers.find(p => p.id === id);
+          return player ? player.name : id;
+        }).filter(Boolean);
+        if (winnerNames.length > 0) {
+          addLog(`🏆 本回合勝者：${winnerNames.join('、')} (${d.maxValue}點)`);
+        }
+      }
+    });
+
+    client.on('show_result', (d) => {
+      console.log('[Host] Show result');
+      addLog('🏁 遊戲結束');
+    });
+
+    client.on('all_played', (d) => {
+      console.log('[Host] All players played');
+      addLog('✅ 全員已出牌');
+    });
+
+    client.on('host_game_state', d => {
+      renderGamePanel(d);
+    });
+
+    client.on('game_ended', d => {
+      currentPhase = 'result';
+      renderResultPanel(d);
+      showPanel('result');
+      addLog(`遊戲結束 🏆 ${d.champions?.join(', ')}`);
+    });
+
+    client.on('back_to_lobby', () => {
+      currentPhase = 'lobby';
+      setPhaseBadge('lobby');
+      showPanel('lobby');
+      // Re-render module grid so the previously selected card stays highlighted,
+      // and refresh the read-only details panel.
+      renderModules(availableModules);
+      if (selectedManifest) renderModuleDetails(selectedManifest);
+      updateLobbyBtns();
+      addLog('回到 Lobby');
+    });
+
+    client.on('state_update', d => { /* display only */ });
+    client.on('error', d => addLog(`ERROR: ${d.message}`, true));
+
+    client.on('modules_updated', d => {
+      availableModules = d.modules || availableModules;
+      renderModules(availableModules);
+      addLog('模組清單已更新');
+    });
+
+    // Auto-advance countdown broadcast from card-battle (and future modules)
+    client.on('countdown', d => {
+      const tEl = document.getElementById('gpAdvanceTimer');
+      if (!tEl) return;
+
+      // Show badge when countdown is active
+      const badge = document.getElementById('gpAdvanceBadge');
+      if (d.remaining > 0) {
+        badge.classList.remove('hidden');
+        document.getElementById('gpAdvanceText').textContent = '⏱ 自動進入下一回合';
+        tEl.textContent = `${d.remaining}s / ${d.total}s`;
+      } else {
+        tEl.textContent = '';
+      }
+    });
+  }
+
+  // ── Panel switching ───────────────────────────────────────────
+  function showPanel(name) {
+    document.getElementById('lobbyPanel') .style.display = name === 'lobby'  ? 'block' : 'none';
+    document.getElementById('gamePanel')  .style.display = name === 'game'   ? 'block' : 'none';
+    document.getElementById('resultPanel').style.display = name === 'result' ? 'block' : 'none';
+  }
+
+  // ── Read-only module details ──────────────────────────────────
+  // Editing has moved entirely to /editor — host only previews the selected module.
+
+  function renderModuleDetails(manifest) {
+    document.getElementById('moduleDetails').classList.remove('hidden');
+    document.getElementById('mdName').textContent = manifest.name || manifest.id;
+    document.getElementById('mdId').textContent   = manifest.id;
+    document.getElementById('mdDesc').textContent = manifest.description || '';
+    document.getElementById('mdEditorLink').href  = `/editor?id=${encodeURIComponent(manifest.id)}`;
+
+    // Fields → key/value list of defaults (skip hidden showWhen rows for clarity)
+    const fc = manifest.fieldConfig || {};
+    const activeKeys = Object.keys(fc).filter(k => {
+      const def = fc[k];
+      if (!def.showWhen) return true;
+      return fc[def.showWhen.field]?.default === def.showWhen.value;
+    });
+    document.getElementById('mdFields').innerHTML = activeKeys.length
+      ? activeKeys.map(k => {
+          const def = fc[k];
+          let v = def.default;
+          if (def.type === 'select') {
+            const opt = (def.options || []).find(o => o.value === v);
+            v = opt ? opt.label : v;
+          }
+          return `<span class="k">${def.label}</span><span class="v">${v}</span>`;
+        }).join('')
+      : '<span class="muted">（無）</span>';
+
+    // Decks → name + type + card count
+    const typeLabels = { role:'身份', action:'行動', event:'事件', item:'道具' };
+    const decks = (manifest.decks || []).filter(d => d.enabled !== false);
+    document.getElementById('mdDecks').innerHTML = decks.length
+      ? decks.map(d => `<div class="row">
+          <span style="font-weight:600">${d.name}</span>
+          <span class="pill">${typeLabels[d.type] || d.type}</span>
+          <span class="muted" style="margin-left:auto">${(d.cards||[]).length} 張</span>
+        </div>`).join('')
+      : '<span class="muted">（無）</span>';
+
+    // Enabled stages
+    const stages = (manifest.stages || []).filter(s => s.enabled);
+    const stageTypeLabels = { identity_draw:'身份抽取', card_play:'出牌回合', vote:'投票', reveal:'翻牌', result:'結算' };
+    document.getElementById('mdStages').innerHTML = stages.length
+      ? stages.map((s, i) => `<div class="row">
+          <span class="muted">${i+1}.</span>
+          <span style="font-weight:600">${s.name}</span>
+          <span class="pill">${stageTypeLabels[s.type] || s.type}</span>
+        </div>`).join('')
+      : '<span class="muted">（無啟用階段）</span>';
+  }
+
+  function hideModuleDetails() {
+    document.getElementById('moduleDetails').classList.add('hidden');
+  }
+
+  // ── Lobby: module selection ───────────────────────────────────
+  function renderModules(modules) {
+    const grid = document.getElementById('moduleGrid');
+    if (!modules.length) { grid.innerHTML = '<div style="color:#555;font-size:.8rem;">無可用模組</div>'; return; }
+    grid.innerHTML = modules.map(m => `
+      <div class="module-card ${selectedModule === m.id ? 'selected' : ''}"
+           id="mod_${m.id}" onclick="selectModule('${m.id}')">
+        <div class="mname">${m.name}</div>
+        <div class="mdesc">${m.description || ''}</div>
+        <div class="mcount">${m.minPlayers}–${m.maxPlayers} 人</div>
+      </div>`).join('');
+    updateLobbyBtns();
+  }
+
+  function selectModule(id) {
+    selectedModule   = id;
+    selectedManifest = availableModules.find(m => m.id === id) || null;
+    document.querySelectorAll('.module-card').forEach(el => el.classList.remove('selected'));
+    const el = document.getElementById(`mod_${id}`);
+    if (el) el.classList.add('selected');
+    if (selectedManifest) renderModuleDetails(selectedManifest);
+    else                  hideModuleDetails();
+    updateLobbyBtns();
+  }
+
+  function startGame() {
+    if (!selectedModule) return;
+    // Send no overrides — server uses manifest defaults baked in via /editor.
+    client.loadModule(selectedModule, null);
+  }
+
+  function updateLobbyBtns() {
+    const readyCount   = currentPlayers.filter(p => p.isReady).length;
+    const hint         = document.getElementById('startHint');
+    let   disabled     = !selectedModule || currentPhase === 'playing';
+    let   msg          = '';
+
+    if (!disabled && selectedManifest) {
+      const { minPlayers, maxPlayers } = selectedManifest;
+      if (readyCount < minPlayers) { disabled = true; msg = `至少需要 ${minPlayers} 人準備（目前 ${readyCount} 人）`; }
+      else if (readyCount > maxPlayers) { disabled = true; msg = `最多 ${maxPlayers} 人（目前 ${readyCount} 人）`; }
+    }
+
+    document.getElementById('startBtn').disabled = disabled;
+    hint.textContent = msg;
+  }
+
+  // ── Game panel rendering ──────────────────────────────────────
+  const ACTION_DEFS = {
+    advance_identity: { label: '▶ 全員確認，開始發牌', cls: 'btn-primary' },
+    force_reveal:     { label: '⚡ 強制翻牌',          cls: 'btn-warning' },
+    next_round:       { label: '▶ 下一回合',          cls: 'btn-primary' },
+    end_game:         { label: '✕ 結束遊戲',          cls: 'btn-danger'  },
+    restart:          { label: '↺ 重新開始',          cls: 'btn-success' },
+    back_to_lobby:    { label: '← 換遊戲模組',        cls: 'btn-neutral' },
+  };
+  const PHASE_COLORS = { waiting: '#cc8800', reveal: '#5555ff', result: '#33bb66', deal: '#888', identity: '#aa44ff' };
+  const TEAM_COLORS  = { red:'#ff6666', blue:'#6688ff', green:'#44cc88', gold:'#ffdd44', purple:'#bb66ff' };
+
+  function renderGamePanel(state) {
+    // header
+    document.getElementById('gpModuleName').textContent = state.module || '';
+    document.getElementById('gpPhaseLabel').textContent = state.phaseLabel || state.phase;
+    const dot = document.getElementById('gpPhaseDot');
+    dot.style.background = PHASE_COLORS[state.phase] || '#5555ff';
+
+    // Auto-advance badge
+    const adv = state.advance;
+    const badge = document.getElementById('gpAdvanceBadge');
+    if (adv && adv.autoPending) {
+      badge.classList.remove('hidden');
+      const triggerLabels = {
+        all_played: '全員出牌後自動推進',
+        all_confirmed: '全員確認後自動推進',
+        all_ready: '全員準備後自動推進',
+        auto: '固定延遲後自動推進',
+        timer: '倒數結束後自動推進',
+      };
+      const lbl = triggerLabels[adv.trigger] || adv.trigger;
+      const fb  = adv.hostCanForce ? '（host 仍可強制）' : '';
+      document.getElementById('gpAdvanceText').textContent = `⏱ ${lbl}${fb}`;
+      if (adv.trigger !== 'timer') document.getElementById('gpAdvanceTimer').textContent = '';
+    } else {
+      badge.classList.add('hidden');
+      // Don't clear gpAdvanceTimer here - it's managed by countdown events
+    }
+
+    // round progress
+    const dots = Array.from({ length: state.maxRounds }, (_, i) => {
+      const cls = i < state.round - 1 ? 'done' : i === state.round - 1 ? 'current' : '';
+      return `<div class="rdot ${cls}"></div>`;
+    }).join('');
+    document.getElementById('gpRoundDots').innerHTML = dots;
+    const pct = state.maxRounds ? Math.round(((state.round - 1) / state.maxRounds) * 100) : 0;
+    document.getElementById('gpProgressFill').style.width = pct + '%';
+    document.getElementById('gpRoundText').textContent = `${state.round}/${state.maxRounds}`;
+
+    // grid label
+    const players = state.playerStates || [];
+    const played  = players.filter(p => p.hasPlayed).length;
+    const total   = players.length;
+
+    if (state.phase === 'identity') {
+      const confirmed = state.identityProgress?.confirmed ?? players.filter(p => p.confirmed).length;
+      const totalI    = state.identityProgress?.total     ?? total;
+      document.getElementById('gpGridLabel').textContent = `身份確認狀態 (${confirmed}/${totalI})`;
+    } else {
+      document.getElementById('gpGridLabel').textContent =
+        state.phase === 'waiting' ? `玩家出牌狀態 (${played}/${total})` : '玩家狀態';
+    }
+
+    // player rows — identity phase shows assigned role + confirmation; other phases show play state
+    document.getElementById('gpPlayerGrid').innerHTML = players.map(p => {
+      if (state.phase === 'identity') {
+        const id        = p.identity || {};
+        const teamColor = TEAM_COLORS[id.team] || '#8888aa';
+        const teamTag   = id.team
+          ? `<span style="background:${teamColor}22;color:${teamColor};padding:1px 7px;border-radius:8px;font-size:.65rem;margin-left:6px;">${id.team}</span>`
+          : '';
+        const icon = !p.isConnected ? '✕' : (p.confirmed ? '✓' : '⏳');
+        const rowCls = !p.isConnected ? 'disconnected' : p.confirmed ? 'played' : 'waiting';
+        const status = !p.isConnected ? '斷線' : p.confirmed ? '已確認' : '查看中';
+        return `<div class="gp-player-row ${rowCls}">
+          <span class="gp-status-icon">${icon}</span>
+          <span class="gp-pname">${p.name}</span>
+          <span class="gp-pstatus" style="font-size:.78rem">
+            ${id.name ? `<b style="color:${teamColor}">${id.name}</b>` : '<i style="color:#666">未分配</i>'}${teamTag}
+          </span>
+          <span class="gp-pscore" style="color:${p.confirmed ? '#33bb66' : '#cc8800'}">${status}</span>
+        </div>`;
+      }
+      const statusIcon = p.hasPlayed ? '✓' : (p.isConnected ? '⏳' : '✕');
+      const rowCls     = !p.isConnected ? 'disconnected' : p.hasPlayed ? 'played' : 'waiting';
+      return `<div class="gp-player-row ${rowCls}">
+        <span class="gp-status-icon">${statusIcon}</span>
+        <span class="gp-pname">${p.name}</span>
+        <span class="gp-pstatus">${p.hasPlayed ? '已出牌' : (p.isConnected ? '等待中' : '斷線')}</span>
+        <span class="gp-pscore">${p.score}pt · ${p.handCount}張</span>
+      </div>`;
+    }).join('');
+
+    // reveal cards
+    const revealSec = document.getElementById('gpRevealSection');
+    if (state.reveals && state.reveals.length > 0) {
+      revealSec.classList.remove('hidden');
+      // find max value to mark winner(s)
+      const maxVal = Math.max(...state.reveals.map(r => r.card.value));
+      document.getElementById('gpReveals').innerHTML = state.reveals.map(r => {
+        const isWinner = r.card.value === maxVal;
+        return `<div class="gp-reveal-card ${isWinner ? 'winner' : ''}">
+          ${isWinner ? '<div class="gp-winner-tag">🏆 勝</div>' : ''}
+          <div class="gp-rc-name">${r.card.name}</div>
+          <div class="gp-rc-value">${r.card.value}</div>
+          <div class="gp-rc-player">${r.playerName}</div>
+        </div>`;
+      }).join('');
+
+      // Build winner names
+      const winners = state.reveals.filter(r => r.card.value === maxVal).map(r => r.playerName);
+      document.getElementById('gpWinnerLine').textContent =
+        winners.length ? `本回合勝者：${winners.join('、')}` : '';
+    } else {
+      revealSec.classList.add('hidden');
+    }
+
+    // action buttons
+    document.getElementById('gpActions').innerHTML = (state.availableActions || []).map(a => {
+      const def = ACTION_DEFS[a] || { label: a, cls: 'btn-neutral' };
+      return `<button class="btn ${def.cls} btn-full" onclick="hostAction('${a}')">${def.label}</button>`;
+    }).join('');
+  }
+
+  // ── Result panel rendering ────────────────────────────────────
+  function renderResultPanel(data) {
+    const ranked   = data.ranked || [];
+    const champions= data.champions || [];
+    const maxScore = ranked.length ? ranked[0].score : 1;
+
+    document.getElementById('rpWinners').textContent =
+      champions.length ? `勝者：${champions.join('、')}` : '';
+
+    const medals = ['🥇', '🥈', '🥉'];
+    document.getElementById('rpLeaderboard').innerHTML = ranked.map((p, i) => {
+      const isChamp = champions.includes(p.name);
+      const barPct  = maxScore ? Math.round((p.score / maxScore) * 100) : 0;
+      return `<div class="rp-row ${isChamp ? 'champion' : ''}">
+        <span class="rp-rank">${medals[i] || (i + 1)}</span>
+        <span class="rp-name">${p.name}</span>
+        <div class="rp-bar-wrap"><div class="rp-bar"><div class="rp-bar-fill" style="width:${barPct}%"></div></div></div>
+        <span class="rp-score">${p.score} 分</span>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Host actions ──────────────────────────────────────────────
+  function hostAction(action) {
+    client.nextPhase({ action });
+  }
+
+  // ── Players column ────────────────────────────────────────────
+  function renderPlayers(list) {
+    currentPlayers = list;
+    updateLobbyBtns();
+    const el = document.getElementById('playerList');
+    document.getElementById('playerCount').textContent = list.length;
+    if (!list.length) {
+      el.innerHTML = '<div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">等待玩家加入…</div>';
+      return;
+    }
+    el.innerHTML = list.map(p => `
+      <div class="player-row">
+        <div class="dot ${p.isConnected !== false ? 'on' : 'off'}"></div>
+        <div class="info">
+          <div class="pname">${p.name}</div>
+          <div class="pmeta">${p.score ?? 0}pt · ${p.handCount ?? 0}張 · ${p.isReady ? '✓ 準備' : '等待'}</div>
+        </div>
+        <button class="pkick" onclick="kickPlayer('${p.id}')">踢</button>
+      </div>`).join('');
+  }
+
+  function kickPlayer(pid) {
+    if (confirm('確定踢除這位玩家？')) client.kickPlayer(pid);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────
+  function setRoom(id) {
+    document.getElementById('headerRoom').textContent = id;
+  }
+
+  function setPhaseBadge(p) {
+    const labels = { lobby: 'LOBBY', playing: 'PLAYING', result: 'RESULT' };
+    document.getElementById('phaseBadgeText').textContent = labels[p] || p.toUpperCase();
+  }
+
+  function setQR(rid) {
+    const origin = window.location.origin;
+    document.getElementById('qrImg').src = `/api/rooms/${rid}/qr`;
+    document.getElementById('joinUrlText').textContent = `${origin}/mobile?room=${rid}`;
+  }
+
+  function addLog(msg, isErr = false) {
+    const list = document.getElementById('logList');
+    const now  = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+    const el   = document.createElement('div');
+    el.className = 'log-entry' + (isErr ? ' err' : '');
+    el.innerHTML = `<span class="ts">${now}</span>${msg}`;
+    list.prepend(el);
+    if (list.children.length > 60) list.lastChild.remove();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+{
+  "id": "example-actions",
+  "name": "基礎行動牌",
+  "type": "action",
+  "description": "適合初學者的基礎行動牌組",
+  "cards": [
+    {
+      "id": "attack-1",
+      "name": "火焰拳",
+      "value": 9,
+      "team": "red",
+      "description": "強力的火焰攻擊",
+      "image": "/uploads/cards/card-1777715109303-789406959.png"
+    },
+    {
+      "id": "defense-1",
+      "name": "冰霜盾",
+      "value": 3,
+      "team": "blue",
+      "description": "堅固的防禦"
+    },
+    {
+      "id": "magic-1",
+      "name": "閃電箭",
+      "value": 7,
+      "team": "yellow",
+      "description": "快速的魔法攻擊"
+    },
+    {
+      "id": "heal-1",
+      "name": "治癒之光",
+      "value": 4,
+      "team": "green",
+      "description": "恢復生命值"
+    },
+    {
+      "id": "special-1",
+      "name": "暗影打擊",
+      "value": 8,
+      "team": "purple",
+      "description": "無法預測的攻擊"
+    }
+  ],
+  "createdAt": "2025-05-02T00:00:00.000Z",
+  "updatedAt": "2026-05-02T09:45:09.303Z",
+  "backImage": null
+}

@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Display</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #000010;
+      color: #e0e0ff;
+      font-family: 'Courier New', monospace;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Room / status bar ── */
+    #topBar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 48px;
+      background: rgba(0,0,30,.7);
+      border-bottom: 1px solid rgba(100,100,255,.2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      z-index: 10;
+      font-size: .8rem;
+      color: #6666aa;
+    }
+    #topBar .roomCode { font-size: 1rem; color: #aaaaff; letter-spacing: .2em; font-weight: 700; }
+    #topBar .phase    { color: #ffdd44; text-transform: uppercase; letter-spacing: .1em; }
+
+    /* ── Player strip (bottom) ── */
+    #playerStrip {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,30,.8);
+      border-top: 1px solid rgba(100,100,255,.2);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 32px;
+      overflow-x: auto;
+      z-index: 10;
+    }
+    .player-chip {
+      background: #14143a;
+      border: 1px solid #3a3a7a;
+      border-radius: 24px;
+      padding: 6px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      white-space: nowrap;
+      transition: border-color .3s;
+    }
+    .player-chip.connected    { border-color: #5555ff; }
+    .player-chip.disconnected { border-color: #333; opacity: .5; }
+    .player-chip .pname       { font-size: .85rem; }
+    .player-chip .pscore      { font-size: .8rem; color: #ffdd44; }
+    .player-chip .pdot        { width: 7px; height: 7px; border-radius: 50%; background: #5555ff; }
+    .player-chip.disconnected .pdot { background: #555; }
+
+    /* ── Main content area ── */
+    #mainStage {
+      position: absolute;
+      top: 48px; bottom: 64px; left: 0; right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── Lobby view ── */
+    #lobbyView {
+      text-align: center;
+    }
+    #lobbyView h1 {
+      font-size: 3rem;
+      letter-spacing: .2em;
+      color: #aaaaff;
+      margin-bottom: 16px;
+    }
+    #qrArea {
+      margin: 24px auto;
+      background: #fff;
+      padding: 16px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+    #qrArea img { display: block; width: 180px; height: 180px; }
+    #joinUrl { font-size: 1.1rem; color: #8888cc; margin-top: 12px; letter-spacing: .05em; }
+
+    /* ── Game view (module fills this) ── */
+    #gameView {
+      width: 100%;
+      height: 100%;
+      display: none;
+    }
+    #moduleDisplay {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Event feed ── */
+    #eventFeed {
+      position: absolute;
+      top: 64px; right: 24px;
+      width: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: none;
+      z-index: 20;
+    }
+    .event-toast {
+      background: rgba(20,20,60,.9);
+      border-left: 3px solid #5555ff;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: .78rem;
+      color: #aaaaee;
+      animation: fadeIn .3s ease, fadeOut .5s ease 2.5s forwards;
+    }
+    @keyframes fadeIn  { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: none; } }
+    @keyframes fadeOut { to   { opacity:0; } }
+
+    /* ── Countdown overlay ── */
+    #countdownOverlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 15;
+      pointer-events: none;
+    }
+    #countdownOverlay.visible { display: flex; }
+    #countdownNumber {
+      font-size: 12rem;
+      font-weight: 900;
+      color: #ffdd44;
+      text-shadow: 0 0 40px rgba(255,221,68,.6);
+      animation: countPulse 1s ease-in-out;
+    }
+    #countdownLabel {
+      font-size: 2rem;
+      color: #aaaaff;
+      margin-top: 20px;
+      text-transform: uppercase;
+      letter-spacing: .2em;
+    }
+    @keyframes countPulse {
+      0% { transform: scale(1.2); opacity: 0; }
+      50% { transform: scale(1); opacity: 1; }
+      100% { transform: scale(0.9); opacity: 1; }
+    }
+
+    /* ── Connection overlay ── */
+    #connectOverlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,20,.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      gap: 16px;
+      font-size: 1.1rem;
+      color: #6666aa;
+    }
+    #connectOverlay.hidden { display: none; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid #3333aa;
+      border-top-color: #8888ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <!-- Connection overlay -->
+  <div id="connectOverlay">
+    <div class="spinner"></div>
+    <span id="connectMsg">連線中…</span>
+  </div>
+
+  <!-- Top bar -->
+  <div id="topBar">
+    <span class="roomCode" id="barRoom">------</span>
+    <span id="barModule">等待遊戲模組</span>
+    <span class="phase" id="barPhase">LOBBY</span>
+  </div>
+
+  <!-- Main stage -->
+  <div id="mainStage">
+    <!-- Lobby -->
+    <div id="lobbyView">
+      <h1>🎮</h1>
+      <h1 id="lobbyRoomCode">------</h1>
+      <div id="qrArea"><img id="qrImg" src="" alt="QR"></div>
+      <div id="joinUrl"></div>
+      <div style="margin-top:16px;">
+        <a id="mobileLink" href="#" target="_blank"
+           style="display:inline-block;color:#aaaaff;text-decoration:none;
+                  border:1px solid #3a3a6a;padding:8px 16px;border-radius:8px;
+                  background:#14142a;font-size:.9rem;transition:all .3s;"
+           onmouseover="this.style.borderColor='#5555ff';this.style.background='#1a1a3a';"
+           onmouseout="this.style.borderColor='#3a3a6a';this.style.background='#14142a';">
+          📱 打開玩家頁面
+        </a>
+      </div>
+    </div>
+
+    <!-- Game module area -->
+    <div id="gameView">
+      <div id="moduleDisplay"></div>
+    </div>
+
+    <!-- Countdown overlay -->
+    <div id="countdownOverlay">
+      <div id="countdownNumber">3</div>
+      <div id="countdownLabel">秒後下一回合</div>
+    </div>
+  </div>
+
+  <!-- Player strip -->
+  <div id="playerStrip"></div>
+
+  <!-- Event toast feed -->
+  <div id="eventFeed"></div>
+
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/socket.js"></script>
+  <script>
+    const roomId = getRoomFromUrl();
+
+    const client = new GameClient();
+    client.connect();
+
+    client.on('connect', () => {
+      document.getElementById('connectMsg').textContent = '連線成功，加入顯示端…';
+      if (roomId) {
+        client.joinDisplay(roomId);
+      } else {
+        document.getElementById('connectMsg').textContent = '缺少 ?room= 參數';
+      }
+    });
+
+    client.on('disconnect', () => {
+      document.getElementById('connectOverlay').classList.remove('hidden');
+      document.getElementById('connectMsg').textContent = '連線中斷，重新連線…';
+    });
+
+    client.on('display_joined', (data) => {
+      document.getElementById('connectOverlay').classList.add('hidden');
+      setRoom(data.roomId);
+      setPhase(data.phase);
+      setModule(data.moduleName);
+      renderPlayers(data.players || []);
+      updateShared(data.sharedState || {});
+
+      // Show QR
+      const origin = window.location.origin;
+      const mobileUrl = `${origin}/mobile?room=${data.roomId}`;
+      document.getElementById('joinUrl').textContent = mobileUrl;
+      document.getElementById('mobileLink').href = mobileUrl;
+      document.getElementById('qrImg').src = `/api/rooms/${data.roomId}/qr`;
+
+      if (data.phase === 'playing') enterGameView();
+    });
+
+    client.on('game_started', (data) => {
+      setPhase('playing');
+      setModule(data.module);
+      updateShared(data.sharedState || {});
+
+      // Hide countdown overlay
+      document.getElementById('countdownOverlay').classList.remove('visible');
+
+      enterGameView();
+      toast(`遊戲開始：${data.module}`);
+    });
+
+    client.on('state_update', (data) => {
+      updateShared(data.sharedState || {});
+    });
+
+    client.on('player_joined', (data) => {
+      if (data.players) renderPlayers(data.players);
+      else if (data.player) addOrUpdatePlayer(data.player);
+      toast(`${data.player?.name || '玩家'} 加入`);
+    });
+
+    client.on('player_left', d => {
+      players.delete(d.playerId);
+      redrawStrip();
+      toast(`玩家離開`);
+    });
+    client.on('player_disconnected', d => updatePlayerConnection(d.playerId, false));
+    client.on('player_reconnected',  d => updatePlayerConnection(d.playerId, true));
+    client.on('player_ready',        d => { if (d.players) renderPlayers(d.players); });
+
+    client.on('card_played', (data) => {
+      const playerName = players.get(data.playerId)?.name || data.playerId;
+      toast(`${playerName} 已出牌`);
+    });
+
+    // ── Stage & Round Events ───────────────────────────────────────
+    client.on('stage_started', (data) => {
+      console.log('[Display] Stage started:', data.stageId, data.stageName);
+      toast(`📍 階段：${data.stageName}`);
+
+      // Hide countdown overlay
+      document.getElementById('countdownOverlay').classList.remove('visible');
+
+      // Clear previous content when starting a new stage
+      if (data.stageType === 'card_play') {
+        document.getElementById('moduleDisplay').innerHTML = '';
+      }
+    });
+
+    client.on('round_started', (data) => {
+      console.log('[Display] Round started:', data.roundNumber, 'of', data.totalRounds);
+      toast(`🔄 第 ${data.roundNumber} 回合`);
+
+      // Clear countdown overlay
+      document.getElementById('countdownOverlay').classList.remove('visible');
+
+      // Clear revealed cards when starting a new round
+      document.getElementById('moduleDisplay').innerHTML = '';
+    });
+
+    client.on('cards_revealed', (data) => {
+      console.log('[Display] Cards revealed');
+      toast('🃏 翻牌！');
+
+      // Update display with revealed cards
+      if (data.displayHtml) {
+        document.getElementById('moduleDisplay').innerHTML = data.displayHtml;
+      }
+    });
+
+    client.on('game_ended', (data) => {
+      console.log('[Display] Game ended');
+      toast('🏁 遊戲結束');
+
+      // Update display with results
+      if (data.displayHtml) {
+        document.getElementById('moduleDisplay').innerHTML = data.displayHtml;
+      }
+    });
+
+    client.on('show_result', (data) => {
+      console.log('[Display] Show result');
+      toast('🏁 遊戲結束');
+    });
+
+    client.on('all_played', (data) => {
+      console.log('[Display] All players played');
+      toast('✅ 全員已出牌');
+    });
+
+    client.on('phase_changed', (data) => {
+      setPhase(data.phase || '');
+      if (data.message) toast(data.message);
+    });
+
+    // ── Countdown ─────────────────────────────────────────────────
+    let countdownTimer = null;
+    client.on('countdown', (data) => {
+      console.log('[Display] Countdown:', data.remaining, '/', data.total);
+      const overlay = document.getElementById('countdownOverlay');
+      const numberEl = document.getElementById('countdownNumber');
+      const labelEl = document.getElementById('countdownLabel');
+
+      // Determine label based on total duration
+      if (data.total === 5) {
+        labelEl.textContent = '秒後重新開始';
+      } else if (data.total === 3) {
+        labelEl.textContent = '秒後下一回合';
+      } else {
+        labelEl.textContent = '秒後繼續';
+      }
+
+      numberEl.textContent = data.remaining;
+      overlay.classList.add('visible');
+
+      // Clear previous timer
+      if (countdownTimer) {
+        clearTimeout(countdownTimer);
+      }
+
+      // Hide overlay after a short delay when countdown reaches 0
+      if (data.remaining === 0) {
+        countdownTimer = setTimeout(() => {
+          overlay.classList.remove('visible');
+        }, 500);
+      }
+    });
+
+    // ── Helpers ────────────────────────────────────────────────
+    const players = new Map();
+
+    function setRoom(id) {
+      document.getElementById('barRoom').textContent = id;
+      document.getElementById('lobbyRoomCode').textContent = id;
+    }
+    function setPhase(p) {
+      document.getElementById('barPhase').textContent = (p || '').toUpperCase();
+    }
+    function setModule(m) {
+      document.getElementById('barModule').textContent = m || '等待遊戲模組';
+    }
+
+    function renderPlayers(list) {
+      players.clear();
+      list.forEach(p => players.set(p.id, p));
+      redrawStrip();
+    }
+
+    function addOrUpdatePlayer(p) {
+      players.set(p.id, p);
+      redrawStrip();
+    }
+
+    function updatePlayerConnection(playerId, connected) {
+      const p = players.get(playerId);
+      if (p) { p.isConnected = connected; redrawStrip(); }
+    }
+
+    function redrawStrip() {
+      const strip = document.getElementById('playerStrip');
+      strip.innerHTML = [...players.values()].map(p => `
+        <div class="player-chip ${p.isConnected !== false ? 'connected' : 'disconnected'}">
+          <div class="pdot"></div>
+          <span class="pname">${p.name}</span>
+          <span class="pscore">${p.score ?? 0}pt</span>
+        </div>
+      `).join('');
+    }
+
+    function updateShared(state) {
+      const el = document.getElementById('moduleDisplay');
+      if (state.displayHtml) {
+        el.innerHTML = state.displayHtml;
+      } else if (typeof state === 'object') {
+        el.textContent = JSON.stringify(state, null, 2);
+      }
+    }
+
+    function enterGameView() {
+      document.getElementById('lobbyView').style.display = 'none';
+      document.getElementById('gameView').style.display  = 'block';
+    }
+
+    function toast(msg) {
+      const feed = document.getElementById('eventFeed');
+      const el = document.createElement('div');
+      el.className = 'event-toast';
+      el.textContent = msg;
+      feed.prepend(el);
+      setTimeout(() => el.remove(), 3200);
+    }
+  </script>
+</body>
+</html>

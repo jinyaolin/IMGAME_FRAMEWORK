@@ -1,0 +1,15 @@
+node_modules/
+*.log
+.DS_Store
+
+# User-uploaded card art (kept out of source control)
+public/uploads/
+
+# Locally-cloned game modules (anything that's not a tracked starter)
+# server/modules/* should be committed individually if they're starter modules.
+
+# Editor temp files
+*.tmp
+*.swp
+.vscode/
+.idea/

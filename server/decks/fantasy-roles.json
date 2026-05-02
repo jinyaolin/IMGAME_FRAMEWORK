@@ -1,0 +1,52 @@
+{
+  "id": "fantasy-roles",
+  "name": "奇幻角色",
+  "type": "role",
+  "description": "經典奇幻遊戲角色",
+  "cards": [
+    {
+      "id": "warrior",
+      "name": "戰士",
+      "team": "red",
+      "description": "勇猛的前線戰士",
+      "image": "/uploads/cards/card-1777713503935-300099916.jpg"
+    },
+    {
+      "id": "mage",
+      "name": "法師",
+      "team": "blue",
+      "description": "掌握強大魔力的智慧者",
+      "image": "/uploads/cards/card-1777713511100-714385317.jpg"
+    },
+    {
+      "id": "rogue",
+      "name": "盜賊",
+      "team": "purple",
+      "description": "敏捷的暗影刺客",
+      "image": "/uploads/cards/card-1777713576319-319927057.jpg"
+    },
+    {
+      "id": "cleric",
+      "name": "牧師",
+      "team": "gold",
+      "description": "神聖的治療者",
+      "image": "/uploads/cards/card-1777713636384-760914701.jpg"
+    },
+    {
+      "id": "ranger",
+      "name": "遊俠",
+      "team": "green",
+      "description": "自然的守護者",
+      "image": "/uploads/cards/card-1777713708530-597414261.jpg"
+    },
+    {
+      "id": "paladin",
+      "name": "聖騎士",
+      "team": "gold",
+      "description": "正義與光明的騎士",
+      "image": "/uploads/cards/card-1777713767482-184233720.jpg"
+    }
+  ],
+  "createdAt": "2025-05-02T00:00:00.000Z",
+  "updatedAt": "2026-05-02T09:22:47.483Z"
+}

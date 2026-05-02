@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>模組編輯器</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a1a; color: #ddddf0;
+      font-family: system-ui, sans-serif;
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+    a { color: #6688ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Header */
+    header {
+      background: #14142a; border-bottom: 1px solid #2a2a5a;
+      padding: 12px 24px; display: flex; align-items: center; justify-content: space-between;
+    }
+    header h1 { font-size: 1.05rem; letter-spacing: .04em; }
+    header .links { display:flex; gap: 12px; align-items:center; font-size: .82rem; }
+    header .undo-btn {
+      background: #14142a; border: 1px solid #3a3a6a; color: #aaaaff;
+      border-radius: 6px; padding: 5px 12px; font-size: .8rem; cursor: pointer;
+    }
+    header .undo-btn:disabled { opacity: .3; cursor: not-allowed; }
+    header kbd { font-family: monospace; font-size: .68rem; background: #0a0a1a; padding: 1px 5px; border-radius: 3px; border: 1px solid #2a2a4a; color:#7777aa; margin-left:4px;}
+
+    /* Layout */
+    .editor-shell { flex: 1; display: flex; min-height: 0; }
+    .sidebar {
+      width: 280px; flex-shrink: 0; border-right: 1px solid #2a2a5a;
+      background: #0d0d22; display: flex; flex-direction: column;
+    }
+    .side-head { padding: 12px 14px; border-bottom: 1px solid #1a1a3a; display: flex; flex-direction: column; gap: 8px; }
+    .side-head input {
+      width: 100%; background: #0a0a1a; border: 1px solid #2a2a5a;
+      border-radius: 6px; color: #ddddf0; padding: 6px 10px; font-size: .82rem; outline: none;
+    }
+    .side-head input:focus { border-color: #5555ff; }
+    .btn-add-mod {
+      width: 100%; background: #1a3a1a; border: 1px solid #2a5a2a; color: #aaddaa;
+      padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: .85rem; font-weight: 600;
+      transition: all 0.2s;
+    }
+    .btn-add-mod:hover { background: #2a5a2a; border-color: #3a6a3a; }
+    .side-list { flex: 1; overflow-y: auto; padding: 12px 14px; }
+    .main {
+      flex: 1; padding: 18px 24px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+
+    /* Sidebar: module list */
+    .mod-item {
+      background: #14142a; border: 1.5px solid #2a2a5a; border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+      display: flex; flex-direction: column; gap: 3px; transition: border-color .15s;
+      position: relative;
+    }
+    .mod-item:hover { border-color: #5555ff; }
+    .mod-item.selected { border-color: #5555ff; background: #1a1a40; }
+    .mod-item.dirty .mi-name::after {
+      content: ' ●'; color: #ffaa44;
+    }
+    .mod-item .mi-name { font-size: .9rem; font-weight: 700; }
+    .mod-item .mi-id   { font-size: .68rem; color: #6666aa; font-family: monospace; }
+    .mod-item .mi-desc { font-size: .72rem; color: #7777aa; line-height: 1.3; margin-top: 2px; }
+    .mod-item .mi-meta { font-size: .68rem; color: #5566aa; margin-top: 3px; }
+
+    /* Buttons */
+    .btn { border: none; border-radius: 8px; padding: 9px 18px; font-size: .85rem; font-weight: 700; cursor: pointer; transition: opacity .15s, transform .1s; }
+    .btn:disabled { opacity: .35; cursor: not-allowed; }
+    .btn:not(:disabled):active { transform: scale(.97); }
+    .btn-primary { background: #5555ff; color: #fff; }
+    .btn-success { background: #33bb66; color: #fff; }
+    .btn-danger  { background: #cc3333; color: #fff; }
+    .btn-neutral { background: #2a2a5a; color: #aaaaff; border: 1px solid #4444aa; }
+    .btn-ghost   { background: transparent; color: #8888bb; border: 1px solid #3a3a6a; }
+    .btn-ghost:hover { background: #14142a; }
+    .btn-sm      { padding: 6px 12px; font-size: .76rem; }
+
+    /* Empty state */
+    .empty-state {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; color: #555577; font-size: .9rem; gap: 8px;
+    }
+    .empty-state .icon { font-size: 3rem; opacity: .3; }
+
+    /* Editor header */
+    .ed-head {
+      background: #14142a; border: 1px solid #2a2a5a; border-radius: 10px;
+      padding: 14px 18px; display: flex; flex-direction: column; gap: 12px;
+    }
+    .ed-head .row1 { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .ed-head h2 { font-size: 1.1rem; flex: 1; min-width: 200px; }
+    .ed-head .id-tag { font-family: monospace; font-size: .72rem; color: #6666aa; background: #0a0a1a; padding: 3px 9px; border-radius: 4px; }
+    .ed-head .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .ed-meta-grid { display: grid; grid-template-columns: 2fr 3fr; gap: 10px; }
+    .ed-meta-grid .field-row { margin: 0; }
+    .ed-meta-row2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .ed-meta-row2 .field-row { margin: 0; }
+
+    /* Validation */
+    .val-banner {
+      background: #2a1a1a; border: 1px solid #cc3333; border-radius: 8px;
+      padding: 10px 14px; font-size: .8rem; color: #ffaaaa;
+    }
+    .val-banner h4 { font-size: .85rem; margin-bottom: 6px; color: #ff7777; }
+    .val-banner ul { padding-left: 18px; line-height: 1.6; }
+    .val-banner code { font-family: monospace; font-size: .72rem; background: #1a0a0a; padding: 1px 4px; border-radius: 3px; color: #ff9999; }
+
+    /* Toast */
+    .toast {
+      position: fixed; right: 20px; bottom: 20px;
+      background: #14142a; border: 1px solid #2a2a5a; border-radius: 8px;
+      padding: 10px 16px; font-size: .85rem; opacity: 0;
+      transition: opacity .25s; pointer-events: none; max-width: 320px;
+      z-index: 1000;
+    }
+    .toast.show { opacity: 1; }
+    .toast.ok  { border-color: #33bb66; color: #66dd99; }
+    .toast.err { border-color: #cc3333; color: #ff7777; }
+
+    .hidden { display: none !important; }
+
+    /* Tabs */
+    #configEditor { border: 1px solid #2a2a5a; border-radius: 10px; overflow: hidden; }
+    .cfg-tabs { display: flex; background: #0e0e24; border-bottom: 1px solid #2a2a5a; }
+    .cfg-tab {
+      flex: 1; padding: 10px 4px; font-size: .78rem; font-weight: 700;
+      background: none; border: none; color: #6666aa; cursor: pointer;
+      letter-spacing: .04em;
+    }
+    .cfg-tab.active { color: #aaaaff; background: #14142a; border-bottom: 2px solid #5555ff; }
+    .cfg-tab-content { padding: 16px; display: none; }
+    .cfg-tab-content.active { display: block; }
+
+    /* Field rows */
+    .field-row { margin-bottom: 12px; }
+    .field-label { font-size: .74rem; color: #8888bb; margin-bottom: 4px; display: block; }
+    .field-input {
+      width: 100%; background: #0a0a1a; border: 1px solid #3a3a6a;
+      border-radius: 6px; color: #ddddf0; font-size: .9rem; padding: 7px 10px; outline: none;
+    }
+    .field-input:focus { border-color: #5555ff; }
+    select.field-input { cursor: pointer; }
+    textarea.field-input { resize: vertical; font-family: monospace; font-size: .8rem; min-height: 280px; }
+
+    /* Decks */
+    .deck-block { background: #0e0e22; border: 1px solid #2a2a4a; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+    .deck-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; user-select: none; }
+    .deck-type-badge { font-size: .65rem; background: #1a1a4a; color: #8888cc; border-radius: 4px; padding: 2px 6px; }
+    .deck-header-name { flex: 1; font-size: .88rem; font-weight: 700; }
+    .deck-toggle { font-size: .7rem; color: #6666aa; }
+    .deck-cards { padding: 0 12px 12px; display: none; }
+    .deck-cards.open { display: block; }
+    .deck-meta-row { display: grid; grid-template-columns: 2fr 1fr 1.5fr; gap: 8px; margin-bottom: 10px; }
+    .deck-draw-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: .74rem; color: #8888aa; }
+    .deck-draw-row input[type=number] { width: 50px; background: #0a0a1a; border: 1px solid #3a3a6a; border-radius: 4px; color: #ddddf0; padding: 3px 6px; font-size: .78rem; text-align: center; }
+
+    .card-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+    .card-row input {
+      background: #0a0a1a; border: 1px solid #2a2a4a; border-radius: 4px;
+      color: #ddddf0; font-size: .78rem; padding: 5px 7px; outline: none;
+    }
+    .card-row input:focus { border-color: #5555ff; }
+    .card-row .ci-name { flex: 2; }
+    .card-row .ci-val  { width: 64px; text-align: center; }
+    .card-row .ci-desc { flex: 3; }
+    .card-row .ci-del  { background: none; border: 1px solid #4a1a1a; border-radius: 4px; color: #aa4444; font-size: .7rem; padding: 4px 8px; cursor: pointer; flex-shrink: 0; }
+    .card-row .ci-del:hover { background: #2a0a0a; }
+    .card-row-header { display: flex; gap: 6px; margin-bottom: 4px; padding-right: 32px; }
+    .card-row-header span { font-size: .65rem; color: #555577; }
+    .card-row-header .ci-name { flex: 2; }
+    .card-row-header .ci-val  { width: 64px; text-align: center; }
+    .card-row-header .ci-desc { flex: 3; }
+    .add-card-btn { font-size: .76rem; color: #5555ff; background: none; border: 1px dashed #3a3a7a; border-radius: 4px; padding: 6px 10px; cursor: pointer; width: 100%; margin-top: 6px; }
+    .add-card-btn:hover { background: #14142a; }
+
+    /* Stages */
+    .stage-row { background: #0e0e22; border: 1px solid #2a2a4a; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+    .stage-row.disabled { opacity: .55; }
+    .stage-row .sr-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .stage-order-btns { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .stage-order-btns button { background: none; border: 1px solid #3a3a6a; border-radius: 3px; color: #8888cc; font-size: .65rem; padding: 1px 5px; cursor: pointer; line-height: 1.4; }
+    .stage-order-btns button:hover:not(:disabled) { background: #1a1a3a; }
+    .stage-order-btns button:disabled { opacity: .3; cursor: not-allowed; }
+    .stage-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .stage-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    /* Toggle switch */
+    .toggle-switch { position: relative; display: inline-block; width: 34px; height: 19px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; inset: 0; background: #2a2a4a; border-radius: 19px; cursor: pointer; transition: .2s; }
+    .toggle-slider:before { content:''; position: absolute; width: 13px; height: 13px; left: 3px; bottom: 3px; background: #666; border-radius: 50%; transition: .2s; }
+    input:checked + .toggle-slider { background: #5555ff; }
+    input:checked + .toggle-slider:before { transform: translateX(15px); background: #fff; }
+
+    /* Advanced tab — fieldConfig schema editor */
+    .fc-row {
+      background: #0e0e22; border: 1px solid #2a2a4a; border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 8px;
+    }
+    .fc-row .fc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .fc-row .fc-head input { flex: 1; background: #0a0a1a; border: 1px solid #2a2a4a; border-radius: 4px; color: #ddddf0; font-size: .82rem; padding: 4px 8px; }
+    .fc-row .fc-key { font-family: monospace; width: 140px; }
+    .fc-row .fc-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+    .fc-row .fc-grid input, .fc-row .fc-grid select {
+      background: #0a0a1a; border: 1px solid #2a2a4a; border-radius: 4px;
+      color: #ddddf0; font-size: .76rem; padding: 4px 7px; width: 100%;
+    }
+    .fc-options { font-size: .72rem; color: #8888aa; }
+    .fc-options .opt-row { display: flex; gap: 5px; margin-bottom: 4px; }
+    .fc-options .opt-row input { flex: 1; }
+    .fc-options .opt-row .ci-del { background: none; border: 1px solid #4a1a1a; border-radius: 4px; color: #aa4444; font-size: .7rem; padding: 2px 6px; cursor: pointer; }
+
+    .section-title { font-size: .72rem; color: #6666aa; letter-spacing: .08em; margin: 16px 0 8px; }
+    .section-title:first-child { margin-top: 0; }
+
+    .raw-bar { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+    .help-text { font-size: .72rem; color: #6666aa; line-height: 1.5; margin-top: 4px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📝 模組編輯器</h1>
+  <div class="links">
+    <button class="undo-btn" id="undoBtn" onclick="undo()" disabled>↶ Undo<kbd>⌘Z</kbd></button>
+    <a href="/host" target="_blank">→ Host 控制台</a>
+  </div>
+</header>
+
+<div class="editor-shell">
+  <aside class="sidebar">
+    <div class="side-head">
+      <input id="filterInput" placeholder="🔍 搜尋模組…" oninput="renderModuleList()">
+      <button class="btn-add-mod" onclick="promptCreateModule()" title="建立新模組">➕ 新增模組</button>
+    </div>
+    <div class="side-list" id="modList"><div style="color:#555;font-size:.8rem;">載入中…</div></div>
+  </aside>
+
+  <main class="main">
+    <div id="emptyState" class="empty-state">
+      <div class="icon">📝</div>
+      <div>從左側選擇一個模組開始編輯</div>
+    </div>
+
+    <div id="editorContent" class="hidden" style="display:flex;flex-direction:column;gap:14px;">
+      <!-- Header -->
+      <div class="ed-head">
+        <div class="row1">
+          <h2 id="edTitle">—</h2>
+          <span class="id-tag" id="edIdTag">—</span>
+        </div>
+        <div class="ed-meta-grid">
+          <div class="field-row">
+            <label class="field-label">顯示名稱</label>
+            <input class="field-input" id="metaName" oninput="onMetaChange('name',this.value)">
+          </div>
+          <div class="field-row">
+            <label class="field-label">說明</label>
+            <input class="field-input" id="metaDesc" oninput="onMetaChange('description',this.value)">
+          </div>
+        </div>
+        <div class="ed-meta-row2">
+          <div class="field-row">
+            <label class="field-label">最少人數</label>
+            <input class="field-input" type="number" min="1" max="50" id="metaMin"
+                   oninput="onMetaChange('minPlayers',Number(this.value))">
+          </div>
+          <div class="field-row">
+            <label class="field-label">最多人數</label>
+            <input class="field-input" type="number" min="1" max="50" id="metaMax"
+                   oninput="onMetaChange('maxPlayers',Number(this.value))">
+          </div>
+          <div class="field-row">
+            <label class="field-label">版本</label>
+            <input class="field-input" id="metaVer" oninput="onMetaChange('version',this.value)">
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-success" id="saveBtn"  onclick="saveCurrent()" disabled>💾 儲存（覆寫原檔）<kbd style="margin-left:6px;color:#cce">⌘S</kbd></button>
+          <button class="btn btn-primary" id="cloneBtn" onclick="saveAsNew()">📦 另存為新模組…</button>
+          <button class="btn btn-ghost"   id="resetBtn" onclick="reloadCurrent()" disabled>↺ 放棄修改</button>
+          <button class="btn btn-danger"  id="delBtn"   onclick="deleteCurrent()" style="margin-left:auto">🗑 刪除模組</button>
+        </div>
+      </div>
+
+      <!-- Validation banner -->
+      <div id="valBanner" class="val-banner hidden">
+        <h4>⚠ 需修正才能儲存</h4>
+        <ul id="valList"></ul>
+      </div>
+
+      <!-- Tabs -->
+      <div id="configEditor">
+        <div class="cfg-tabs">
+          <button class="cfg-tab active" onclick="switchCfgTab('basic')">基本參數</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('decks')">牌組</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('stages')">階段</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('advanced')">進階</button>
+        </div>
+        <div id="cfgBasic"    class="cfg-tab-content active"></div>
+        <div id="cfgDecks"    class="cfg-tab-content"></div>
+        <div id="cfgStages"   class="cfg-tab-content"></div>
+        <div id="cfgAdvanced" class="cfg-tab-content"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ═══════════════════════════════════════════════════════════════
+  //  STATE
+  // ═══════════════════════════════════════════════════════════════
+  let modules            = [];      // summary list from /api/modules
+  let currentId          = null;    // currently open module id
+  let manifest           = null;    // working copy (mutated directly)
+  let originalSnapshot   = null;    // JSON string for dirty check
+  let history            = [];      // undo stack: array of JSON strings
+  let openDecks          = new Set();  // deck IDs that are visually expanded
+  let rawMode            = false;   // raw JSON edit mode
+  let activeTab          = 'basic';
+  let globalDecks        = [];      // global decks from /api/decks
+
+  const HIST_LIMIT = 30;
+  const STAGE_TYPES = [
+    { value: 'identity_draw', label: '身份抽取' },
+    { value: 'card_play',     label: '出牌回合' },
+    { value: 'vote',          label: '投票' },
+    { value: 'result',        label: '結算' },
+    { value: 'input',         label: '填寫資料' },
+    { value: 'intermission',  label: '暫停' },
+  ];
+
+  // 推進選項根據階段類型和用途過濾，實現兩階段設定
+  const ADVANCE_TRIGGERS = [
+    // === 階段結束時推進（適用所有階段類型）===
+    { value: 'host',              label: '🎮 Host 手動推進', types: ['all'], category: 'stage_advance' },
+    { value: 'auto_restart',      label: '🔄 立即重啟遊戲', types: ['result'], category: 'stage_advance' },
+    { value: 'restart_timer',     label: '🔄 倒數後重啟遊戲', types: ['result'], category: 'stage_advance' },
+
+    // === 身份抽取階段 ===
+    { value: 'all_confirmed',     label: '✅ 全員身份確認後立即推進', types: ['identity_draw'], category: 'stage_advance' },
+    { value: 'identity_timer',    label: '⏱️ 全員身份確認後倒數推進', types: ['identity_draw'], category: 'stage_advance' },
+
+    // === 出牌階段：階段結束時推進（最後一回合結束後）===
+    { value: 'host',              label: '🎮 Host 手動推進', types: ['card_play'], category: 'stage_advance' },
+    { value: 'auto_next',         label: '⏭️ 翻牌後立即進下一階段', types: ['card_play'], category: 'stage_advance' },
+    { value: 'round_timer',       label: '⏱️ 翻牌後倒數進下一階段', types: ['card_play'], category: 'stage_advance' },
+
+    // === 出牌階段：何時翻牌（全員出牌後）===
+    { value: 'host_reveal',       label: '🎮 Host 手動翻牌', types: ['card_play'], category: 'reveal' },
+    { value: 'all_played',        label: '🃏 全員出牌後立即翻牌', types: ['card_play'], category: 'reveal' },
+    { value: 'play_timer',        label: '⏱️ 全員出牌後倒數翻牌', types: ['card_play'], category: 'reveal' },
+
+    // === 出牌階段：翻牌後何時進下一回合 ===
+    { value: 'host',              label: '🎮 Host 手動推進', types: ['card_play'], category: 'next_round' },
+    { value: 'auto_next',         label: '⏭️ 看完結果立即進下一回合', types: ['card_play'], category: 'next_round' },
+    { value: 'round_timer',       label: '⏱️ 翻牌後倒數進下一回合', types: ['card_play'], category: 'next_round' },
+
+    // === 其他階段類型 ===
+    { value: 'all_voted',         label: '🗳️ 全員投票後立即開票', types: ['vote'], category: 'stage_advance' },
+    { value: 'all_submitted',     label: '📝 全員提交後立即處理', types: ['input'], category: 'stage_advance' },
+    { value: 'generic_timer',     label: '⏱️ 固定時間倒數後推進', types: ['intermission'], category: 'stage_advance' },
+    { value: 'auto',              label: '⏭️ 立即自動推進（不顯示倒數）', types: ['intermission'], category: 'stage_advance' },
+  ];
+  const DECK_TYPES = [
+    { value: 'role',   label: '身份' },
+    { value: 'action', label: '行動' },
+    { value: 'event',  label: '事件' },
+    { value: 'item',   label: '道具' },
+  ];
+
+  // ═══════════════════════════════════════════════════════════════
+  //  UTILITIES
+  // ═══════════════════════════════════════════════════════════════
+  const clone   = (o) => JSON.parse(JSON.stringify(o));
+  const escapeH = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const uid     = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
+  const isDirty = () => manifest && JSON.stringify(manifest) !== originalSnapshot;
+
+  function toast(msg, kind) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast show ' + (kind || '');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove('show'), 3500);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  HISTORY (UNDO)
+  // ═══════════════════════════════════════════════════════════════
+  function pushHistory() {
+    if (!manifest) return;
+    history.push(JSON.stringify(manifest));
+    if (history.length > HIST_LIMIT) history.shift();
+    document.getElementById('undoBtn').disabled = history.length === 0;
+  }
+
+  function undo() {
+    if (!history.length) return;
+    const prev = history.pop();
+    manifest = JSON.parse(prev);
+    document.getElementById('undoBtn').disabled = history.length === 0;
+    rerenderAll();
+    afterChange(/*skipHistory=*/true);
+    toast('↶ 已還原一步', 'ok');
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  CHANGE TRACKING
+  // ═══════════════════════════════════════════════════════════════
+  // Call after any mutation. snapshotFirst=true pushes prev state to undo.
+  function afterChange(skipHistory) {
+    if (!skipHistory) pushHistory();
+    runValidation();
+    updateButtons();
+    renderModuleList(); // dirty indicator
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  MODULE LIST
+  // ═══════════════════════════════════════════════════════════════
+  async function loadModuleList() {
+    try {
+      const res = await fetch('/api/modules');
+      modules = await res.json();
+      renderModuleList();
+    } catch (e) { toast('載入模組列表失敗：' + e.message, 'err'); }
+  }
+
+  function renderModuleList() {
+    const wrap = document.getElementById('modList');
+    const filter = (document.getElementById('filterInput')?.value || '').toLowerCase();
+    const list = !filter ? modules : modules.filter(m =>
+      m.id.toLowerCase().includes(filter) ||
+      (m.name||'').toLowerCase().includes(filter) ||
+      (m.description||'').toLowerCase().includes(filter)
+    );
+    if (!list.length) {
+      wrap.innerHTML = `<div style="color:#555;font-size:.8rem;">${filter ? '沒有符合的模組' : '沒有可用模組'}</div>`;
+      return;
+    }
+    wrap.innerHTML = list.map(m => {
+      const isSel  = m.id === currentId;
+      const isMark = isSel && isDirty();
+      return `<div class="mod-item ${isSel ? 'selected' : ''} ${isMark ? 'dirty' : ''}"
+                   onclick="selectModule('${escapeH(m.id)}')">
+        <div class="mi-name">${escapeH(m.name)}</div>
+        <div class="mi-id">${escapeH(m.id)}</div>
+        ${m.description ? `<div class="mi-desc">${escapeH(m.description)}</div>` : ''}
+        <div class="mi-meta">${m.minPlayers}–${m.maxPlayers} 人 · v${escapeH(m.version || '')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SELECTION / LOADING
+  // ═══════════════════════════════════════════════════════════════
+  async function selectModule(id) {
+    // Same module + clean → no-op (avoids resetting open decks)
+    if (currentId === id && !isDirty()) return;
+    if (isDirty() && !confirm('有未儲存的修改，確定要捨棄並切換？')) return;
+
+    document.getElementById('emptyState').classList.add('hidden');
+    document.getElementById('editorContent').classList.remove('hidden');
+
+    try {
+      const res = await fetch(`/api/modules/${encodeURIComponent(id)}`);
+      const ct  = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error(`Server 回應錯誤（${res.status}）— 請重啟 server`);
+      const m = await res.json();
+      if (!res.ok) throw new Error(m.error || '載入失敗');
+
+      currentId        = id;
+      manifest         = m;
+      originalSnapshot = JSON.stringify(manifest);
+      history          = [];
+      openDecks        = new Set();
+      rawMode          = false;
+
+      // Update URL so refresh keeps the selection
+      const url = new URL(location.href);
+      url.searchParams.set('id', id);
+      history.length === 0 && window.history.replaceState({}, '', url);
+
+      rerenderAll();
+      runValidation();
+      updateButtons();
+      renderModuleList();
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  function reloadCurrent() {
+    if (!currentId || !isDirty()) return;
+    if (!confirm('放棄所有未儲存的修改，重新從伺服器載入？')) return;
+    const id = currentId;
+    currentId = null;       // bypass the same-id no-op
+    selectModule(id);
+  }
+
+  function rerenderAll() {
+    renderHeader();
+    renderBasicTab();
+    renderDecksTab();
+    renderStagesTab();
+    renderAdvancedTab();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  HEADER
+  // ═══════════════════════════════════════════════════════════════
+  function renderHeader() {
+    document.getElementById('edTitle').textContent = manifest.name || currentId;
+    document.getElementById('edIdTag').textContent = currentId;
+    document.getElementById('metaName').value      = manifest.name || '';
+    document.getElementById('metaDesc').value      = manifest.description || '';
+    document.getElementById('metaMin').value       = manifest.minPlayers ?? 2;
+    document.getElementById('metaMax').value       = manifest.maxPlayers ?? 8;
+    document.getElementById('metaVer').value       = manifest.version || '1.0.0';
+  }
+
+  function onMetaChange(key, value) {
+    if (!manifest) return;
+    pushHistory();
+    if (key === 'name') {
+      manifest.name = value;
+      document.getElementById('edTitle').textContent = value || currentId;
+    } else if (key === 'description') manifest.description = value;
+    else if (key === 'minPlayers')    manifest.minPlayers  = Number(value);
+    else if (key === 'maxPlayers')    manifest.maxPlayers  = Number(value);
+    else if (key === 'version')       manifest.version     = value;
+    afterChange(true);
+  }
+
+  function updateButtons() {
+    const errs = currentValidationErrors;
+    const dirty = isDirty();
+    document.getElementById('saveBtn').disabled  = !currentId || !dirty || errs.length > 0;
+    document.getElementById('resetBtn').disabled = !currentId || !dirty;
+    document.getElementById('delBtn').disabled   = !currentId || modules.length <= 1;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  TABS
+  // ═══════════════════════════════════════════════════════════════
+  function switchCfgTab(name) {
+    activeTab = name;
+    document.querySelectorAll('.cfg-tab').forEach((t, i) => {
+      t.classList.toggle('active', ['basic','decks','stages','advanced'][i] === name);
+    });
+    document.querySelectorAll('.cfg-tab-content').forEach(el => el.classList.remove('active'));
+    document.getElementById('cfg' + name[0].toUpperCase() + name.slice(1)).classList.add('active');
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  TAB: BASIC (fieldConfig defaults)
+  // ═══════════════════════════════════════════════════════════════
+  function renderBasicTab() {
+    const fc = manifest.fieldConfig || {};
+    const el = document.getElementById('cfgBasic');
+    if (!Object.keys(fc).length) {
+      el.innerHTML = '<div class="help-text">這個模組沒有可調參數。可在「進階」分頁新增 fieldConfig 條目。</div>';
+      return;
+    }
+    el.innerHTML = Object.entries(fc).map(([key, def]) => renderBasicField(key, def)).join('');
+    updateFieldVisibility();
+  }
+
+  function renderBasicField(key, def) {
+    const showWhen = def.showWhen
+      ? `data-show-when-field="${escapeH(def.showWhen.field)}" data-show-when-value="${escapeH(def.showWhen.value)}"`
+      : '';
+
+    // 特殊處理 handSize：加入說明
+    const isHandSize = key === 'handSize';
+    const labelSuffix = isHandSize ? ' 🎯' : '';
+    const labelTitle = isHandSize ? ' title="實際抽牌數，留白則使用牌組預設抽牌數"' : '';
+
+    let input = '';
+    const cur = def.default;
+    if (def.type === 'number') {
+      input = `<input class="field-input" type="number" id="fv_${escapeH(key)}"
+        value="${cur ?? ''}" min="${def.min ?? ''}" max="${def.max ?? ''}"
+        oninput="onBasicChange('${escapeH(key)}','number')">`;
+    } else if (def.type === 'select') {
+      const opts = (def.options || []).map(o =>
+        `<option value="${escapeH(o.value)}" ${cur === o.value ? 'selected' : ''}>${escapeH(o.label)}</option>`
+      ).join('');
+      input = `<select class="field-input" id="fv_${escapeH(key)}" onchange="onBasicChange('${escapeH(key)}','select')">${opts}</select>`;
+    }
+
+    // 特殊說明文字（僅 handSize）
+    const helpText = isHandSize
+      ? `<div class="help-text" style="margin-top:4px;font-size:.7rem;color:#7777aa;">
+           留白或 0 = 使用牌組預設抽牌數
+         </div>`
+      : '';
+
+    return `<div class="field-row" id="frow_${escapeH(key)}" ${showWhen}>
+      <label class="field-label"${labelTitle}>${escapeH(def.label || key)}${labelSuffix}</label>${input}
+      ${helpText}
+    </div>`;
+  }
+
+  function onBasicChange(key, kind) {
+    pushHistory();
+    const el = document.getElementById('fv_' + key);
+    let val;
+    if (kind === 'number') {
+      val = el.value === '' ? null : Number(el.value);
+    } else val = el.value;
+    if (manifest.fieldConfig && manifest.fieldConfig[key]) {
+      manifest.fieldConfig[key].default = val;
+    }
+    updateFieldVisibility();
+    afterChange(true);
+  }
+
+  function updateFieldVisibility() {
+    document.querySelectorAll('[data-show-when-field]').forEach(el => {
+      const key = el.dataset.showWhenField;
+      const want = el.dataset.showWhenValue;
+      const cur  = manifest?.fieldConfig?.[key]?.default;
+      el.style.display = String(cur) === String(want) ? 'block' : 'none';
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  TAB: DECKS
+  // ═══════════════════════════════════════════════════════════════
+  function renderDecksTab() {
+    const decks = manifest.decks || [];
+    document.getElementById('cfgDecks').innerHTML = decks.map((d, di) =>
+      renderDeckBlock(d, di)
+    ).join('') + `<button class="add-card-btn" style="margin-top:8px" onclick="addDeck()">+ 新增牌組</button>`;
+    // Restore expanded state
+    decks.forEach((d, di) => {
+      if (openDecks.has(d.id)) {
+        document.getElementById(`deck_cards_${di}`)?.classList.add('open');
+        const arrow = document.querySelector(`#deck_${di} .deck-toggle`);
+        if (arrow) arrow.textContent = '▴';
+      }
+    });
+  }
+
+  function renderDeckBlock(deck, di) {
+    const isRef = !!deck.ref;
+    const typeLbl = DECK_TYPES.find(t => t.value === deck.type)?.label || deck.type;
+
+    // Global deck selector
+    const globalDeckOptions = globalDecks
+      .filter(d => !isRef || d.type === deck.type) // Show all or filter by type
+      .map(d => `<option value="${d.id}" ${deck.ref === d.id ? 'selected' : ''}>${escapeH(d.name)} (${d.id})</option>`)
+      .join('');
+
+    const cardRows = (deck.cards || []).map((c, ci) => renderCardRow(c, di, ci, deck.type)).join('');
+
+    return `<div class="deck-block" id="deck_${di}">
+      <div class="deck-header" onclick="toggleDeck(${di})">
+        <label class="toggle-switch" onclick="event.stopPropagation()">
+          <input type="checkbox" ${deck.enabled !== false ? 'checked' : ''}
+                 onchange="setDeckProp(${di},'enabled',this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="deck-header-name">${escapeH(deck.name)} ${isRef ? '<span style="color:#66aaff;font-size:.65rem;">(全局卡牌)</span>' : ''}</span>
+        <span class="deck-type-badge">${escapeH(typeLbl)}</span>
+        <span style="font-size:.65rem;color:#5566aa;">${isRef ? '🔗 全局引用' : (deck.cards||[]).length + ' 張'}</span>
+        <span class="deck-toggle">▾</span>
+      </div>
+      <div class="deck-cards" id="deck_cards_${di}">
+        <div class="deck-meta-row">
+          <div class="field-row" style="margin:0">
+            <label class="field-label">牌組來源</label>
+            <select class="field-input" onchange="setDeckSource(${di}, this.value)">
+              <option value="">本地卡牌 (自定義)</option>
+              <option value="" disabled>──────────</option>
+              ${globalDecks.map(d => `<option value="${d.id}" ${deck.ref === d.id ? 'selected' : ''}>📦 ${escapeH(d.name)} (${d.id})</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        ${isRef ? `
+          <div class="deck-meta-row" style="background:#1a2a3a;padding:8px;border-radius:4px;margin:4px 0;">
+            <div style="font-size:.78rem;color:#88aaff;">
+              🔗 引用全局卡牌：<strong>${escapeH(globalDecks.find(d => d.id === deck.ref)?.name || deck.ref)}</strong>
+            </div>
+            <div style="font-size:.72rem;color:#6688aa;margin-top:4px;">
+              此牌組使用全局卡牌，共有 ${globalDecks.find(d => d.id === deck.ref)?.cards.length || 0} 張卡牌。
+              您可以修改抽牌數和設定，但卡牌內容由全局卡牌管理。
+            </div>
+          </div>
+        ` : `
+          <div class="deck-meta-row">
+            <div class="field-row" style="margin:0">
+              <label class="field-label">牌組名稱</label>
+              <input class="field-input" value="${escapeH(deck.name||'')}" oninput="setDeckProp(${di},'name',this.value)">
+            </div>
+            <div class="field-row" style="margin:0">
+              <label class="field-label">類型</label>
+              <select class="field-input" onchange="setDeckProp(${di},'type',this.value);renderDecksTab();">
+                ${DECK_TYPES.map(t => `<option value="${t.value}" ${deck.type===t.value?'selected':''}>${t.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field-row" style="margin:0">
+              <label class="field-label">牌組 ID（給 stage 引用）</label>
+              <input class="field-input" value="${escapeH(deck.id||'')}" style="font-family:monospace;font-size:.78rem"
+                     oninput="setDeckProp(${di},'id',this.value)">
+            </div>
+          </div>
+          <div class="deck-draw-row">
+            <span title="此牌組的預設抽牌數，可被遊戲參數覆寫">預設抽牌數 💡</span>
+            <input type="number" min="1" max="20" value="${deck.drawCount || 1}"
+                   oninput="setDeckProp(${di},'drawCount',Number(this.value))">
+            允許重複
+            <label class="toggle-switch" style="margin-left:4px">
+              <input type="checkbox" ${deck.allowDuplicate ? 'checked' : ''}
+                     onchange="setDeckProp(${di},'allowDuplicate',this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <button class="ci-del" style="margin-left:auto" onclick="deleteDeck(${di})">刪除牌組</button>
+          </div>
+          <div class="card-row-header">
+            <span class="ci-name">名稱</span>
+            <span class="ci-val">${deck.type === 'role' ? '陣營' : '點數'}</span>
+            <span class="ci-desc">說明</span>
+          </div>
+          <div id="deck_cardlist_${di}">${cardRows}</div>
+          <button class="add-card-btn" onclick="addCard(${di})">+ 新增卡牌</button>
+        `}
+        ${isRef ? `
+          <div class="deck-draw-row" style="margin-top:8px;">
+            <span title="此牌組的預設抽牌數，可被遊戲參數覆寫">預設抽牌數 💡</span>
+            <input type="number" min="1" max="20" value="${deck.drawCount || 1}"
+                   oninput="setDeckProp(${di},'drawCount',Number(this.value))">
+            <button class="ci-del" style="margin-left:auto" onclick="deleteDeck(${di})">刪除牌組</button>
+          </div>
+        ` : ''}
+      </div>
+    </div>`;
+  }
+
+  function renderCardRow(card, di, ci, deckType) {
+    const valField = deckType === 'role'
+      ? `<input class="ci-val" placeholder="陣營" value="${escapeH(card.team||'')}" oninput="setCardProp(${di},${ci},'team',this.value)">`
+      : `<input class="ci-val" type="number" placeholder="點數" value="${card.value??''}" oninput="setCardProp(${di},${ci},'value',this.value===''?null:Number(this.value))">`;
+    return `<div class="card-row">
+      <input class="ci-name" placeholder="名稱" value="${escapeH(card.name||'')}" oninput="setCardProp(${di},${ci},'name',this.value)">
+      ${valField}
+      <input class="ci-desc" placeholder="說明" value="${escapeH(card.description||'')}" oninput="setCardProp(${di},${ci},'description',this.value)">
+      <button class="ci-del" onclick="deleteCard(${di},${ci})">✕</button>
+    </div>`;
+  }
+
+  function toggleDeck(di) {
+    const deck = manifest.decks[di];
+    const el = document.getElementById(`deck_cards_${di}`);
+    el.classList.toggle('open');
+    if (el.classList.contains('open')) openDecks.add(deck.id);
+    else                                openDecks.delete(deck.id);
+    const arrow = document.querySelector(`#deck_${di} .deck-toggle`);
+    if (arrow) arrow.textContent = el.classList.contains('open') ? '▴' : '▾';
+  }
+
+  function setDeckProp(di, key, val) {
+    pushHistory();
+    const oldId = manifest.decks[di].id;
+    manifest.decks[di][key] = val;
+    // If id changed and deck was open, transfer state
+    if (key === 'id' && openDecks.has(oldId)) {
+      openDecks.delete(oldId); openDecks.add(val);
+    }
+    if (key === 'name' || key === 'enabled' || key === 'id' || key === 'type' || key === 'drawCount') {
+      // Update header card count or rerender — for type change we already rerender from caller
+      const headerName = document.querySelector(`#deck_${di} .deck-header-name`);
+      if (headerName && key === 'name') headerName.textContent = val;
+    }
+    afterChange(true);
+  }
+
+  function setDeckSource(di, globalDeckId) {
+    const deck = manifest.decks[di];
+
+    if (!globalDeckId) {
+      // Switch to local deck
+      delete deck.ref;
+      // Ensure local deck has required fields
+      if (!deck.name || deck.name === '本地牌組') {
+        deck.name = '本地牌組';
+      }
+      if (!deck.type) {
+        deck.type = 'action'; // Default type
+      }
+      if (!deck.cards) {
+        deck.cards = [];
+      }
+    } else {
+      // Switch to global deck reference
+      const globalDeck = globalDecks.find(d => d.id === globalDeckId);
+      if (!globalDeck) {
+        alert('找不到指定的全局卡牌');
+        return;
+      }
+
+      // Set reference and copy all properties from global deck
+      deck.ref = globalDeckId;
+      deck.name = globalDeck.name;  // This will satisfy the name validation
+      deck.type = globalDeck.type;
+      // Remove local cards since we're using global
+      delete deck.cards;
+    }
+
+    // Save history first
+    pushHistory();
+    // Then update UI and validation
+    afterChange(true);
+  }
+
+  function setCardProp(di, ci, key, val) {
+    pushHistory();
+    manifest.decks[di].cards[ci][key] = val;
+    afterChange(true);
+  }
+
+  function addCard(di) {
+    pushHistory();
+    const deck = manifest.decks[di];
+    deck.cards = deck.cards || [];
+    deck.cards.push({ id: uid('card'), name: '', value: 0, description: '', team: '' });
+    const ci = deck.cards.length - 1;
+    document.getElementById(`deck_cardlist_${di}`)
+      .insertAdjacentHTML('beforeend', renderCardRow(deck.cards[ci], di, ci, deck.type));
+    // Update header count
+    const cnt = document.querySelector(`#deck_${di} .deck-header span:nth-of-type(2)`);
+    if (cnt && cnt.textContent.endsWith(' 張')) cnt.textContent = `${deck.cards.length} 張`;
+    afterChange(true);
+  }
+
+  function deleteCard(di, ci) {
+    const card = manifest.decks[di].cards[ci];
+    if (!confirm(`刪除卡牌「${card.name || '(未命名)'}」？`)) return;
+    pushHistory();
+    manifest.decks[di].cards.splice(ci, 1);
+    renderDecksTab();
+    afterChange(true);
+  }
+
+  function addDeck() {
+    pushHistory();
+    manifest.decks = manifest.decks || [];
+    const newId = 'deck_' + (manifest.decks.length + 1);
+    manifest.decks.push({
+      id: newId, name: '新牌組', type: 'action',
+      visibility: 'private', drawCount: 1, allowDuplicate: true, enabled: true, cards: []
+    });
+    openDecks.add(newId);
+    renderDecksTab();
+    afterChange(true);
+  }
+
+  function deleteDeck(di) {
+    const deck = manifest.decks[di];
+    if (!confirm(`確定要刪除「${deck.name}」這個牌組嗎？\n（會同時影響引用此牌組的階段）`)) return;
+    pushHistory();
+    openDecks.delete(deck.id);
+    manifest.decks.splice(di, 1);
+    renderDecksTab();
+    afterChange(true);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  TAB: STAGES
+  // ═══════════════════════════════════════════════════════════════
+  function renderStagesTab() {
+    const stages = manifest.stages || [];
+    const decks  = manifest.decks  || [];
+    const deckOptsFor = (selId) => decks.map(d =>
+      `<option value="${escapeH(d.id)}" ${d.id===selId?'selected':''}>${escapeH(d.name)} (${escapeH(d.id)})</option>`
+    ).join('');
+
+    document.getElementById('cfgStages').innerHTML = stages.map((s, si) => `
+      <div class="stage-row ${s.enabled ? '' : 'disabled'}" id="stage_row_${si}">
+        <div class="sr-head">
+          <div class="stage-order-btns">
+            <button onclick="moveStage(${si},-1)" ${si===0?'disabled':''}>▲</button>
+            <button onclick="moveStage(${si}, 1)" ${si===stages.length-1?'disabled':''}>▼</button>
+          </div>
+          <input class="field-input" style="flex:1" placeholder="階段名稱"
+                 value="${escapeH(s.name||'')}" oninput="setStageProp(${si},'name',this.value)">
+          <label class="toggle-switch">
+            <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="setStageProp(${si},'enabled',this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <button class="ci-del" onclick="deleteStage(${si})">✕</button>
+        </div>
+        <div class="stage-grid">
+          <div class="field-row" style="margin:0">
+            <label class="field-label">階段類型</label>
+            <select class="field-input" onchange="setStageProp(${si},'type',this.value)">
+              ${STAGE_TYPES.map(t => `<option value="${t.value}" ${s.type===t.value?'selected':''}>${t.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">使用牌組 (deckId)</label>
+            <select class="field-input" onchange="setStageProp(${si},'deckId',this.value || undefined)">
+              <option value="" ${!s.deckId?'selected':''}>— 不使用 —</option>
+              ${deckOptsFor(s.deckId)}
+            </select>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">階段 ID</label>
+            <input class="field-input" value="${escapeH(s.id||'')}" style="font-family:monospace;font-size:.78rem"
+                   oninput="setStageProp(${si},'id',this.value)">
+          </div>
+        </div>
+        ${renderAdvanceBlock(si, '階段結束時推進', 'advance', s.advance, '此階段所有事情完成後，如何進入下一個階段')}
+        ${s.type === 'card_play' ? `
+          <div style="margin-top:12px;padding:10px;background:#0d0d1f;border:1px solid #2a2a4a;border-radius:8px;">
+            <div style="font-size:.8rem;color:#aaaacc;font-weight:600;margin-bottom:10px;">🎮 回合設定</div>
+            ${renderStageRoundField(si, 'maxRounds', '總回合數', s.maxRounds, 5, '這個出牌階段共有幾回合')}
+            ${renderStageRoundField(si, 'refillMode', '補牌模式', s.refillMode, 'none', 'players')}
+            ${s.refillMode === 'per_round' ? renderStageRoundField(si, 'refillAmount', '每回合補幾張', s.refillAmount, 1, 'players') : ''}
+            ${s.refillMode === 'threshold' ? `
+              ${renderStageRoundField(si, 'refillThreshold', '補牌門檻（手牌低於此數時觸發）', s.refillThreshold, 2, '張')}
+              ${renderStageRoundField(si, 'refillTo', '補到幾張', s.refillTo, 5, '張')}
+            ` : ''}
+          </div>
+
+          <div style="margin-top:12px;padding:10px;background:#0d0d1f;border:1px solid #2a2a4a;border-radius:8px;">
+            <div style="font-size:.8rem;color:#aaaacc;font-weight:600;margin-bottom:10px;">📋 回合間推進設定</div>
+            ${renderAdvanceBlock(si, '1. 全員出牌後 → 何時翻牌？', 'revealTrigger', s.revealTrigger,
+                '全員出牌後的行為', 'reveal')}
+            ${renderAdvanceBlock(si, '2. 翻牌後 → 何時進下一回合？', 'nextRoundTrigger', s.nextRoundTrigger,
+                '每回合翻牌後的行為（最後一回合除外）', 'next_round')}
+          </div>
+        ` : ''}
+      </div>`).join('') + `<button class="add-card-btn" onclick="addStage()">+ 新增階段</button>`;
+  }
+
+  function renderStageRoundField(si, key, label, value, defaultVal, unit = '') {
+    const stage = manifest.stages[si];
+    const isNumber = typeof defaultVal === 'number';
+    let input = '';
+
+    if (key === 'refillMode') {
+      input = `<select class="field-input" onchange="setStageProp(${si},'${key}',this.value)">
+        <option value="none" ${(!value || value === 'none') ? 'selected' : ''}>不補牌</option>
+        <option value="per_round" ${value === 'per_round' ? 'selected' : ''}>每回合補固定張數</option>
+        <option value="threshold" ${value === 'threshold' ? 'selected' : ''}>手牌低於門檻時補牌</option>
+      </select>`;
+    } else {
+      const type = isNumber ? 'number' : 'text';
+      input = `<input class="field-input" type="${type}" value="${value ?? ''}"
+               min="1" max="20"
+               placeholder="${defaultVal}"
+               oninput="setStageProp(${si},'${key}',${isNumber ? 'Number(this.value)' : 'this.value'})">
+      ${unit ? `<span style="margin-left:4px;color:#8888bb;font-size:.78rem;">${unit}</span>` : ''}
+      </select>`;
+    }
+
+    return `<div class="field-row" style="margin:0">
+      <label class="field-label">${label}</label>
+      ${input}
+    </div>`;
+  }
+
+  function renderAdvanceBlock(si, label, key, adv, helpText, category = null) {
+    adv = adv || {};
+    const stageType = manifest.stages[si].type;
+    // 根據階段類型和 category 過濾可用的推進選項
+    let availableTriggers = ADVANCE_TRIGGERS.filter(t => {
+      const typeMatch = t.types.includes('all') || t.types.includes(stageType);
+      // 如果指定了 category，只顯示該 category 的選項
+      // 如果沒有指定 category，只顯示 'stage_advance' 的選項（向後兼容）
+      const categoryMatch = category
+        ? t.category === category
+        : t.category === 'stage_advance';
+      return typeMatch && categoryMatch;
+    });
+
+    // 去重：相同的 value 只保留第一個（避免同一個選項出現多次）
+    const seenValues = new Set();
+    availableTriggers = availableTriggers.filter(t => {
+      if (seenValues.has(t.value)) return false;
+      seenValues.add(t.value);
+      return true;
+    });
+
+    const showDuration = adv.trigger === 'auto' || adv.trigger?.includes('timer');
+
+    return `<div style="background:#0a0a18;border:1px solid #1a1a3a;border-radius:6px;padding:10px;margin-top:8px;">
+      <div style="font-size:.72rem;color:#8888bb;letter-spacing:.05em;margin-bottom:6px;">${escapeH(label)}</div>
+      ${helpText ? `<div class="help-text" style="margin-bottom:8px">${escapeH(helpText)}</div>` : ''}
+      <div class="stage-grid-2">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">推進條件</label>
+          <select class="field-input" onchange="setAdvKey(${si},'${key}','trigger',this.value)">
+            ${availableTriggers.map(t => `<option value="${t.value}" ${(adv.trigger||'host')===t.value?'selected':''}>${t.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row" style="margin:0;${showDuration?'':'visibility:hidden;'}">
+          <label class="field-label">秒數</label>
+          <input class="field-input" type="number" min="0" max="600"
+                 value="${adv.duration ?? ''}"
+                 oninput="setAdvKey(${si},'${key}','duration',this.value===''?null:Number(this.value))">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:.78rem;color:#aaaacc;margin-top:6px;">
+        <input type="checkbox" ${adv.fallback ? 'checked' : ''}
+               onchange="setAdvKey(${si},'${key}','fallback',this.checked ? 'host' : null)">
+        Host 仍可強制推進（fallback）
+      </label>
+    </div>`;
+  }
+
+  function setStageProp(si, key, val) {
+    pushHistory();
+    manifest.stages[si][key] = val;
+    if (key === 'enabled') document.getElementById(`stage_row_${si}`)?.classList.toggle('disabled', !val);
+    // Re-render to toggle refill mode field visibility or stage-specific fields
+    if (key === 'refillMode' || key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+  function setAdvKey(si, advKey, prop, val) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    stage[advKey] = stage[advKey] || {};
+    if (val === null || val === '') delete stage[advKey][prop];
+    else                            stage[advKey][prop] = val;
+    // Re-render to toggle duration visibility
+    renderStagesTab();
+    afterChange(true);
+  }
+  function moveStage(si, dir) {
+    const arr = manifest.stages;
+    const ni  = si + dir;
+    if (ni < 0 || ni >= arr.length) return;
+    pushHistory();
+    [arr[si], arr[ni]] = [arr[ni], arr[si]];
+    renderStagesTab();
+    afterChange(true);
+  }
+  function addStage() {
+    pushHistory();
+    manifest.stages = manifest.stages || [];
+    manifest.stages.push({
+      id: uid('stage'), name: '新階段', type: 'card_play',
+      enabled: true, advance: { trigger: 'host' },
+    });
+    renderStagesTab();
+    afterChange(true);
+  }
+  function deleteStage(si) {
+    if (!confirm(`刪除階段「${manifest.stages[si].name}」？`)) return;
+    pushHistory();
+    manifest.stages.splice(si, 1);
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  TAB: ADVANCED — fieldConfig schema editor + raw JSON
+  // ═══════════════════════════════════════════════════════════════
+  function renderAdvancedTab() {
+    const el = document.getElementById('cfgAdvanced');
+    if (rawMode) {
+      el.innerHTML = `
+        <div class="raw-bar">
+          <button class="btn btn-ghost btn-sm" onclick="rawMode=false;renderAdvancedTab();">← 退出 Raw 模式</button>
+          <button class="btn btn-primary btn-sm" onclick="applyRawJson()">套用變更</button>
+          <span class="help-text" style="margin-left:auto">直接編輯 JSON。按「套用」會解析並合併。</span>
+        </div>
+        <textarea class="field-input" id="rawJson"
+          spellcheck="false">${escapeH(JSON.stringify(manifest, null, 2))}</textarea>
+      `;
+      return;
+    }
+
+    const fc = manifest.fieldConfig || {};
+    el.innerHTML = `
+      <div class="section-title">FIELDCONFIG SCHEMA（可調參數定義）</div>
+      <div class="help-text" style="margin-bottom:10px">
+        每個條目對應「基本參數」分頁裡的一個欄位。改了這裡就能新增遊戲可調參數。<br>
+        <code style="background:#0a0a1a;padding:1px 4px;border-radius:3px;">key</code> 是程式內部使用的識別字（英數＋底線），<code style="background:#0a0a1a;padding:1px 4px;border-radius:3px;">label</code> 是顯示名稱。
+      </div>
+      ${Object.entries(fc).map(([key, def]) => renderFcRow(key, def)).join('')}
+      <button class="add-card-btn" onclick="addFcField()">+ 新增可調參數</button>
+
+      <div class="section-title">RAW JSON</div>
+      <div class="help-text" style="margin-bottom:8px">直接編輯整個 manifest.json — 萬一 GUI 不夠用時的退路。</div>
+      <button class="btn btn-ghost btn-sm" onclick="rawMode=true;renderAdvancedTab();">📝 進入 Raw JSON 編輯模式…</button>
+    `;
+  }
+
+  function renderFcRow(key, def) {
+    const isSelect = def.type === 'select';
+    return `<div class="fc-row" id="fc_${escapeH(key)}">
+      <div class="fc-head">
+        <input class="fc-key" placeholder="key" value="${escapeH(key)}"
+               onchange="renameFcKey('${escapeH(key)}',this.value)">
+        <input placeholder="label（顯示名稱）" value="${escapeH(def.label||'')}"
+               oninput="setFcProp('${escapeH(key)}','label',this.value)">
+        <button class="ci-del" onclick="deleteFcField('${escapeH(key)}')">✕</button>
+      </div>
+      <div class="fc-grid">
+        <select onchange="setFcProp('${escapeH(key)}','type',this.value);renderAdvancedTab();">
+          <option value="number" ${def.type==='number'?'selected':''}>數字</option>
+          <option value="select" ${def.type==='select'?'selected':''}>選單</option>
+        </select>
+        <input placeholder="default" value="${escapeH(def.default ?? '')}"
+               oninput="setFcDefault('${escapeH(key)}',this.value)">
+        ${def.type === 'number' ? `
+          <input placeholder="min" type="number" value="${def.min ?? ''}"
+                 oninput="setFcProp('${escapeH(key)}','min',this.value===''?null:Number(this.value))">
+          <input placeholder="max" type="number" value="${def.max ?? ''}"
+                 oninput="setFcProp('${escapeH(key)}','max',this.value===''?null:Number(this.value))">
+        ` : `<div></div><div></div>`}
+      </div>
+      ${isSelect ? `
+        <div class="fc-options">
+          <div style="margin-bottom:4px">選項：</div>
+          ${(def.options||[]).map((o, oi) => `
+            <div class="opt-row">
+              <input placeholder="value" value="${escapeH(o.value||'')}" oninput="setFcOpt('${escapeH(key)}',${oi},'value',this.value)">
+              <input placeholder="label" value="${escapeH(o.label||'')}" oninput="setFcOpt('${escapeH(key)}',${oi},'label',this.value)">
+              <button class="ci-del" onclick="deleteFcOpt('${escapeH(key)}',${oi})">✕</button>
+            </div>
+          `).join('')}
+          <button class="add-card-btn" onclick="addFcOpt('${escapeH(key)}')">+ 新增選項</button>
+        </div>
+      ` : ''}
+    </div>`;
+  }
+
+  function setFcDefault(key, raw) {
+    pushHistory();
+    const def = manifest.fieldConfig[key];
+    if (!def) return;
+    def.default = def.type === 'select' ? raw : (raw === '' ? null : Number(raw));
+    renderBasicTab();
+    afterChange(true);
+  }
+
+  function setFcProp(key, prop, val) {
+    pushHistory();
+    if (!manifest.fieldConfig[key]) return;
+    if (val === null) delete manifest.fieldConfig[key][prop];
+    else              manifest.fieldConfig[key][prop] = val;
+    // Re-render basic tab so the change is visible
+    renderBasicTab();
+    afterChange(true);
+  }
+  function renameFcKey(oldKey, newKey) {
+    if (!newKey || newKey === oldKey) return;
+    if (manifest.fieldConfig[newKey]) { toast('該 key 已存在', 'err'); renderAdvancedTab(); return; }
+    pushHistory();
+    const def = manifest.fieldConfig[oldKey];
+    delete manifest.fieldConfig[oldKey];
+    manifest.fieldConfig[newKey] = def;
+    renderAdvancedTab(); renderBasicTab();
+    afterChange(true);
+  }
+  function deleteFcField(key) {
+    if (!confirm(`刪除可調參數「${key}」？`)) return;
+    pushHistory();
+    delete manifest.fieldConfig[key];
+    renderAdvancedTab(); renderBasicTab();
+    afterChange(true);
+  }
+  function addFcField() {
+    pushHistory();
+    manifest.fieldConfig = manifest.fieldConfig || {};
+    let i = 1; while (manifest.fieldConfig['newField' + i]) i++;
+    const key = 'newField' + i;
+    manifest.fieldConfig[key] = { label: '新欄位', type: 'number', default: 1, min: 1, max: 10 };
+    renderAdvancedTab(); renderBasicTab();
+    afterChange(true);
+  }
+  function setFcOpt(key, oi, prop, val) {
+    pushHistory();
+    manifest.fieldConfig[key].options[oi][prop] = val;
+    afterChange(true);
+  }
+  function addFcOpt(key) {
+    pushHistory();
+    const def = manifest.fieldConfig[key];
+    def.options = def.options || [];
+    def.options.push({ value: 'opt' + (def.options.length+1), label: '新選項' });
+    renderAdvancedTab();
+    afterChange(true);
+  }
+  function deleteFcOpt(key, oi) {
+    pushHistory();
+    manifest.fieldConfig[key].options.splice(oi, 1);
+    renderAdvancedTab();
+    afterChange(true);
+  }
+
+  function applyRawJson() {
+    const txt = document.getElementById('rawJson').value;
+    try {
+      const parsed = JSON.parse(txt);
+      pushHistory();
+      manifest = parsed;
+      manifest.id = currentId;     // can't change id via raw edit
+      rawMode = false;
+      rerenderAll();
+      afterChange(true);
+      toast('已套用 raw JSON', 'ok');
+    } catch (e) { toast('JSON 解析失敗：' + e.message, 'err'); }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  VALIDATION (client-side mirror of server validation)
+  // ═══════════════════════════════════════════════════════════════
+  let currentValidationErrors = [];
+
+  function runValidation() {
+    currentValidationErrors = validateManifest(manifest);
+    const banner = document.getElementById('valBanner');
+    if (!currentValidationErrors.length) { banner.classList.add('hidden'); return; }
+    banner.classList.remove('hidden');
+    document.getElementById('valList').innerHTML = currentValidationErrors.map(e =>
+      `<li><code>${escapeH(e.path||'(top)')}</code>　${escapeH(e.msg)}</li>`
+    ).join('');
+  }
+
+  function validateManifest(m) {
+    const errs = [];
+    const push = (path, msg) => errs.push({ path, msg });
+    if (!m) return errs;
+    if (!m.name || !String(m.name).trim()) push('name', '顯示名稱不可空白');
+    const minP = Number(m.minPlayers), maxP = Number(m.maxPlayers);
+    if (!Number.isFinite(minP) || minP < 1 || minP > 50) push('minPlayers', '最少人數需在 1–50');
+    if (!Number.isFinite(maxP) || maxP < 1 || maxP > 50) push('maxPlayers', '最多人數需在 1–50');
+    if (Number.isFinite(minP) && Number.isFinite(maxP) && minP > maxP) push('maxPlayers', '最多人數不可小於最少人數');
+
+    if (m.fieldConfig) {
+      Object.entries(m.fieldConfig).forEach(([k, def]) => {
+        if (!def.label) push(`fieldConfig.${k}`, '欄位需要 label');
+        if (!['number','select'].includes(def.type)) push(`fieldConfig.${k}`, 'type 只能是 number 或 select');
+        if (def.type === 'select' && (!def.options || !def.options.length))
+          push(`fieldConfig.${k}`, 'select 類型需至少一個選項');
+      });
+    }
+
+    const deckIds = new Set();
+    (m.decks || []).forEach((d, di) => {
+      if (!d.id)                push(`decks[${di}]`,  '牌組需要 id');
+      else if (deckIds.has(d.id)) push(`decks[${di}]`, `牌組 id 重複：${d.id}`);
+      else deckIds.add(d.id);
+
+      // For global deck references, name is auto-populated from global deck
+      // Skip validation if it's a reference (the name will come from global deck)
+      if (!d.name && !d.ref) push(`decks[${di}]`, '牌組需要名稱');
+
+      // Skip cards validation for global deck references
+      if (!d.ref && d.enabled !== false && (!d.cards || d.cards.length === 0))
+        push(`decks[${di}]`, `啟用中的牌組「${d.name||d.id}」不可為空`);
+      const cardIds = new Set();
+      if (!d.ref) { // Only validate local cards
+        (d.cards||[]).forEach((c, ci) => {
+          if (!c.name || !String(c.name).trim()) push(`decks[${di}].cards[${ci}]`, '卡牌名稱不可空白');
+          if (c.id && cardIds.has(c.id)) push(`decks[${di}].cards[${ci}]`, `卡牌 id 重複：${c.id}`);
+          else if (c.id) cardIds.add(c.id);
+        });
+      }
+    });
+
+    const stages = m.stages || [];
+    if (stages.filter(s => s.enabled).length === 0) push('stages', '至少需有一個啟用的階段');
+    const enabledDeckIds = new Set((m.decks||[]).filter(d => d.enabled !== false).map(d => d.id));
+    const validTriggers = ['host','all_played','all_confirmed','all_voted','all_submitted','all_ready',
+                          'auto','timer','identity_timer','play_timer','generic_timer',
+                          'auto_restart','restart_timer',
+                          'host_reveal','auto_next','round_timer'];
+    stages.forEach((s, si) => {
+      if (!s.id)   push(`stages[${si}]`, '階段需要 id');
+      if (!s.name) push(`stages[${si}]`, '階段需要名稱');
+      if (!s.type) push(`stages[${si}]`, '階段需要 type');
+      if (s.deckId && !deckIds.has(s.deckId))
+        push(`stages[${si}]`, `引用的牌組「${s.deckId}」不存在`);
+      else if (s.enabled && s.deckId && !enabledDeckIds.has(s.deckId))
+        push(`stages[${si}]`, `階段「${s.name}」引用了已停用的牌組「${s.deckId}」`);
+      const checkAdv = (adv, label) => {
+        if (!adv || !adv.trigger) return;
+        if (!validTriggers.includes(adv.trigger))
+          push(`stages[${si}].${label}`, `不支援的 trigger：${adv.trigger}`);
+        // Check duration requirement for timer-based triggers
+        const timerTriggers = ['auto','timer','identity_timer','play_timer','generic_timer','restart_timer','round_timer'];
+        if (timerTriggers.includes(adv.trigger) &&
+            (!Number.isFinite(Number(adv.duration)) || Number(adv.duration) < 0))
+          push(`stages[${si}].${label}`, `${label} 使用 ${adv.trigger} 時需提供 duration（秒數）`);
+      };
+      checkAdv(s.advance, 'advance');
+      checkAdv(s.revealTrigger, 'revealTrigger');
+      checkAdv(s.nextRoundTrigger, 'nextRoundTrigger');
+    });
+    return errs;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SAVE / SAVE-AS / DELETE
+  // ═══════════════════════════════════════════════════════════════
+  async function saveCurrent() {
+    if (!currentId || !isDirty()) return;
+    if (currentValidationErrors.length) { toast('修正驗證錯誤後才能儲存', 'err'); return; }
+    try {
+      const res = await fetch(`/api/modules/${encodeURIComponent(currentId)}/manifest`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ manifest }),
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error(`Server 回應錯誤（${res.status}）— 請重啟 server`);
+      const data = await res.json();
+      if (!res.ok) {
+        const detail = (data.errors||[]).map(e => `\n  • ${e.path}: ${e.msg}`).join('');
+        throw new Error((data.error || '儲存失敗') + detail);
+      }
+      modules = data.modules || modules;
+      originalSnapshot = JSON.stringify(manifest);
+      history = [];
+      document.getElementById('undoBtn').disabled = true;
+      renderModuleList();
+      updateButtons();
+      toast('✓ 已儲存到原檔', 'ok');
+    } catch (e) { toast('✕ ' + e.message, 'err'); }
+  }
+
+  function promptCreateModule() {
+    const newId = (prompt('新模組 ID（英數、底線、連字號）：', 'my-new-module') || '').trim();
+    if (!newId) return;
+    if (!/^[a-zA-Z0-9_-]+$/.test(newId)) {
+      toast('✕ 模組 ID 只能包含英數、底線和連字號', 'err');
+      return;
+    }
+    if (modules.find(m => m.id === newId)) {
+      toast('✕ 此 ID 已存在', 'err');
+      return;
+    }
+    const newName = (prompt('新模組顯示名稱：', '我的新模組') || '').trim();
+    if (!newName) return;
+
+    createNewModule(newId, newName);
+  }
+
+  async function createNewModule(id, name) {
+    const newManifest = {
+      id: id,
+      name: name,
+      version: "1.0.0",
+      minPlayers: 2,
+      maxPlayers: 8,
+      description: "",
+      fieldConfig: {
+        handSize: {
+          label: "實際抽牌數",
+          type: "number",
+          default: 5,
+          min: 1,
+          max: 10
+        }
+      },
+      decks: [],
+      stages: [
+        {
+          id: "main_stage",
+          name: "主要階段",
+          type: "result",
+          enabled: true,
+          advance: { "trigger": "host" }
+        }
+      ]
+    };
+
+    try {
+      const res = await fetch(`/api/modules/${encodeURIComponent(id)}/manifest`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ manifest: newManifest }),
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error(`Server 回應錯誤（${res.status}）`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '建立失敗');
+
+      // Refresh modules list
+      await loadModuleList();
+
+      // Select the new module
+      selectModule(id);
+      toast('✓ 新模組已建立', 'ok');
+    } catch (e) {
+      toast('✕ ' + e.message, 'err');
+    }
+  }
+
+  async function saveAsNew() {
+    if (!currentId) return;
+    const newId = (prompt('新模組 ID（英數、底線、連字號）：', currentId + '-copy') || '').trim();
+    if (!newId) return;
+    const newName = (prompt('新模組顯示名稱：', (manifest.name || currentId) + ' (副本)') || '').trim();
+    if (!newName) return;
+    try {
+      // Bake current edits into fieldConfig defaults via the existing /clone endpoint
+      const fieldValues = {};
+      Object.entries(manifest.fieldConfig||{}).forEach(([k, def]) => { fieldValues[k] = def.default; });
+      const res = await fetch(`/api/modules/${encodeURIComponent(currentId)}/clone`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          newId, newName,
+          description: manifest.description,
+          fieldValues,
+          decks:  manifest.decks,
+          stages: manifest.stages,
+        }),
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error(`Server 回應錯誤（${res.status}）— 請重啟 server`);
+      const data = await res.json();
+      if (!res.ok) {
+        const detail = (data.errors||[]).map(e => `\n  • ${e.path}: ${e.msg}`).join('');
+        throw new Error((data.error || '儲存失敗') + detail);
+      }
+      modules = data.modules || modules;
+      originalSnapshot = JSON.stringify(manifest); // mark current clean (changes already exist in source)
+      currentId = null;
+      selectModule(data.id);
+      toast(`✓ 已建立模組「${data.name}」`, 'ok');
+    } catch (e) { toast('✕ ' + e.message, 'err'); }
+  }
+
+  async function deleteCurrent() {
+    if (!currentId) return;
+    if (modules.length <= 1) { toast('至少需保留一個模組', 'err'); return; }
+    if (!confirm(`確定要刪除模組「${manifest.name || currentId}」嗎？\n會刪除整個資料夾，無法復原。`)) return;
+    try {
+      const res = await fetch(`/api/modules/${encodeURIComponent(currentId)}`, { method: 'DELETE' });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error(`Server 回應錯誤（${res.status}）— 請重啟 server`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '刪除失敗');
+
+      modules = data.modules || modules;
+      currentId = null;
+      manifest  = null;
+      originalSnapshot = null;
+      history = [];
+      document.getElementById('emptyState').classList.remove('hidden');
+      document.getElementById('editorContent').classList.add('hidden');
+      renderModuleList();
+      toast('✓ 已刪除', 'ok');
+    } catch (e) { toast('✕ ' + e.message, 'err'); }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  KEYBOARD SHORTCUTS
+  // ═══════════════════════════════════════════════════════════════
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      if (!document.getElementById('saveBtn').disabled) saveCurrent();
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+      const el = document.activeElement;
+      // Don't intercept undo inside text inputs (let browser handle native undo)
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
+      e.preventDefault();
+      undo();
+    }
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    if (isDirty()) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  //  BOOTSTRAP
+  // ═══════════════════════════════════════════════════════════════
+  async function loadGlobalDecks() {
+    try {
+      const res = await fetch('/api/decks');
+      const data = await res.json();
+      if (data.success) {
+        globalDecks = data.decks;
+        console.log('[Editor] Loaded', globalDecks.length, 'global decks');
+      }
+    } catch (err) {
+      console.error('[Editor] Failed to load global decks:', err);
+    }
+  }
+
+  (async function init() {
+    await loadModuleList();
+    await loadGlobalDecks();
+    const wantId = new URLSearchParams(location.search).get('id');
+    if (wantId && modules.find(m => m.id === wantId)) selectModule(wantId);
+    else if (modules.length) selectModule(modules[0].id);
+  })();
+</script>
+</body>
+</html>

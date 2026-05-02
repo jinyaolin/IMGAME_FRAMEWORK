@@ -2,186 +2,311 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>遊戲中</title>
   <style>
+    /* ═══════════════════════════════════════════════
+       LAYOUT: 5 fixed zones — never reflow
+         ┌─────────────────────┐
+         │ TOPBAR (54px fixed) │  identity • room/name/score • layout toggle
+         ├─────────────────────┤
+         │ STATUSBAR (32px)    │  shared message + countdown
+         ├─────────────────────┤
+         │                     │
+         │ CARD ZONE (flex:1)  │  the only area that changes layout
+         │                     │
+         ├─────────────────────┤
+         │ ACTION (60px fixed) │  play button (always visible, even when disabled)
+         └─────────────────────┘
+       ═══════════════════════════════════════════════ */
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:        #0a0a1a;
+      --surface:   #14142a;
+      --surface-2: #1a1a3a;
+      --border:    #2a2a5a;
+      --text:      #e0e0ff;
+      --text-dim:  #8888bb;
+      --text-faint:#6666aa;
+      --accent:    #6688ff;
+      --accent-2:  #5555ff;
+      --gold:      #ffdd44;
+      --green:     #44cc88;
+      --red:       #ff6666;
+      --topbar-h:  54px;
+      --status-h:  32px;
+      --action-h:  64px;
+    }
+    html, body { height: 100dvh; overflow: hidden; }
     body {
-      background: #0a0a1a;
-      color: #e0e0ff;
-      font-family: system-ui, sans-serif;
-      min-height: 100dvh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex; flex-direction: column;
+      overscroll-behavior: contain;
     }
 
-    /* ── Header bar ── */
-    #header {
-      background: #14142a;
-      border-bottom: 1px solid #2a2a5a;
-      padding: 10px 16px;
-      display: flex;
+    /* ───── TOPBAR ──────────────────────────────────────── */
+    #topbar {
+      height: var(--topbar-h);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 56px 1fr auto;
       align-items: center;
-      justify-content: space-between;
+      padding: 0 10px;
       flex-shrink: 0;
     }
-    #header .room   { font-size: .75rem; color: #8888bb; }
-    #header .name   { font-size: .95rem; font-weight: 700; }
-    #header .score  { font-size: .85rem; color: #ffdd44; }
-
-    /* ── Status area ── */
-    #statusArea {
-      padding: 12px 16px;
-      font-size: .85rem;
-      color: #aaaacc;
-      text-align: center;
-      flex-shrink: 0;
+    /* Identity slot — fixed top-left, small */
+    #idSlot {
+      display: flex; justify-content: center; align-items: center;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: #0a0a18; border: 2px solid var(--border);
+      cursor: pointer; user-select: none;
+      transition: border-color .15s, transform .1s;
     }
-
-    /* ── Persistent identity badge (visible during card play) ── */
-    #identityBadge {
-      margin: 10px 12px 0;
-      background: #14142a;
-      border: 1.5px solid #3a3a6a;
-      border-left-width: 4px;
-      border-radius: 10px;
-      padding: 8px 12px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      cursor: pointer;
-      flex-shrink: 0;
+    #idSlot:active { transform: scale(.94); }
+    #idSlot.empty   { color: var(--text-faint); font-size: 1.1rem; }
+    #idSlot.has-id  { font-size: .82rem; font-weight: 700; line-height: 1; padding: 4px; text-align: center; }
+    #idSlot .id-label {
+      position: absolute; transform: translateY(36px);
+      font-size: .58rem; color: var(--text-faint); letter-spacing: .05em;
+      pointer-events: none; white-space: nowrap;
     }
-    #identityBadge:active { background: #1a1a3a; }
-    #identityBadge .ib-icon  { font-size: 1.2rem; }
-    #identityBadge .ib-info  { flex: 1; min-width: 0; }
-    #identityBadge .ib-label { font-size: .65rem; color: #6666aa; letter-spacing: .08em; }
-    #identityBadge .ib-name  { font-size: .92rem; font-weight: 700; }
-    #identityBadge .ib-team  { font-size: .68rem; padding: 2px 8px; border-radius: 8px; flex-shrink: 0; }
-
-    /* ── Shared state panel ── */
-    #sharedPanel {
-      margin: 0 12px;
-      background: #14142a;
-      border: 1px solid #2a2a5a;
-      border-radius: 12px;
-      padding: 12px;
-      font-size: .82rem;
-      color: #9999cc;
-      flex-shrink: 0;
-      min-height: 60px;
+    /* Center: room + name + score (compact) */
+    #topbarCenter {
+      display: flex; flex-direction: column; min-width: 0; padding: 0 10px;
     }
+    #topbarCenter .name { font-size: .92rem; font-weight: 700; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #topbarCenter .meta { font-size: .65rem; color: var(--text-dim); display: flex; gap: 8px; margin-top: 1px; }
+    #topbarCenter .meta .score { color: var(--gold); font-weight: 700; }
+    /* Layout toggle */
+    #layoutToggle {
+      display: flex; gap: 0; background: #0a0a18; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    }
+    .lt-btn {
+      width: 32px; height: 32px;
+      background: transparent; border: none; cursor: pointer; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-faint); transition: background .15s, color .15s;
+    }
+    .lt-btn:not(:last-child) { border-right: 1px solid var(--border); }
+    .lt-btn:active { background: rgba(85, 85, 255, .15); }
+    .lt-btn.active { color: var(--accent); background: rgba(85, 85, 255, .2); }
+    .lt-btn svg { width: 18px; height: 18px; display: block; }
 
-    /* ── Module content area (injected by module) ── */
-    #moduleArea {
+    /* ───── STATUSBAR ───────────────────────────────────── */
+    #statusbar {
+      height: var(--status-h);
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      padding: 0 14px;
+      font-size: .76rem; color: var(--text-dim);
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    #statusbar .status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #statusbar .countdown { color: var(--accent); font-family: monospace; flex-shrink: 0; }
+
+    /* ───── CARD ZONE (the changeable region) ──────────── */
+    #cardZone {
       flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(180deg, #0a0a1a 0%, #050511 100%);
+    }
+    #cardZone .empty-msg {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-faint); font-size: .85rem;
+    }
+
+    /* The card containers — exactly one is .active per layout mode */
+    .card-area { position: absolute; inset: 0; padding: 12px; }
+    .card-area.layout-strip {
+      display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden;
+      padding: 16px 12px;
+      align-items: center;
+    }
+    .card-area.layout-fan {
+      display: flex; align-items: center; justify-content: center;
+      overflow: visible;
+      padding-top: 28px;          /* room for selected card to lift */
+    }
+    .card-area.layout-fan .fan-track {
+      position: relative;
+      height: 100%;
+      display: flex; align-items: center;
+    }
+    .card-area.layout-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
       overflow-y: auto;
       padding: 12px;
+      align-content: start;
     }
 
-    /* ── Hand / card area ── */
-    #handArea {
-      background: #0d0d24;
-      border-top: 1px solid #2a2a5a;
-      padding: 12px;
-      flex-shrink: 0;
-    }
-    #handArea h3 { font-size: .75rem; color: #8888bb; margin-bottom: 10px; letter-spacing: .05em; }
-    #cardList {
-      display: flex;
-      gap: 10px;
-      overflow-x: auto;
-      padding-bottom: 4px;
-    }
-    .card-item {
-      background: #1a1a3a;
-      border: 2px solid #3a3a6a;
-      border-radius: 12px;
-      padding: 14px 12px;
-      min-width: 80px;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color .15s, transform .1s;
-      flex-shrink: 0;
-      user-select: none;
-    }
-    .card-item:active { transform: scale(.95); }
-    .card-item.selected { border-color: #6666ff; background: #22225a; }
-    .card-item .card-name { font-size: .8rem; font-weight: 700; }
-    .card-item .card-desc { font-size: .68rem; color: #8888bb; margin-top: 4px; }
-
-    #playBtn {
-      width: 100%;
-      margin-top: 12px;
-      background: #5555ff;
-      border: none;
+    /* ───── CARD STYLES ─────────────────────────────────── */
+    .card {
+      position: relative;
+      background: var(--surface-2);
+      border: 2px solid var(--border);
       border-radius: 10px;
-      color: #fff;
-      font-size: 1rem;
-      font-weight: 700;
-      padding: 12px;
-      cursor: pointer;
-      display: none;
+      cursor: pointer; user-select: none;
+      overflow: hidden;
+      transition: transform .15s, border-color .15s, box-shadow .15s;
+      flex-shrink: 0;
     }
-    #playBtn:active { background: #3333cc; }
+    .card:active { transform: scale(.96); }
+    .card.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(102, 136, 255, .35), 0 6px 20px rgba(85, 85, 255, .4);
+    }
+    .card .card-img {
+      width: 100%; height: 70%;
+      object-fit: cover;
+      display: block;
+      background: #0a0a18;
+    }
+    .card.no-img .card-img-fallback {
+      width: 100%; height: 70%;
+      background: linear-gradient(135deg, #1a1a3a 0%, #2a2a5a 100%);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-faint); font-size: 1.5rem; font-weight: 700;
+      letter-spacing: .05em;
+    }
+    .card .card-body {
+      padding: 6px 8px;
+      height: 30%;
+      display: flex; flex-direction: column; justify-content: center;
+      background: var(--surface);
+    }
+    .card .card-name { font-size: .78rem; font-weight: 700; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card .card-sub  { font-size: .62rem; color: var(--text-dim);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card .card-value-pill {
+      position: absolute; top: 6px; right: 6px;
+      background: rgba(0,0,0,.6); color: var(--gold);
+      font-size: .68rem; font-weight: 700;
+      border-radius: 10px; padding: 2px 7px;
+      backdrop-filter: blur(4px);
+    }
 
-    /* ── Lobby screen ── */
+    /* Strip-specific sizing */
+    .layout-strip .card { width: 110px; height: 158px; }
+    /* Fan-specific positioning is set inline (transform) */
+    .layout-fan .card { width: 110px; height: 158px; transition: transform .25s, border-color .15s, box-shadow .15s; }
+    .layout-fan .card.selected { z-index: 100; }
+    /* Grid */
+    .layout-grid .card { aspect-ratio: 5 / 7; height: auto; width: 100%; }
+
+    /* ───── ACTION BAR ──────────────────────────────────── */
+    #actionbar {
+      height: var(--action-h);
+      flex-shrink: 0;
+      padding: 10px 14px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center;
+    }
+    #playBtn {
+      flex: 1; height: 44px;
+      background: var(--accent-2); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 1rem; font-weight: 700;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    #playBtn:active:not(:disabled) { background: #3333cc; }
+    #playBtn:disabled { background: #2a2a4a; color: var(--text-faint); cursor: not-allowed; }
+
+    /* ───── OVERLAY: identity full view ─────────────────── */
+    #identityOverlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(10, 10, 26, .92);
+      display: none; align-items: center; justify-content: center;
+      padding: 24px; backdrop-filter: blur(6px);
+    }
+    #identityOverlay.show { display: flex; }
+    .id-card {
+      background: var(--surface);
+      border: 2px solid var(--accent);
+      border-radius: 16px;
+      padding: 28px 30px;
+      width: 100%; max-width: 320px;
+      text-align: center;
+    }
+    .id-card .id-icon { font-size: 2.4rem; margin-bottom: 10px; }
+    .id-card .id-label { font-size: .72rem; color: var(--text-faint); letter-spacing: .12em; margin-bottom: 14px; }
+    .id-card .id-name { font-size: 1.7rem; font-weight: 700; margin-bottom: 8px; }
+    .id-card .id-team { font-size: .8rem; padding: 3px 12px; border-radius: 12px; display: inline-block; margin-bottom: 14px; }
+    .id-card .id-desc { font-size: .9rem; color: var(--text-dim); line-height: 1.5; }
+    .id-actions { margin-top: 22px; display: flex; gap: 10px; justify-content: center; }
+    .id-actions button {
+      padding: 11px 24px; border: none; border-radius: 10px;
+      font-size: .92rem; font-weight: 700; cursor: pointer;
+    }
+    .id-actions .id-confirm { background: var(--accent-2); color: #fff; }
+    .id-actions .id-close   { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+    .id-confirmed-msg { margin-top: 12px; font-size: .82rem; color: var(--green); }
+
+    /* ───── LOBBY ────────────────────────────────────────── */
     #lobbyScreen {
       flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      text-align: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 24px; text-align: center;
     }
     #lobbyScreen h2 { font-size: 1.3rem; margin-bottom: 8px; }
-    #lobbyScreen p  { color: #8888bb; font-size: .9rem; margin-bottom: 24px; }
-    #playerList     { width: 100%; max-width: 300px; }
-    .player-entry   {
-      background: #14142a;
-      border: 1px solid #2a2a5a;
-      border-radius: 8px;
-      padding: 10px 14px;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+    #lobbyScreen p { color: var(--text-dim); font-size: .9rem; margin-bottom: 24px; }
+    #playerList { width: 100%; max-width: 320px; margin-bottom: 16px; }
+    .player-entry {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; margin-bottom: 6px;
+      display: flex; justify-content: space-between; align-items: center;
       font-size: .9rem;
     }
-    .player-entry .ready { color: #44ff88; font-size: .75rem; }
-    .player-entry .waiting { color: #888; font-size: .75rem; }
+    .player-entry .ready { color: var(--green); font-size: .75rem; }
+    .player-entry .waiting { color: var(--text-faint); font-size: .75rem; }
     #readyBtn {
-      width: 100%;
-      max-width: 300px;
-      margin-top: 16px;
-      background: #33bb66;
-      border: none;
-      border-radius: 10px;
-      color: #fff;
-      font-size: 1rem;
-      font-weight: 700;
-      padding: 13px;
+      width: 100%; max-width: 320px;
+      background: var(--green); color: #fff; border: none;
+      border-radius: 10px; padding: 14px; font-size: 1rem; font-weight: 700;
       cursor: pointer;
     }
     #readyBtn.is-ready { background: #1a6633; }
+
+    /* ───── RESULT SCREEN ─────────────────────────────────── */
+    #resultScreen {
+      flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center;
+      padding: 28px; text-align: center;
+    }
+    #resultScreen .trophy { font-size: 3rem; margin-bottom: 8px; }
+    #resultScreen h2 { font-size: 1.3rem; color: var(--gold); margin-bottom: 6px; }
+    #resultWinners { font-size: .85rem; color: var(--text-dim); margin-bottom: 28px; }
+    .lb-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 20px 24px; width: 100%; max-width: 320px; margin-bottom: 24px;
+    }
+    .lb-title { font-size: .72rem; color: var(--text-faint); margin-bottom: 12px; letter-spacing: .08em; }
+    #resultLeaderboard .row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid var(--border);
+    }
+    #resultLeaderboard .row.me { color: #ffffaa; font-weight: 700; }
+    #resultLeaderboard .row .score { color: var(--gold); }
+    .leave-btn {
+      background: transparent; border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text-faint); font-size: .85rem; padding: 10px 28px; cursor: pointer;
+    }
 
     .hidden { display: none !important; }
   </style>
 </head>
 <body>
 
-  <!-- Header -->
-  <div id="header">
-    <div>
-      <div class="room" id="headerRoom">房間 ------</div>
-      <div class="name" id="headerName">載入中…</div>
-    </div>
-    <div class="score">分數 <span id="headerScore">0</span></div>
-  </div>
-
-  <!-- Lobby screen -->
+  <!-- ════════ LOBBY ════════ -->
   <div id="lobbyScreen">
     <h2>等待室</h2>
     <p>等待主持人開始遊戲…</p>
@@ -189,105 +314,141 @@
     <button id="readyBtn" onclick="toggleReady()">我準備好了</button>
   </div>
 
-  <!-- Result screen -->
-  <div id="resultScreen" class="hidden" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:28px;text-align:center;">
-    <div style="font-size:3rem;margin-bottom:8px;">🏆</div>
-    <div style="font-size:1.3rem;font-weight:700;color:#ffdd44;margin-bottom:6px;">遊戲結束</div>
-    <div id="resultWinners" style="font-size:.85rem;color:#aaaacc;margin-bottom:28px;"></div>
-    <div style="background:#14142a;border:1px solid #2a2a5a;border-radius:14px;padding:20px 24px;width:100%;max-width:300px;margin-bottom:24px;">
-      <div style="font-size:.72rem;color:#6666aa;margin-bottom:12px;letter-spacing:.08em;">最終排名</div>
+  <!-- ════════ GAME (5 fixed zones) ════════ -->
+  <div id="gameScreen" class="hidden" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+    <!-- Topbar -->
+    <div id="topbar">
+      <div id="idSlot" class="empty" onclick="onIdSlotClick()">
+        <span id="idSlotIcon">🎭</span>
+      </div>
+      <div id="topbarCenter">
+        <div class="name" id="hdrName">玩家</div>
+        <div class="meta">
+          <span id="hdrRoom">房間 ------</span>
+          <span class="score">⭐ <span id="hdrScore">0</span></span>
+        </div>
+      </div>
+      <div id="layoutToggle" role="tablist" aria-label="卡牌排版">
+        <button class="lt-btn" data-layout="strip" title="水平捲動">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3"  y="6" width="4.5" height="12" rx="1"/>
+            <rect x="9.5" y="6" width="4.5" height="12" rx="1"/>
+            <rect x="16" y="6" width="4.5" height="12" rx="1"/>
+          </svg>
+        </button>
+        <button class="lt-btn" data-layout="fan" title="疊牌">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2.5" y="7" width="6" height="11" rx="1" transform="rotate(-12 5.5 12.5)"/>
+            <rect x="9"   y="6" width="6" height="12" rx="1"/>
+            <rect x="15.5" y="7" width="6" height="11" rx="1" transform="rotate(12 18.5 12.5)"/>
+          </svg>
+        </button>
+        <button class="lt-btn" data-layout="grid" title="格狀">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3"  y="3"  width="8" height="8" rx="1"/>
+            <rect x="13" y="3"  width="8" height="8" rx="1"/>
+            <rect x="3"  y="13" width="8" height="8" rx="1"/>
+            <rect x="13" y="13" width="8" height="8" rx="1"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Statusbar -->
+    <div id="statusbar">
+      <span class="status-text" id="statusText">等待遊戲…</span>
+      <span class="countdown" id="countdownText"></span>
+    </div>
+
+    <!-- Card zone -->
+    <div id="cardZone">
+      <div id="cardArea" class="card-area layout-strip"></div>
+      <div id="emptyMsg" class="empty-msg">尚未拿到牌</div>
+    </div>
+
+    <!-- Action bar -->
+    <div id="actionbar">
+      <button id="playBtn" onclick="playSelected()" disabled>請選擇一張牌</button>
+    </div>
+  </div>
+
+  <!-- ════════ IDENTITY OVERLAY ════════ -->
+  <div id="identityOverlay" onclick="onOverlayBgClick(event)">
+    <div class="id-card" id="idCardBox">
+      <div class="id-icon">🎭</div>
+      <div class="id-label">你的身份</div>
+      <div class="id-name" id="idOName">—</div>
+      <div class="id-team" id="idOTeam"></div>
+      <div class="id-desc" id="idODesc"></div>
+      <div class="id-actions" id="idOActions">
+        <button class="id-confirm" id="idOConfirmBtn" onclick="confirmIdentity()">確認身份</button>
+        <button class="id-close"   id="idOCloseBtn"   onclick="closeIdentityOverlay()" style="display:none">關閉</button>
+      </div>
+      <div class="id-confirmed-msg hidden" id="idOConfirmedMsg">✓ 已確認，等待主持人推進</div>
+    </div>
+  </div>
+
+  <!-- ════════ RESULT SCREEN ════════ -->
+  <div id="resultScreen">
+    <div class="trophy">🏆</div>
+    <h2>遊戲結束</h2>
+    <div id="resultWinners"></div>
+    <div class="lb-card">
+      <div class="lb-title">最終排名</div>
       <div id="resultLeaderboard"></div>
     </div>
     <div style="font-size:.82rem;color:#6666aa;margin-bottom:20px;">等待主持人開始下一局…</div>
-    <button onclick="leaveRoom()"
-      style="background:transparent;border:1px solid #3a3a6a;border-radius:10px;
-             color:#6666aa;font-size:.85rem;padding:10px 28px;cursor:pointer;">
-      離開房間
-    </button>
+    <button class="leave-btn" onclick="leaveRoom()">離開房間</button>
   </div>
 
-  <!-- Game screen (hidden until game starts) -->
-  <div id="gameScreen" class="hidden" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
-    <div id="statusArea">等待遊戲…</div>
-    <div id="countdownArea" class="hidden"
-         style="text-align:center;font-size:.85rem;color:#66bbff;padding:0 16px 6px;font-family:monospace;"></div>
-
-    <!-- Identity stage -->
-    <div id="identityScreen" class="hidden" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;">
-      <div style="font-size:3rem;margin-bottom:12px;">🎭</div>
-      <div style="font-size:.8rem;color:#8888bb;margin-bottom:20px;letter-spacing:.1em;">你的身份</div>
-      <div id="identityCard" style="background:#14142a;border:2px solid #5555ff;border-radius:16px;padding:28px 32px;width:100%;max-width:280px;">
-        <div id="identityName"   style="font-size:1.6rem;font-weight:700;margin-bottom:8px;">—</div>
-        <div id="identityTeam"   style="font-size:.78rem;margin-bottom:10px;"></div>
-        <div id="identityDesc"   style="font-size:.85rem;color:#9999cc;"></div>
-      </div>
-      <button onclick="confirmIdentity()" id="identityConfirmBtn"
-        style="margin-top:24px;background:#5555ff;border:none;border-radius:10px;color:#fff;font-size:1rem;font-weight:700;padding:13px 32px;cursor:pointer;">
-        確認身份
-      </button>
-      <div id="identityConfirmedMsg" class="hidden" style="margin-top:12px;font-size:.82rem;color:#44ff88;">✓ 已確認，等待主持人推進</div>
-    </div>
-
-    <!-- Card play stage -->
-    <div id="cardPlayScreen" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
-      <div id="identityBadge" class="hidden" onclick="reopenIdentity()">
-        <div class="ib-icon">🎭</div>
-        <div class="ib-info">
-          <div class="ib-label">你的身份</div>
-          <div class="ib-name" id="ibName">—</div>
-        </div>
-        <div class="ib-team" id="ibTeam"></div>
-      </div>
-      <div id="sharedPanel">公共資訊載入中…</div>
-      <div id="moduleArea"></div>
-      <div id="handArea">
-        <h3 id="handTitle">我的手牌（行動牌組）</h3>
-        <div id="cardList"></div>
-        <button id="playBtn" onclick="playSelected()">出牌</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Socket.io -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/socket.js"></script>
   <script>
+    // ════════════════════════════════════════════════════════════════
+    //   STATE
+    // ════════════════════════════════════════════════════════════════
     const params     = new URLSearchParams(window.location.search);
     const roomId     = params.get('room') || '';
     const playerName = params.get('name') || '玩家';
     const playerId   = getOrCreatePlayerId();
 
-    let selectedCard = null;
-    let myHand       = [];
-    let myIdentity   = null;     // persistent identity card (if any)
-    let isReady      = false;
-    let phase        = 'lobby';
-    let isPlayingCard = false;   // tracking card play in progress
-    let isRevealed   = false;    // tracks if cards have been revealed this round
-    let hasPlayedThisRound = false;  // tracks if player has played a card this round
+    let myHand        = [];
+    let myIdentity    = null;
+    let selectedCard  = null;       // _instanceId of selected card
+    let isReady       = false;
+    let phase         = 'lobby';
+    let isPlayingCard = false;
+    let isRevealed    = false;
+    let hasPlayedThisRound = false;
+    let identityConfirmed  = false;
+    const playersById = new Map();
 
-    // Store players info for display
-    const players = new Map();  // playerId -> { name, isReady, score, ... }
+    // Layout: 'strip' | 'fan' | 'grid' — persisted per-device
+    let cardLayout = localStorage.getItem('mobile.cardLayout') || 'strip';
 
-    // ── Connect ──────────────────────────────────────────────
+    const TEAM_COLORS = {
+      red: '#ff6666', blue: '#6688ff', green: '#44cc88',
+      gold:'#ffdd44', purple: '#bb66ff', default: '#aaaaff'
+    };
+
+    // ════════════════════════════════════════════════════════════════
+    //   CONNECT
+    // ════════════════════════════════════════════════════════════════
     const client = new GameClient();
     client.connect();
-
-    client.on('connect', () => {
-      client.joinRoom(roomId, playerId, playerName);
-    });
+    client.on('connect', () => client.joinRoom(roomId, playerId, playerName));
 
     client.on('room_joined', (data) => {
       phase = data.phase;
-      document.getElementById('headerRoom').textContent = `房間 ${data.roomId}`;
-      document.getElementById('headerName').textContent = playerName;
+      document.getElementById('hdrRoom').textContent = `房間 ${data.roomId}`;
+      document.getElementById('hdrName').textContent = playerName;
       renderPlayers(data.players);
       if (data.playerState) updateMyState(data.playerState);
-      if (data.sharedState) updateSharedPanel(data.sharedState);
+      if (data.sharedState) updateStatus(data.sharedState);
       if (data.phase === 'playing') enterGameScreen();
     });
 
-    client.on('player_joined',       d => renderPlayers(d.players || []));
+    client.on('player_joined', d => renderPlayers(d.players || []));
     client.on('player_left', d => {
       if (d.playerId === playerId) {
         alert('你已被移出房間');
@@ -296,36 +457,30 @@
         renderPlayers((d.players || []).filter(p => p.id !== d.playerId));
       }
     });
-    client.on('player_ready',        d => renderPlayers(d.players || []));
-    client.on('player_reconnected',  d => {});
+    client.on('player_ready', d => renderPlayers(d.players || []));
 
     client.on('game_started', (data) => {
       phase = 'playing';
-      updateSharedPanel(data.sharedState || {});
-      document.getElementById('headerScore').textContent = '0';
-      // Do NOT reset myHand here — cards_drawn owns the hand state.
-      // Resetting here would wipe cards that already arrived before game_started.
+      updateStatus(data.sharedState || {});
+      document.getElementById('hdrScore').textContent = '0';
       selectedCard = null;
-      myIdentity   = null;       // fresh game → new identity will arrive (if any)
-      isPlayingCard = false;      // Reset playing state
+      myIdentity   = null;
+      identityConfirmed = false;
+      isPlayingCard = false;
+      hasPlayedThisRound = false;
+      isRevealed = false;
       renderIdentityBadge();
-      hideIdentityScreen();
+      hideIdentityOverlay();
       hideResultScreen();
       enterGameScreen();
-      // Clear countdown
-      const el = document.getElementById('countdownArea');
-      el.classList.add('hidden');
-      el.textContent = '';
+      clearCountdown();
     });
 
-    client.on('game_ended', (data) => {
-      phase = 'result';
-      showResultScreen(data);
-    });
-
+    client.on('game_ended',    (data) => { phase = 'result'; showResultScreen(data); });
     client.on('back_to_lobby', () => {
       phase = 'lobby';
       hideResultScreen();
+      hideIdentityOverlay();
       document.getElementById('gameScreen').classList.add('hidden');
       document.getElementById('lobbyScreen').style.display = 'flex';
       isReady = false;
@@ -336,426 +491,326 @@
 
     client.on('identity_assigned', (data) => {
       myIdentity = data.card;
+      identityConfirmed = false;
       renderIdentityBadge();
       enterGameScreen();
-      showIdentityScreen(data.card);
+      openIdentityOverlay({ confirmMode: true });
     });
 
     client.on('phase_changed', (data) => {
-      document.getElementById('statusArea').textContent = data.message || '';
-      if (data.phase === 'waiting' || data.phase === 'reveal') {
-        hideIdentityScreen();
-      }
+      if (data.message) setStatus(data.message);
     });
-
-    client.on('identity_progress', (data) => {
-      // optional: show progress feedback
-    });
-
     client.on('state_update', (data) => {
-      if (data.sharedState) updateSharedPanel(data.sharedState);
+      if (data.sharedState) updateStatus(data.sharedState);
     });
 
     client.on('card_accepted', (data) => {
-      // Server confirmed card played — sync hand immediately so round 2+ works
       isPlayingCard = false;
-      hasPlayedThisRound = true;  // 標記本回合已出牌
-      if (data.hand) {
-        myHand = data.hand;
-      } else {
-        // Filter out the specific card instance that was played
-        myHand = myHand.filter(c => c._instanceId !== data.instanceId);
-      }
+      hasPlayedThisRound = true;
+      if (data.hand) myHand = data.hand;
+      else myHand = myHand.filter(c => c._instanceId !== data.instanceId);
       selectedCard = null;
-      renderHand();  // 這會隱藏出牌按鈕（因為 hasPlayedThisRound = true）
+      renderCards();
     });
 
     client.on('card_rejected', (data) => {
-      console.log('[Mobile] Card rejected:', data.reason, data.message);
       isPlayingCard = false;
-
-      // 如果是因為已經出過牌而被拒絕，確保按鈕保持隱藏
       if (data.reason === 'already_played') {
         hasPlayedThisRound = true;
-        renderHand();  // 隱藏按鈕
+        renderCards();
       }
-
-      // Show error message to player
       if (data.message) {
-        const statusArea = document.getElementById('statusArea');
-        if (statusArea) {
-          statusArea.textContent = data.message;
-          statusArea.style.color = '#ff5555';
-          setTimeout(() => {
-            statusArea.textContent = '等待遊戲…';
-            statusArea.style.color = '';
-          }, 2000);
-        }
+        flashStatus(data.message, '#ff5555');
       }
     });
 
     client.on('cards_drawn', (data) => {
-      selectedCard = null;   // deselect on any new hand
-      isRevealed = false;    // reset revealed flag when new cards are dealt
-      hasPlayedThisRound = false;  // reset - new cards mean can play again
+      selectedCard = null;
+      isRevealed = false;
+      hasPlayedThisRound = false;
       myHand = data.hand || [];
-      renderHand();
+      renderCards();
     });
-
     client.on('hand_refilled', (data) => {
-      selectedCard = null;   // deselect on refill
-      isPlayingCard = false; // Reset playing state
-      isRevealed = false;    // reset revealed flag when hand is refilled
-      hasPlayedThisRound = false;  // reset - refilled means can play again
+      selectedCard = null;
+      isRevealed = false;
+      hasPlayedThisRound = false;
+      isPlayingCard = false;
       myHand = data.hand || [];
-      renderHand();
+      renderCards();
     });
 
-    // ── Stage & Round Events ───────────────────────────────────────
     client.on('stage_started', (data) => {
-      console.log('[Mobile] Stage started:', data.stageId, data.stageName, 'type:', data.stageType);
-      // Update UI to show current stage
-      document.getElementById('statusArea').textContent = `階段：${data.stageName}`;
-      // Clear countdown
-      const el = document.getElementById('countdownArea');
-      el.classList.add('hidden');
-      el.textContent = '';
-
-      // Hide identity screen when leaving identity_draw stage
-      if (data.stageType !== 'identity_draw') {
-        hideIdentityScreen();
-      }
+      setStatus(`階段：${data.stageName}`);
+      clearCountdown();
     });
-
     client.on('round_started', (data) => {
-      console.log('[Mobile] Round started:', data.roundNumber, 'of', data.totalRounds);
-      document.getElementById('statusArea').textContent = `第 ${data.roundNumber} 回合 (共 ${data.totalRounds} 回合)`;
-      // Clear played cards display and reset state
+      setStatus(`第 ${data.roundNumber} 回合 (共 ${data.totalRounds} 回合)`);
       selectedCard = null;
       isPlayingCard = false;
-      isRevealed = false;  // Reset revealed flag for new round
-      hasPlayedThisRound = false;  // Reset for new round - can play again
-      // Clear countdown
-      const el = document.getElementById('countdownArea');
-      el.classList.add('hidden');
-      el.textContent = '';
-      // 重新啟用出牌按鈕
-      renderHand();
+      isRevealed = false;
+      hasPlayedThisRound = false;
+      clearCountdown();
+      renderCards();
+    });
+    client.on('cards_revealed', () => {
+      setStatus('翻牌！');
+      clearCountdown();
+      isRevealed = true;
+      renderCards();
     });
 
-    client.on('card_played', (data) => {
-      console.log('[Mobile] Card played by:', data.playerId);
-      // Could update UI to show that player has played
-    });
-
-    client.on('cards_revealed', (data) => {
-      console.log('[Mobile] Cards revealed:', data.cards);
-      document.getElementById('statusArea').textContent = '翻牌！';
-
-      // Clear countdown (countdown should end when cards are revealed)
-      const el = document.getElementById('countdownArea');
-      el.classList.add('hidden');
-      el.textContent = '';
-
-      // Show revealed cards
-      if (data.cards && data.cards.length > 0) {
-        // Display a simple overlay or modal with revealed cards
-        showRevealedCardsOverlay(data.cards);
-      }
-    });
-
-    client.on('show_result', (data) => {
-      console.log('[Mobile] Show result:', data);
-      document.getElementById('statusArea').textContent = data.message || '遊戲結束';
-    });
-
-    // Auto-advance countdown
     client.on('countdown', (d) => {
-      const el = document.getElementById('countdownArea');
+      const el = document.getElementById('countdownText');
       if (d.remaining > 0) {
-        el.classList.remove('hidden');
-        el.textContent = `⏱ ${d.remaining} 秒後自動進行下一步`;
-
-        // 立即禁用出牌按鈕（倒數開始時）
-        if (!isRevealed) {
-          isRevealed = true;
-          renderHand();  // 立即隱藏按鈕
-          console.log('[Mobile] Countdown started, disabling card play');
-        }
+        el.textContent = `⏱ ${d.remaining}s`;
+        if (!isRevealed) { isRevealed = true; renderCards(); }
       } else {
-        el.classList.add('hidden');
         el.textContent = '';
       }
-    });
-    client.on('phase_changed', () => {
-      // Phase change cancels any visible countdown
-      const el = document.getElementById('countdownArea');
-      el.classList.add('hidden');
-      el.textContent = '';
     });
 
     client.on('reconnected', (data) => {
       phase = data.phase;
       if (data.playerState) updateMyState(data.playerState);
-      if (data.sharedState) updateSharedPanel(data.sharedState);
+      if (data.sharedState) updateStatus(data.sharedState);
       if (phase === 'playing') enterGameScreen();
     });
-
     client.on('score_update', (data) => {
       if (data.playerId === playerId) {
-        document.getElementById('headerScore').textContent = data.score;
+        document.getElementById('hdrScore').textContent = data.score;
       }
     });
 
-    client.on('phase_changed', (data) => {
-      document.getElementById('statusArea').textContent = data.message || '';
-    });
-
-    // ── Helpers ───────────────────────────────────────────────
-    function enterGameScreen() {
-      document.getElementById('lobbyScreen').classList.add('hidden');
-      document.getElementById('gameScreen').classList.remove('hidden');
-      document.getElementById('gameScreen').style.display = 'flex';
-    }
-
-    const TEAM_COLORS = {
-      red:'#ff6666', blue:'#6688ff', green:'#44cc88',
-      gold:'#ffdd44', purple:'#bb66ff', default:'#aaaaff'
-    };
-
-    function showIdentityScreen(card) {
-      document.getElementById('identityScreen').classList.remove('hidden');
-      document.getElementById('cardPlayScreen').style.display = 'none';
-      document.getElementById('identityName').textContent = card.name || '—';
-      document.getElementById('identityDesc').textContent = card.description || '';
-      const teamEl = document.getElementById('identityTeam');
-      const color = TEAM_COLORS[card.team] || TEAM_COLORS.default;
-      teamEl.innerHTML = card.team
-        ? `<span style="background:${color}22;color:${color};padding:3px 10px;border-radius:12px;font-size:.75rem">${card.team}</span>`
-        : '';
-      document.getElementById('identityCard').style.borderColor = color;
-      document.getElementById('identityConfirmBtn').style.display = 'block';
-      document.getElementById('identityConfirmedMsg').classList.add('hidden');
-    }
-
-    function hideIdentityScreen() {
-      document.getElementById('identityScreen').classList.add('hidden');
-      document.getElementById('cardPlayScreen').style.display = 'flex';
-    }
-
-    // Compact persistent badge — visible during card play so the player can
-    // always see their identity even after the focus screen is dismissed.
+    // ════════════════════════════════════════════════════════════════
+    //   IDENTITY (top-left badge + overlay)
+    // ════════════════════════════════════════════════════════════════
     function renderIdentityBadge() {
-      const badge = document.getElementById('identityBadge');
-      if (!myIdentity) { badge.classList.add('hidden'); return; }
+      const slot = document.getElementById('idSlot');
+      const icon = document.getElementById('idSlotIcon');
+      if (!myIdentity) {
+        slot.className = 'empty';
+        icon.textContent = '🎭';
+        slot.style.borderColor = '';
+        slot.style.color = '';
+        return;
+      }
       const color = TEAM_COLORS[myIdentity.team] || TEAM_COLORS.default;
-      badge.classList.remove('hidden');
-      badge.style.borderLeftColor = color;
-      document.getElementById('ibName').textContent = myIdentity.name || '—';
-      const teamEl = document.getElementById('ibTeam');
+      slot.className = 'has-id';
+      slot.style.borderColor = color;
+      slot.style.color = color;
+      // First two chars of identity name (e.g. 戰士 → 戰士)
+      const short = (myIdentity.name || '?').slice(0, 2);
+      icon.textContent = short;
+    }
+
+    function onIdSlotClick() {
+      if (myIdentity) openIdentityOverlay({ confirmMode: !identityConfirmed });
+    }
+
+    function openIdentityOverlay({ confirmMode }) {
+      if (!myIdentity) return;
+      const ov = document.getElementById('identityOverlay');
+      const color = TEAM_COLORS[myIdentity.team] || TEAM_COLORS.default;
+      document.getElementById('idCardBox').style.borderColor = color;
+      document.getElementById('idOName').textContent = myIdentity.name || '—';
+      document.getElementById('idODesc').textContent = myIdentity.description || '';
+      const teamEl = document.getElementById('idOTeam');
       if (myIdentity.team) {
-        teamEl.textContent = myIdentity.team;
         teamEl.style.background = color + '22';
         teamEl.style.color = color;
         teamEl.style.display = 'inline-block';
+        teamEl.textContent = myIdentity.team;
+      } else { teamEl.style.display = 'none'; }
+
+      const confirmBtn = document.getElementById('idOConfirmBtn');
+      const closeBtn   = document.getElementById('idOCloseBtn');
+      const msg        = document.getElementById('idOConfirmedMsg');
+      if (confirmMode && !identityConfirmed) {
+        confirmBtn.style.display = 'inline-block';
+        closeBtn.style.display = 'none';
+        msg.classList.add('hidden');
       } else {
-        teamEl.style.display = 'none';
+        confirmBtn.style.display = 'none';
+        closeBtn.style.display = 'inline-block';
+        if (identityConfirmed) msg.classList.remove('hidden');
       }
+      ov.classList.add('show');
     }
 
-    // Tap badge → re-open the big focus view so the player can re-read the description.
-    // Confirm button is hidden (already confirmed); they tap anywhere/back to dismiss.
-    function reopenIdentity() {
-      if (!myIdentity) return;
-      showIdentityScreen(myIdentity);
-      document.getElementById('identityConfirmBtn').style.display = 'none';
-      document.getElementById('identityConfirmedMsg').classList.remove('hidden');
-      // Add a one-time "tap to close" overlay click
-      const screen = document.getElementById('identityScreen');
-      const onTap = (e) => {
-        if (e.target === screen) {
-          hideIdentityScreen();
-          screen.removeEventListener('click', onTap);
-        }
-      };
-      setTimeout(() => screen.addEventListener('click', onTap), 50);
+    function hideIdentityOverlay() { document.getElementById('identityOverlay').classList.remove('show'); }
+    function closeIdentityOverlay() { hideIdentityOverlay(); }
+    function onOverlayBgClick(e) {
+      if (e.target.id === 'identityOverlay' && identityConfirmed) hideIdentityOverlay();
     }
-
     function confirmIdentity() {
       client.playerAction('confirm_identity', {});
-      document.getElementById('identityConfirmBtn').style.display = 'none';
-      document.getElementById('identityConfirmedMsg').classList.remove('hidden');
+      identityConfirmed = true;
+      document.getElementById('idOConfirmBtn').style.display = 'none';
+      document.getElementById('idOCloseBtn').style.display = 'inline-block';
+      document.getElementById('idOConfirmedMsg').classList.remove('hidden');
     }
 
-    function renderPlayers(players) {
-      // Update global players Map
-      players.forEach(p => {
-        window.players.set(p.id, p);
-      });
+    // ════════════════════════════════════════════════════════════════
+    //   STATUS / COUNTDOWN
+    // ════════════════════════════════════════════════════════════════
+    function setStatus(text) {
+      const el = document.getElementById('statusText');
+      el.style.color = '';
+      el.textContent = text || '';
+    }
+    function flashStatus(text, color) {
+      const el = document.getElementById('statusText');
+      el.style.color = color || '';
+      el.textContent = text;
+      setTimeout(() => { el.style.color = ''; el.textContent = ''; }, 2200);
+    }
+    function clearCountdown() { document.getElementById('countdownText').textContent = ''; }
+    function updateStatus(sharedState) {
+      if (typeof sharedState === 'object' && sharedState && sharedState.message) {
+        setStatus(sharedState.message);
+      }
+    }
 
-      const list = document.getElementById('playerList');
-      list.innerHTML = players.map(p => `
-        <div class="player-entry">
-          <span>${p.name}</span>
-          <span class="${p.isReady ? 'ready' : 'waiting'}">${p.isReady ? '✓ 準備' : '等待中'}</span>
+    // ════════════════════════════════════════════════════════════════
+    //   LAYOUT TOGGLE (cards: strip / fan / grid)
+    // ════════════════════════════════════════════════════════════════
+    function setCardLayout(name) {
+      cardLayout = name;
+      localStorage.setItem('mobile.cardLayout', name);
+      document.querySelectorAll('.lt-btn').forEach(b => b.classList.toggle('active', b.dataset.layout === name));
+      const area = document.getElementById('cardArea');
+      area.className = 'card-area layout-' + name;
+      renderCards();
+    }
+    document.querySelectorAll('.lt-btn').forEach(b => {
+      b.addEventListener('click', () => setCardLayout(b.dataset.layout));
+    });
+
+    // ════════════════════════════════════════════════════════════════
+    //   CARD RENDERING (image-first; 3 layouts)
+    // ════════════════════════════════════════════════════════════════
+    function cardImageUrl(card) {
+      // Support both `image` (deck JSON shape) and `imagePath` (legacy)
+      return card.image || card.imagePath || '';
+    }
+
+    function renderCardElement(card, extraStyle = '') {
+      const imgUrl  = cardImageUrl(card);
+      const isSel   = selectedCard === card._instanceId;
+      const valTag  = (card.value !== undefined && card.value !== null && card.value !== '')
+        ? `<div class="card-value-pill">${card.value}</div>` : '';
+      const visual  = imgUrl
+        ? `<img class="card-img" src="${imgUrl}" alt="${card.name||''}" onerror="this.style.display='none';this.nextElementSibling&&(this.nextElementSibling.style.display='flex');"><div class="card-img-fallback" style="display:none">${(card.name||'').slice(0,2)}</div>`
+        : `<div class="card-img-fallback">${(card.name||'').slice(0,2)}</div>`;
+      const noImgCls = imgUrl ? '' : 'no-img';
+      return `<div class="card ${noImgCls} ${isSel?'selected':''}"
+                   data-instance-id="${card._instanceId}"
+                   onclick="selectCard('${card._instanceId}')"
+                   style="${extraStyle}">
+        ${visual}
+        ${valTag}
+        <div class="card-body">
+          <div class="card-name">${card.name||''}</div>
+          <div class="card-sub">${card.description||''}</div>
         </div>
-      `).join('');
+      </div>`;
     }
 
-    function updateMyState(state) {
-      if (state.hand) { myHand = state.hand; renderHand(); }
-      if (state.score !== undefined) {
-        document.getElementById('headerScore').textContent = state.score;
-      }
-      // Restore identity on reconnect / late-join
-      if (state.moduleData && state.moduleData.identity) {
-        myIdentity = state.moduleData.identity;
-        renderIdentityBadge();
-      }
-    }
+    function renderCards() {
+      const area = document.getElementById('cardArea');
+      const empty = document.getElementById('emptyMsg');
+      area.className = 'card-area layout-' + cardLayout;
+      // Sync active toggle
+      document.querySelectorAll('.lt-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.layout === cardLayout));
 
-    function updateSharedPanel(state) {
-      const el = document.getElementById('sharedPanel');
-      if (typeof state === 'object' && state.message) {
-        el.textContent = state.message;
+      if (!myHand.length) {
+        area.innerHTML = '';
+        empty.style.display = 'flex';
       } else {
-        el.textContent = JSON.stringify(state, null, 2);
+        empty.style.display = 'none';
+        if (cardLayout === 'fan') area.innerHTML = renderFan();
+        else                       area.innerHTML = myHand.map(c => renderCardElement(c)).join('');
       }
+      updateActionButton();
     }
 
-    function renderHand() {
-      const list = document.getElementById('cardList');
-      list.innerHTML = myHand.map(card => {
-        // Check if card has an image
-        const hasImage = card.imagePath;
-        const cardImage = hasImage ? `<img src="${card.imagePath}" alt="${card.name}" style="width:100%;height:140px;object-fit:cover;border-radius:8px;margin-bottom:8px;">` : '';
-
-        return `
-        <div class="card-item ${selectedCard === card._instanceId ? 'selected' : ''}"
-             onclick="selectCard('${card._instanceId}')">
-          ${cardImage}
-          <div class="card-name">${card.name}</div>
-          <div class="card-desc">${card.description || ''}</div>
-        </div>
-        `;
-      }).join('');
-
-      // Update button state
-      const btn = document.getElementById('playBtn');
-      if (myHand.length === 0) {
-        btn.style.display = 'none';
-      } else {
-        btn.style.display = 'block';
-
-        // Disabled conditions: no selection, playing, revealed, or already played
-        const disabled = !selectedCard || isPlayingCard || isRevealed || hasPlayedThisRound;
-        btn.disabled = disabled;
-
-        // Show appropriate text based on state
-        if (isPlayingCard) {
-          btn.textContent = '出牌中…';
-        } else if (isRevealed) {
-          btn.textContent = '等待下一回合';
-        } else if (hasPlayedThisRound) {
-          btn.textContent = '已出牌';
-        } else if (!selectedCard) {
-          btn.textContent = '請選擇一張牌';
-        } else {
-          btn.textContent = '出牌';
-        }
+    function renderFan() {
+      // Cards overlap. Compute per-card transform.
+      const n = myHand.length;
+      const stepX = Math.max(28, Math.min(60, (window.innerWidth - 140) / Math.max(1, n - 1)));
+      const stepDeg = n > 1 ? Math.min(8, 22 / Math.max(1, n - 1)) : 0;
+      const startDeg = -((n - 1) * stepDeg) / 2;
+      const totalW = (n - 1) * stepX + 110; // card width 110
+      const startX = -totalW / 2 + 55;
+      let html = '<div class="fan-track" style="width:'+ totalW +'px;height:200px;">';
+      for (let i = 0; i < n; i++) {
+        const card = myHand[i];
+        const x   = startX + i * stepX - 55;          // anchor by card center
+        const deg = startDeg + i * stepDeg;
+        const isSel = selectedCard === card._instanceId;
+        const lift  = isSel ? -36 : 0;
+        const style = `position:absolute;left:50%;top:50%;
+          transform: translate(${x}px, calc(-50% + ${lift}px)) rotate(${deg}deg);
+          z-index:${isSel ? 100 : i + 1};`;
+        html += renderCardElement(card, style);
       }
+      html += '</div>';
+      return html;
     }
 
     function selectCard(instanceId) {
-      selectedCard = selectedCard === instanceId ? null : instanceId;
-      renderHand();
+      selectedCard = (selectedCard === instanceId) ? null : instanceId;
+      renderCards();
+    }
+
+    function updateActionButton() {
+      const btn = document.getElementById('playBtn');
+      // Hide button entirely when not in a play context (no hand)
+      if (!myHand.length) {
+        btn.disabled = true; btn.textContent = '尚未拿到牌'; return;
+      }
+      if (isPlayingCard)        { btn.disabled = true;  btn.textContent = '出牌中…';        return; }
+      if (isRevealed)           { btn.disabled = true;  btn.textContent = '等待下一回合';   return; }
+      if (hasPlayedThisRound)   { btn.disabled = true;  btn.textContent = '已出牌';         return; }
+      if (!selectedCard)        { btn.disabled = true;  btn.textContent = '請選擇一張牌';   return; }
+      btn.disabled = false; btn.textContent = '出牌';
     }
 
     function playSelected() {
       if (!selectedCard || isPlayingCard) return;
       isPlayingCard = true;
-
-      // Send instanceId to server, not card.id
       client.playCard(selectedCard, null);
-
-      // Update button state
-      const btn = document.getElementById('playBtn');
-      btn.disabled = true;
-      btn.textContent = '出牌中…';
-
-      // Reset after timeout (in case server doesn't respond)
+      updateActionButton();
+      // Safety reset (in case server doesn't reply)
       setTimeout(() => {
-        isPlayingCard = false;
-        selectedCard = null;
-        renderHand();
-      }, 3000);
+        if (isPlayingCard) {
+          isPlayingCard = false;
+          renderCards();
+        }
+      }, 4000);
     }
 
-    function showResultScreen(data) {
-      document.getElementById('lobbyScreen').classList.add('hidden');
-      document.getElementById('gameScreen').classList.add('hidden');
-      const rs = document.getElementById('resultScreen');
-      rs.classList.remove('hidden');
-      rs.style.display = 'flex';
-
-      const champions = data.champions || [];
-      document.getElementById('resultWinners').textContent =
-        champions.length ? `🏆 ${champions.join(', ')}` : '';
-
-      const ranked = data.ranked || [];
-      document.getElementById('resultLeaderboard').innerHTML = ranked.map((p, i) => {
-        const isMe = p.id === playerId;
-        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
-        return `<div style="display:flex;align-items:center;justify-content:space-between;
-          padding:8px 0;border-bottom:1px solid #2a2a5a;
-          ${isMe ? 'color:#ffffaa;font-weight:700;' : 'color:#ccccee;'}">
-          <span>${medal} ${p.name}${isMe ? ' (我)' : ''}</span>
-          <span style="color:#ffdd44">${p.score} 分</span>
-        </div>`;
-      }).join('');
+    // ════════════════════════════════════════════════════════════════
+    //   LOBBY
+    // ════════════════════════════════════════════════════════════════
+    function enterGameScreen() {
+      document.getElementById('lobbyScreen').style.display = 'none';
+      document.getElementById('gameScreen').classList.remove('hidden');
+      document.getElementById('gameScreen').style.display = 'flex';
+      // Apply persisted layout selection
+      setCardLayout(cardLayout);
     }
-
-    function hideResultScreen() {
-      const rs = document.getElementById('resultScreen');
-      rs.classList.add('hidden');
-      rs.style.display = 'none';
+    function renderPlayers(plist) {
+      plist.forEach(p => playersById.set(p.id, p));
+      const el = document.getElementById('playerList');
+      el.innerHTML = plist.map(p => `
+        <div class="player-entry">
+          <span>${p.name}</span>
+          <span class="${p.isReady ? 'ready' : 'waiting'}">${p.isReady ? '✓ 準備' : '等待中'}</span>
+        </div>`).join('');
     }
-
-    function showRevealedCardsOverlay(cards) {
-      const moduleArea = document.getElementById('moduleArea');
-      if (!moduleArea) return;
-
-      // Build HTML for revealed cards
-      let html = '<div style="padding:20px;text-align:center;">';
-      html += '<div style="font-size:1.2rem;color:#ffdd44;margin-bottom:20px;">🃏 翻牌結果</div>';
-
-      for (const item of cards) {
-        const player = window.players.get(item.playerId);
-        const playerName = player ? player.name : item.playerId;
-        const card = item.card;
-
-        html += `
-          <div style="background:#1a1a3a;border:2px solid #5555ff;border-radius:12px;padding:16px;margin:12px 0;">
-            <div style="font-size:0.9rem;color:#8888bb;margin-bottom:4px;">${playerName}</div>
-            <div style="font-size:1.4rem;font-weight:700;color:#fff;margin-bottom:4px;">${card.name || '—'}</div>
-            ${card.value !== undefined ? `<div style="font-size:1.2rem;color:#ffdd44;">⭐ ${card.value}</div>` : ''}
-            ${card.team ? `<div style="font-size:0.8rem;color:#aaaacc;padding:2px 8px;background:#333355;border-radius:8px;display:inline-block;margin-top:4px;">${card.team}</div>` : ''}
-          </div>
-        `;
-      }
-
-      html += '</div>';
-
-      // Clear previous content and show new content
-      moduleArea.innerHTML = html;
-    }
-
-    function leaveRoom() {
-      client.socket.disconnect();
-      const qs = new URLSearchParams({ room: roomId, name: playerName }).toString();
-      window.location.href = `/mobile?${qs}`;
-    }
-
     function toggleReady() {
       isReady = !isReady;
       client.setReady(isReady);
@@ -763,6 +818,51 @@
       btn.textContent = isReady ? '✓ 已準備' : '我準備好了';
       btn.classList.toggle('is-ready', isReady);
     }
+    function updateMyState(state) {
+      if (state.hand) { myHand = state.hand; renderCards(); }
+      if (state.score !== undefined) document.getElementById('hdrScore').textContent = state.score;
+      if (state.moduleData?.identity) {
+        myIdentity = state.moduleData.identity;
+        renderIdentityBadge();
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //   RESULT
+    // ════════════════════════════════════════════════════════════════
+    function showResultScreen(data) {
+      document.getElementById('lobbyScreen').style.display = 'none';
+      document.getElementById('gameScreen').style.display = 'none';
+      document.getElementById('resultScreen').style.display = 'flex';
+
+      const champions = data.champions || [];
+      document.getElementById('resultWinners').textContent =
+        champions.length ? `🏆 ${champions.join(', ')}` : '';
+
+      const ranked = data.ranked || [];
+      document.getElementById('resultLeaderboard').innerHTML = ranked.map((p, i) => {
+        const isMe  = p.id === playerId;
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+        return `<div class="row ${isMe?'me':''}">
+          <span>${medal} ${p.name}${isMe ? ' (我)' : ''}</span>
+          <span class="score">${p.score} 分</span>
+        </div>`;
+      }).join('');
+    }
+    function hideResultScreen() {
+      document.getElementById('resultScreen').style.display = 'none';
+    }
+    function leaveRoom() {
+      client.socket.disconnect();
+      const qs = new URLSearchParams({ room: roomId, name: playerName }).toString();
+      window.location.href = `/mobile?${qs}`;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //   INIT — apply layout class on first paint
+    // ════════════════════════════════════════════════════════════════
+    document.querySelectorAll('.lt-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.layout === cardLayout));
   </script>
 </body>
 </html>

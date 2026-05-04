@@ -51,10 +51,10 @@ npm run dev                               # nodemon
 
 ## 一場遊戲的流程
 
-1. **Host** 打開 `/host` → 「建立房間」拿到房號 + QR code
+1. **Host** 打開 `/host` → 選擇模組 → 「建立房間」拿到房號 + QR code
 2. **玩家** 用手機掃 QR 進到 `/mobile?room=ABCDEF`，輸入名稱
 3. **大螢幕** 打開 `/display?room=ABCDEF`
-4. **Host** 選模組 → 人數準備齊全 → 啟動
+4. **Host** 確認人數準備齊全 → 啟動遊戲
 5. 遊戲依模組階段流程跑
 6. 結束後 host 可重新開始 / 換模組 / 回大廳
 

@@ -2031,6 +2031,7 @@
   }
 
   function onIpChange() { if (roomId) setQR(roomId); }
+  Config.initUI();
 
   function addLog(msg, isErr = false) {
     const list = document.getElementById('logList');

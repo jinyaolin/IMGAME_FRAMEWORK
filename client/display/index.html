@@ -363,14 +363,13 @@
       updateShared(data.sharedState || {});
 
       // Show QR
-      const origin = window.location.origin;
-      const mobileUrl = `${origin}/mobile?room=${data.roomId}`;
+      const mobileUrl = Config.mobileUrl(data.roomId);
       document.getElementById('joinUrl').textContent = mobileUrl;
       document.getElementById('mobileLink').href = mobileUrl;
-      document.getElementById('qrImg').src = `/api/rooms/${data.roomId}/qr`;
+      document.getElementById('qrImg').src = Config.qrSrc(data.roomId);
 
       // Initialize QR overlay
-      document.getElementById('qrOverlayImg').src = `/api/rooms/${data.roomId}/qr`;
+      document.getElementById('qrOverlayImg').src = Config.qrSrc(data.roomId);
       document.getElementById('qrOverlayUrl').textContent = mobileUrl;
 
       if (data.phase === 'playing') enterGameView();

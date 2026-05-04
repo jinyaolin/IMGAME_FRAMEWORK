@@ -369,4 +369,11 @@ function _saveCfg() {
   if (ipChanged && typeof onIpChange === 'function') onIpChange();
 }
 
-document.addEventListener('DOMContentLoaded', _initCfgUI);
+// Pages that want the gear button call Config.initUI() explicitly
+Config.initUI = function() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initCfgUI);
+  } else {
+    _initCfgUI();
+  }
+};

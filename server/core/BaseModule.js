@@ -392,7 +392,8 @@ class BaseModule {
       stageDescription: stage.description || '',
       stageIndex: this.stageIndex,
       roundNumber: this.roundNumber,
-      loopContext
+      loopContext,
+      ...(stage.inputConfig ? { inputConfig: stage.inputConfig } : {})
     });
 
     // Handle identity_draw stage - assign identities
@@ -408,6 +409,11 @@ class BaseModule {
     // Handle vote stage
     if (stage.type === 'vote') {
       await this._startVoteStage(session, stage);
+    }
+
+    // Handle input/controller stage
+    if (stage.type === 'input') {
+      await this._startInputStage(session, stage);
     }
 
     // Handle intermission stage (pause)
@@ -528,6 +534,20 @@ class BaseModule {
       await this._handleCastVote(playerId, data, session);
     }
 
+    // Relay controller input to display for input stages
+    if (action === 'input') {
+      const stage = this._currentStage();
+      if (stage?.type === 'input') {
+        const player = this.players.find(p => p.id === playerId);
+        session.broadcastDisplay('player_input', {
+          playerId,
+          playerName: player?.name || playerId,
+          key: data?.key,
+          state: data?.state,
+        });
+      }
+    }
+
     // Override this method to handle custom actions
   }
 
@@ -568,7 +588,8 @@ class BaseModule {
         stageIndex: this.stageIndex,
         roundNumber: this.roundNumber,
         loopContext,
-        isReconnect: true
+        isReconnect: true,
+        ...(stage.inputConfig ? { inputConfig: stage.inputConfig } : {})
       });
     }
 
@@ -1437,6 +1458,25 @@ class BaseModule {
 
     html += '</div></div>';
     return html;
+  }
+
+  // ── Input / Controller Stage ───────────────────────────────────────────
+
+  async _startInputStage(session, stage) {
+    console.log('[BaseModule] Entering input/controller stage:', stage.name);
+    for (const player of this.players) player.status = 'active';
+
+    const trigger = stage.advance?.trigger || 'host';
+    if (trigger === 'timer') {
+      const duration = stage.advance?.duration || 60;
+      this._startCountdown(session, duration, async () => {
+        this._autoAdvanceTimer = null;
+        await this.onHostNextStage(session);
+      });
+    } else if (trigger === 'auto') {
+      await this.onHostNextStage(session);
+    }
+    // 'host' trigger: wait for host_next_phase
   }
 
   // ── Vote System Methods ────────────────────────────────────────────────

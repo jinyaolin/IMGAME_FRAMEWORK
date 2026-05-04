@@ -356,7 +356,7 @@
     { value: 'card_play',     label: '出牌回合' },
     { value: 'vote',          label: '投票' },
     { value: 'result',        label: '結算' },
-    { value: 'input',         label: '填寫資料' },
+    { value: 'input',         label: '🎮 控制器' },
     { value: 'intermission',  label: '暫停' },
     { value: 'loop',          label: '🔁 循環' },
   ];
@@ -1064,8 +1064,9 @@
                 '每回合翻牌後的行為（最後一回合除外）', 'next_round')}
           </div>
         ` : ''}
-        ${s.type === 'vote' ? renderVoteConfigBlock(s, String(si), null) : ''}
-        ${s.type === 'loop' ? renderLoopBlock(si, s) : ''}
+        ${s.type === 'vote'  ? renderVoteConfigBlock(s, String(si), null) : ''}
+        ${s.type === 'input' ? renderInputConfigBlock(si, s) : ''}
+        ${s.type === 'loop'  ? renderLoopBlock(si, s) : ''}
       </div>`).join('') + `<button class="add-card-btn" onclick="addStage()">+ 新增階段</button>`;
   }
 
@@ -1232,6 +1233,74 @@
         </div>
       </div>
     </div>`;
+  }
+
+  function renderInputConfigBlock(si, stage) {
+    const ic = stage.inputConfig || {};
+    const labels = ic.buttonLabels || {};
+    const layout = ic.layout || 'pad-4';
+
+    const layoutOptions = [
+      { value: 'pad-8',     label: '8 個按鈕 (2×4)' },
+      { value: 'pad-4',     label: '4 個按鈕 (2×2)' },
+      { value: 'pad-2',     label: '2 個按鈕 (左右)' },
+      { value: 'dpad-2btn', label: '方向鍵 + 2 鍵' },
+      { value: 'dpad-dpad', label: '雙方向鍵' },
+    ];
+
+    const btnKeys = {
+      'pad-8':     ['btn1','btn2','btn3','btn4','btn5','btn6','btn7','btn8'],
+      'pad-4':     ['btn1','btn2','btn3','btn4'],
+      'pad-2':     ['btn1','btn2'],
+      'dpad-2btn': ['btn1','btn2'],
+      'dpad-dpad': [],
+    };
+
+    const keysForLayout = btnKeys[layout] || [];
+
+    return `<div class="vote-config-block" style="margin-top:10px">
+      <div class="vc-title">🎮 控制器設定</div>
+      <div class="field-row">
+        <label class="field-label">控制器樣式</label>
+        <select class="field-input" onchange="setInputConfigProp(${si},'layout',this.value)">
+          ${layoutOptions.map(o => `<option value="${o.value}" ${layout===o.value?'selected':''}>${o.label}</option>`).join('')}
+        </select>
+      </div>
+      ${keysForLayout.length ? `
+      <div class="field-row" style="flex-direction:column;align-items:flex-start;gap:6px">
+        <label class="field-label">按鈕標籤（可選）</label>
+        ${keysForLayout.map(k => `
+          <div style="display:flex;align-items:center;gap:8px;width:100%">
+            <span style="font-size:.78rem;color:#7777aa;width:40px">${k}</span>
+            <input class="field-input" style="flex:1" placeholder="${k}" value="${labels[k]||''}"
+              oninput="setInputBtnLabel(${si},'${k}',this.value)">
+          </div>`).join('')}
+      </div>` : ''}
+      <div class="field-row" style="flex-direction:column;align-items:flex-start;gap:6px">
+        <label class="field-label">Display 遊戲程式碼（選填）</label>
+        <div style="font-size:.72rem;color:#7777aa;margin-bottom:4px">
+          可接收 GameAPI: canvas, ctx, players, onInput(fn), update(fn)
+        </div>
+        <textarea class="field-input" rows="8" style="font-family:monospace;font-size:.78rem"
+          placeholder="// 範例：\nGameAPI.update(ts => {\n  const ctx = GameAPI.ctx;\n  ctx.clearRect(0,0,GameAPI.canvas.width,GameAPI.canvas.height);\n  // 自訂遊戲邏輯\n});"
+          oninput="setInputConfigProp(${si},'gameCode',this.value)">${ic.gameCode||''}</textarea>
+      </div>
+    </div>`;
+  }
+
+  function setInputConfigProp(si, key, val) {
+    if (!manifest.stages[si].inputConfig) manifest.stages[si].inputConfig = {};
+    manifest.stages[si].inputConfig[key] = val || undefined;
+    if (!val) delete manifest.stages[si].inputConfig[key];
+    pushUndo(); renderStages();
+  }
+
+  function setInputBtnLabel(si, btnKey, val) {
+    if (!manifest.stages[si].inputConfig) manifest.stages[si].inputConfig = {};
+    if (!manifest.stages[si].inputConfig.buttonLabels) manifest.stages[si].inputConfig.buttonLabels = {};
+    if (val) manifest.stages[si].inputConfig.buttonLabels[btnKey] = val;
+    else delete manifest.stages[si].inputConfig.buttonLabels[btnKey];
+    pushUndo();
   }
 
   function renderAdvanceBlock(si, label, key, adv, helpText, category = null) {

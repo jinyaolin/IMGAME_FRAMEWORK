@@ -468,6 +468,51 @@
     }
 
     .hidden { display: none !important; }
+
+    /* ───── CONTROLLER ZONE ───────────────────────────────── */
+    #controllerZone {
+      flex: 1; display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 16px; overflow: hidden;
+      background: var(--bg); touch-action: none;
+    }
+    #controllerZone.active { display: flex; }
+    .ctrl-layout {
+      display: flex; justify-content: center; align-items: center;
+      width: 100%; max-width: 420px; gap: 20px;
+    }
+    .pad-grid { display: grid; gap: 10px; width: 100%; }
+    .pad-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .pad-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .ctrl-btn {
+      aspect-ratio: 1; background: #1a1a40;
+      border: 2px solid #3a3a7a; border-radius: 14px;
+      color: #aaaaff; font-size: 1.1rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; user-select: none; -webkit-user-select: none;
+      touch-action: none; transition: background .06s, transform .06s;
+    }
+    .ctrl-btn.pressed {
+      background: #3a3a9a; border-color: #8888ff;
+      transform: scale(0.91); box-shadow: 0 0 14px rgba(120,120,255,.5);
+    }
+    .layout-pad-2 .ctrl-btn { aspect-ratio: auto; min-height: 110px; font-size: 2rem; }
+    .ctrl-action-col { display: flex; flex-direction: column; gap: 12px; }
+    .ctrl-action-col .ctrl-btn { width: 82px; height: 82px; aspect-ratio: auto; }
+    .dpad-wrap { position: relative; width: 150px; height: 150px; flex-shrink: 0; }
+    .dpad-segment {
+      position: absolute; background: #1a1a40; border: 2px solid #3a3a7a;
+      display: flex; align-items: center; justify-content: center;
+      color: #aaaaff; font-size: 1.2rem;
+      cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none;
+    }
+    .dpad-segment.pressed { background: #3a3a9a; border-color: #8888ff; }
+    .dpad-up    { top:0;     left:33.3%; width:33.4%; height:33.4%; border-radius:8px 8px 0 0; }
+    .dpad-down  { bottom:0;  left:33.3%; width:33.4%; height:33.4%; border-radius:0 0 8px 8px; }
+    .dpad-left  { top:33.3%; left:0;     width:33.4%; height:33.4%; border-radius:8px 0 0 8px; }
+    .dpad-right { top:33.3%; right:0;    width:33.4%; height:33.4%; border-radius:0 8px 8px 0; }
+    .dpad-center { top:33.3%; left:33.3%; width:33.4%; height:33.4%;
+      background:#0d0d22; border:2px solid #2a2a50; pointer-events:none; }
   </style>
 </head>
 <body>
@@ -527,6 +572,11 @@
     <div id="statusbar">
       <span class="status-text" id="statusText">等待遊戲…</span>
       <span class="countdown" id="countdownText"></span>
+    </div>
+
+    <!-- Controller zone (input stages) -->
+    <div id="controllerZone">
+      <div id="controllerLayout" class="ctrl-layout"></div>
     </div>
 
     <!-- Card zone -->
@@ -1069,32 +1119,35 @@
 
       // Handle different stage types
       if (data.stageType === 'intermission') {
-        // Show pause stage with description
         const statusText = data.stageDescription
           ? `⏸️ ${data.stageName}：${data.stageDescription}`
           : `⏸️ ${data.stageName}`;
         setStatus(statusText);
         hideIdentityOverlay();
+        hideControllerZone();
       } else if (data.stageType === 'identity_draw') {
-        // Entering identity_draw stage - show identity overlay if not already shown
         console.log('[Mobile] Entering identity_draw stage');
         setStatus(`階段：${data.stageName}`);
+        hideControllerZone();
         if (!myIdentity) {
-          // No identity assigned yet, show waiting message
           setStatus('等待身份分配...');
         } else if (!identityConfirmed) {
-          // Identity assigned but not confirmed, show overlay
           openIdentityOverlay({ confirmMode: true });
         }
       } else if (data.stageType === 'vote') {
-        // Entering vote stage - hide identity overlay
         console.log('[Mobile] Entering vote stage');
         setStatus(`階段：${data.stageName}`);
         hideIdentityOverlay();
+        hideControllerZone();
+      } else if (data.stageType === 'input') {
+        console.log('[Mobile] Entering input/controller stage');
+        setStatus(`🎮 ${data.stageName}`);
+        hideIdentityOverlay();
+        showControllerZone(data.inputConfig || {});
       } else {
-        // Other stage types - close overlay so player sees the new stage UI
         setStatus(`階段：${data.stageName}`);
         hideIdentityOverlay();
+        hideControllerZone();
       }
       clearCountdown();
     });
@@ -1582,6 +1635,115 @@
 
     // Setup vote submit button
     document.getElementById('voteSubmitBtn').addEventListener('click', castVote);
+
+    // ════════════════════════════════════════════════════════════════
+    //   CONTROLLER (input stage)
+    // ════════════════════════════════════════════════════════════════
+    const pressedKeys = new Set();
+
+    function showControllerZone(inputConfig) {
+      document.getElementById('cardZone').style.display = 'none';
+      document.getElementById('actionbar').style.display = 'none';
+      const cz = document.getElementById('controllerZone');
+      cz.classList.add('active');
+      renderController(inputConfig || {});
+    }
+
+    function hideControllerZone() {
+      const cz = document.getElementById('controllerZone');
+      cz.classList.remove('active');
+      document.getElementById('cardZone').style.display = '';
+      document.getElementById('actionbar').style.display = '';
+      pressedKeys.forEach(key => sendControllerInput(key, 'up'));
+      pressedKeys.clear();
+      document.getElementById('controllerLayout').innerHTML = '';
+    }
+
+    function renderController(cfg) {
+      const layout = cfg.layout || 'pad-4';
+      const labels = cfg.buttonLabels || {};
+      const container = document.getElementById('controllerLayout');
+      container.innerHTML = '';
+      container.className = 'ctrl-layout';
+
+      if (layout === 'pad-8') {
+        container.appendChild(buildPadGrid(
+          ['btn1','btn2','btn3','btn4','btn5','btn6','btn7','btn8'], labels, 4));
+      } else if (layout === 'pad-4') {
+        container.appendChild(buildPadGrid(['btn1','btn2','btn3','btn4'], labels, 2));
+      } else if (layout === 'pad-2') {
+        container.classList.add('layout-pad-2');
+        container.appendChild(buildPadGrid(['btn1','btn2'], labels, 2));
+      } else if (layout === 'dpad-2btn') {
+        container.appendChild(buildDpad(''));
+        const col = document.createElement('div');
+        col.className = 'ctrl-action-col';
+        col.appendChild(buildCtrlBtn('btn1', labels['btn1'] || 'A'));
+        col.appendChild(buildCtrlBtn('btn2', labels['btn2'] || 'B'));
+        container.appendChild(col);
+      } else if (layout === 'dpad-dpad') {
+        container.appendChild(buildDpad(''));
+        container.appendChild(buildDpad('2'));
+      }
+    }
+
+    function buildPadGrid(keys, labels, cols) {
+      const grid = document.createElement('div');
+      grid.className = `pad-grid cols-${cols}`;
+      keys.forEach(k => grid.appendChild(buildCtrlBtn(k, labels[k] || k.replace('btn',''))));
+      return grid;
+    }
+
+    function buildCtrlBtn(key, label) {
+      const btn = document.createElement('div');
+      btn.className = 'ctrl-btn';
+      btn.textContent = label;
+      attachCtrlEvents(btn, key);
+      return btn;
+    }
+
+    function buildDpad(suffix) {
+      const wrap = document.createElement('div');
+      wrap.className = 'dpad-wrap';
+      [['up','▲'],['down','▼'],['left','◀'],['right','▶']].forEach(([dir, sym]) => {
+        const seg = document.createElement('div');
+        seg.className = `dpad-segment dpad-${dir}`;
+        seg.textContent = sym;
+        attachCtrlEvents(seg, dir + suffix);
+        wrap.appendChild(seg);
+      });
+      const center = document.createElement('div');
+      center.className = 'dpad-center';
+      wrap.appendChild(center);
+      return wrap;
+    }
+
+    function attachCtrlEvents(el, key) {
+      const press = e => {
+        e.preventDefault();
+        if (pressedKeys.has(key)) return;
+        pressedKeys.add(key);
+        el.classList.add('pressed');
+        sendControllerInput(key, 'down');
+      };
+      const release = e => {
+        e.preventDefault();
+        if (!pressedKeys.has(key)) return;
+        pressedKeys.delete(key);
+        el.classList.remove('pressed');
+        sendControllerInput(key, 'up');
+      };
+      el.addEventListener('touchstart', press, { passive: false });
+      el.addEventListener('touchend',   release, { passive: false });
+      el.addEventListener('touchcancel',release, { passive: false });
+      el.addEventListener('mousedown', press);
+      el.addEventListener('mouseup',   release);
+      el.addEventListener('mouseleave',release);
+    }
+
+    function sendControllerInput(key, state) {
+      client.emit('player_action', { roomId, playerId, action: 'input', data: { key, state } });
+    }
   </script>
 </body>
 </html>

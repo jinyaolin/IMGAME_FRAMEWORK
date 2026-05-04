@@ -253,6 +253,13 @@
       border-color: #5555ff;
       box-shadow: 0 0 20px rgba(85,85,255,.3);
     }
+
+    /* ── Input/Controller canvas ── */
+    #inputCanvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -430,6 +437,9 @@
       // Hide countdown overlay
       document.getElementById('countdownOverlay').classList.remove('visible');
 
+      // Stop any running input game loop
+      stopInputStage();
+
       // Handle intermission stage - show pause screen
       if (data.stageType === 'intermission') {
         const el = document.getElementById('moduleDisplay');
@@ -441,8 +451,9 @@
             <div style="font-size:1.2rem;color:#6666aa;">遊戲暫停中</div>
           </div>
         `;
+      } else if (data.stageType === 'input') {
+        startInputStage(data.inputConfig || {}, [...players.values()]);
       } else if (data.stageType === 'card_play') {
-        // Clear previous content when starting a new stage
         document.getElementById('moduleDisplay').innerHTML = '';
       }
     });
@@ -792,6 +803,133 @@
       feed.prepend(el);
       setTimeout(() => el.remove(), 3200);
     }
+
+    // ── Input / Controller Stage ──────────────────────────────────
+    const CTRL_COLORS = ['#ff6644','#44aaff','#44ff88','#ffdd44','#ff44aa','#88aaff','#ffaa44','#44ffdd'];
+    const inputPlayers = new Map(); // playerId → { name, color, inputs: Set }
+    let inputRAF = null;
+    let inputUpdateFn = null;
+    let inputHandlers = [];
+    let inputCanvas = null, inputCtx = null;
+
+    function startInputStage(cfg, playersList) {
+      inputPlayers.clear();
+      playersList.forEach((p, i) => {
+        inputPlayers.set(p.id, { name: p.name, color: CTRL_COLORS[i % CTRL_COLORS.length], inputs: new Set() });
+      });
+
+      const displayEl = document.getElementById('moduleDisplay');
+      displayEl.innerHTML = '';
+      inputCanvas = document.createElement('canvas');
+      inputCanvas.id = 'inputCanvas';
+      inputCanvas.width  = window.innerWidth;
+      inputCanvas.height = window.innerHeight;
+      displayEl.appendChild(inputCanvas);
+      inputCtx = inputCanvas.getContext('2d');
+      inputCtx.fillStyle = '#000010';
+      inputCtx.fillRect(0, 0, inputCanvas.width, inputCanvas.height);
+
+      inputHandlers = [];
+      inputUpdateFn = null;
+
+      if (cfg.gameCode) {
+        try {
+          const GameAPI = {
+            canvas: inputCanvas, ctx: inputCtx,
+            players: inputPlayers,
+            onInput: cb => inputHandlers.push(cb),
+            update:  cb => { inputUpdateFn = cb; }
+          };
+          (new Function('GameAPI', cfg.gameCode))(GameAPI);
+        } catch (e) { console.error('[Display] gameCode error:', e); }
+      }
+
+      if (inputRAF) cancelAnimationFrame(inputRAF);
+      const loop = ts => {
+        inputUpdateFn ? inputUpdateFn(ts) : drawInputDefault(ts);
+        inputRAF = requestAnimationFrame(loop);
+      };
+      inputRAF = requestAnimationFrame(loop);
+    }
+
+    function stopInputStage() {
+      if (inputRAF) { cancelAnimationFrame(inputRAF); inputRAF = null; }
+      inputPlayers.clear();
+      inputHandlers = [];
+      inputUpdateFn = null;
+      inputCanvas = null; inputCtx = null;
+    }
+
+    function drawInputDefault(ts) {
+      if (!inputCtx || !inputCanvas) return;
+      const W = inputCanvas.width, H = inputCanvas.height;
+      inputCtx.fillStyle = 'rgba(0,0,16,0.18)';
+      inputCtx.fillRect(0, 0, W, H);
+
+      const pArr = [...inputPlayers.values()];
+      if (!pArr.length) return;
+      const cols = Math.ceil(Math.sqrt(pArr.length));
+      const rows = Math.ceil(pArr.length / cols);
+      const cw = W / cols, ch = H / rows;
+
+      pArr.forEach((p, i) => {
+        const col = i % cols, row = Math.floor(i / cols);
+        const cx = col * cw + cw / 2, cy = row * ch + ch / 2;
+        const active = p.inputs.size > 0;
+
+        // Cell glow when active
+        if (active) {
+          inputCtx.save();
+          inputCtx.shadowColor = p.color;
+          inputCtx.shadowBlur = 40;
+          inputCtx.strokeStyle = p.color + '88';
+          inputCtx.lineWidth = 2;
+          inputCtx.strokeRect(col * cw + 8, row * ch + 8, cw - 16, ch - 16);
+          inputCtx.restore();
+        }
+
+        // Player name
+        const fs = Math.min(cw * 0.12, 36);
+        inputCtx.font = `700 ${fs}px monospace`;
+        inputCtx.textAlign = 'center';
+        inputCtx.textBaseline = 'middle';
+        inputCtx.fillStyle = p.color;
+        inputCtx.fillText(p.name, cx, cy - ch * 0.22);
+
+        // Active key badges
+        const keys = [...p.inputs];
+        const r = Math.min(cw, ch) * 0.09;
+        keys.slice(0, 8).forEach((key, ki) => {
+          const angle = (ki / Math.max(keys.length, 1)) * Math.PI * 2 - Math.PI / 2;
+          const dist = Math.min(cw, ch) * 0.22;
+          const bx = cx + Math.cos(angle) * dist;
+          const by = cy + Math.sin(angle) * dist + ch * 0.06;
+
+          inputCtx.save();
+          inputCtx.shadowColor = p.color;
+          inputCtx.shadowBlur = 16;
+          inputCtx.beginPath();
+          inputCtx.arc(bx, by, r, 0, Math.PI * 2);
+          inputCtx.fillStyle = p.color;
+          inputCtx.fill();
+          inputCtx.restore();
+
+          inputCtx.font = `700 ${r * 0.9}px monospace`;
+          inputCtx.fillStyle = '#000';
+          inputCtx.fillText(key.length > 3 ? key[0] : key, bx, by);
+        });
+      });
+    }
+
+    client.on('player_input', data => {
+      const ps = inputPlayers.get(data.playerId);
+      if (!ps) return;
+      if (data.state === 'down') ps.inputs.add(data.key);
+      else ps.inputs.delete(data.key);
+      for (const h of inputHandlers) {
+        try { h(data.playerId, data.key, data.state, ps); } catch(e) {}
+      }
+    });
   </script>
 </body>
 </html>

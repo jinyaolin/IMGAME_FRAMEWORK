@@ -698,6 +698,11 @@
       .map(d => `<option value="${d.id}" ${deck.ref === d.id ? 'selected' : ''}>${escapeH(d.name)} (${d.id})</option>`)
       .join('');
 
+    // 計算已選中的卡牌數量
+    const selectedCards = deck.selectedCards || {};
+    const selectedCardIds = Object.keys(selectedCards);
+    const totalSelectedCards = selectedCardIds.reduce((sum, cardId) => sum + (selectedCards[cardId] || 0), 0);
+
     return `<div class="deck-block" id="deck_${di}">
       <div class="deck-header" onclick="toggleDeck(${di})">
         <label class="toggle-switch" onclick="event.stopPropagation()">
@@ -707,7 +712,7 @@
         </label>
         <span class="deck-header-name">${escapeH(deck.name || deck.ref || '未命名')}</span>
         <span class="deck-type-badge">${escapeH(typeLbl)}</span>
-        <span style="font-size:.65rem;color:#5566aa;">${deck.ref ? cardCount + ' 張' : '⚠ 未選擇'}</span>
+        <span style="font-size:.65rem;color:#5566aa;">${deck.ref ? (selectedCardIds.length > 0 ? `已選 ${totalSelectedCards} 張` : cardCount + ' 張') : '⚠ 未選擇'}</span>
         <span class="deck-toggle">▾</span>
       </div>
       <div class="deck-cards" id="deck_cards_${di}">
@@ -745,6 +750,61 @@
                      onchange="setDeckProp(${di},'allowDuplicate',this.checked)">
               <span class="toggle-slider"></span>
             </label>
+          </div>
+
+          <!-- 卡牌選擇區塊 -->
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid #2a2a4a;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <span style="font-size:.78rem;font-weight:600;color:#aaaacc;">🃏 選擇卡牌</span>
+              <div style="display:flex;gap:4px;">
+                <button class="btn-ghost btn-sm" onclick="selectAllCards(${di})" title="全選">全選</button>
+                <button class="btn-ghost btn-sm" onclick="deselectAllCards(${di})" title="清除選擇">清除</button>
+              </div>
+            </div>
+
+            ${globalDeck?.cards && globalDeck.cards.length > 0 ? `
+              <div style="max-height:280px;overflow-y:auto;border:1px solid #2a2a4a;border-radius:6px;background:#0a0a1a;">
+                ${globalDeck.cards.map(card => {
+                  const cardId = card.id;
+                  const count = selectedCards[cardId] || 0;
+                  const isSelected = count > 0;
+                  return `
+                    <div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #1a1a3a;${isSelected ? 'background:#1a2a3a;' : ''}">
+                      <input type="checkbox" ${isSelected ? 'checked' : ''}
+                             onchange="toggleCardSelection(${di},'${escapeH(cardId)}',this.checked)"
+                             style="flex-shrink:0;cursor:pointer;">
+                      <div style="flex:1;min-width:0;">
+                        <div style="font-size:.8rem;font-weight:500;color:#ddddee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                          ${escapeH(card.name)}
+                        </div>
+                        ${card.description ? `<div style="font-size:.68rem;color:#7777aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeH(card.description)}</div>` : ''}
+                        ${card.value !== undefined ? `<div style="font-size:.65rem;color:#6688ff;">點數: ${card.value}</div>` : ''}
+                        ${card.team ? `<div style="font-size:.65rem;color:#8888cc;">陣營: ${card.team}</div>` : ''}
+                      </div>
+                      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+                        <label style="font-size:.7rem;color:#8888bb;">張數</label>
+                        <input type="number" min="0" max="99" value="${count}"
+                               style="width:48px;background:#0a0a1a;border:1px solid #2a2a4a;border-radius:4px;color:#ddddf0;font-size:.75rem;padding:3px 6px;text-align:center;"
+                               onchange="setCardCount(${di},'${escapeH(cardId)}',this.value)"
+                               ${!isSelected ? 'disabled style="opacity:0.3;"' : ''}>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+              <div style="margin-top:6px;font-size:.72rem;color:#6666aa;text-align:right;">
+                ${selectedCardIds.length > 0
+                  ? `已選 ${selectedCardIds.length} 種卡牌，共 ${totalSelectedCards} 張`
+                  : '尚未選擇任何卡牌（將使用完整牌組）'}
+              </div>
+            ` : `
+              <div style="color:#886644;font-size:.78rem;padding:12px 0;text-align:center;">
+                此牌組沒有卡牌
+              </div>
+            `}
+          </div>
+
+          <div class="deck-draw-row" style="margin-top:12px;">
             <button class="ci-del" style="margin-left:auto" onclick="deleteDeck(${di})">刪除牌組</button>
           </div>
         ` : `
@@ -782,7 +842,10 @@
     const deck = manifest.decks[di];
     const globalDeck = globalDecks.find(d => d.id === globalDeckId);
     if (globalDeckId && !globalDeck) { alert('找不到指定的全局牌組'); return; }
+
     delete deck.cards;
+    delete deck.selectedCards; // 清空已選擇的卡牌
+
     if (globalDeckId) {
       deck.ref  = globalDeckId;
       deck.name = deck.name || globalDeck.name;
@@ -790,6 +853,7 @@
     } else {
       delete deck.ref;
     }
+
     renderDecksTab();
     afterChange(true);
   }
@@ -815,6 +879,108 @@
     manifest.decks.splice(di, 1);
     renderDecksTab();
     afterChange(true);
+  }
+
+  // ─── 卡牌選擇功能 ───
+
+  /**
+   * 切換卡牌選中狀態
+   * @param {number} di - deck index
+   * @param {string} cardId - 卡牌 ID
+   * @param {boolean} checked - 是否選中
+   */
+  function toggleCardSelection(di, cardId, checked) {
+    pushHistory();
+    const deck = manifest.decks[di];
+    if (!deck.selectedCards) {
+      deck.selectedCards = {};
+    }
+
+    if (checked) {
+      // 如果沒有設定數量，默認為 1 張
+      if (!deck.selectedCards[cardId] || deck.selectedCards[cardId] === 0) {
+        deck.selectedCards[cardId] = 1;
+      }
+    } else {
+      delete deck.selectedCards[cardId];
+      // 如果沒有選中任何卡牌，刪除 selectedCards 對象
+      if (Object.keys(deck.selectedCards).length === 0) {
+        delete deck.selectedCards;
+      }
+    }
+
+    renderDecksTab();
+    afterChange(true);
+  }
+
+  /**
+   * 設置卡牌數量
+   * @param {number} di - deck index
+   * @param {string} cardId - 卡牌 ID
+   * @param {number} count - 數量
+   */
+  function setCardCount(di, cardId, count) {
+    pushHistory();
+    const deck = manifest.decks[di];
+    if (!deck.selectedCards) {
+      deck.selectedCards = {};
+    }
+
+    const numCount = parseInt(count) || 0;
+    if (numCount > 0) {
+      deck.selectedCards[cardId] = numCount;
+    } else {
+      delete deck.selectedCards[cardId];
+      // 如果沒有選中任何卡牌，刪除 selectedCards 對象
+      if (Object.keys(deck.selectedCards).length === 0) {
+        delete deck.selectedCards;
+      }
+    }
+
+    renderDecksTab();
+    afterChange(true);
+  }
+
+  /**
+   * 全選所有卡牌（默認每張 1 張）
+   * @param {number} di - deck index
+   */
+  function selectAllCards(di) {
+    const deck = manifest.decks[di];
+    const globalDeck = globalDecks.find(d => d.id === deck.ref);
+    if (!globalDeck || !globalDeck.cards || globalDeck.cards.length === 0) {
+      toast('此牌組沒有卡牌', 'err');
+      return;
+    }
+
+    pushHistory();
+    deck.selectedCards = {};
+    globalDeck.cards.forEach(card => {
+      deck.selectedCards[card.id] = 1;
+    });
+
+    renderDecksTab();
+    afterChange(true);
+    toast(`已全選 ${globalDeck.cards.length} 張卡牌`, 'ok');
+  }
+
+  /**
+   * 清除所有卡牌選擇
+   * @param {number} di - deck index
+   */
+  function deselectAllCards(di) {
+    const deck = manifest.decks[di];
+    if (!deck.selectedCards || Object.keys(deck.selectedCards).length === 0) {
+      toast('尚未選擇任何卡牌', 'err');
+      return;
+    }
+
+    pushHistory();
+    delete deck.selectedCards;
+
+    renderDecksTab();
+    afterChange(true);
+    toast('已清除所有卡牌選擇', 'ok');
   }
 
   // ═══════════════════════════════════════════════════════════════

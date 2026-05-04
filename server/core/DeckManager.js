@@ -193,11 +193,30 @@ class DeckManager {
             return null;
           }
 
+          // 處理選中的卡牌（如果有）
+          let cards = globalDeck.cards;
+          if (deckRef.selectedCards && Object.keys(deckRef.selectedCards).length > 0) {
+            // 根據 selectedCards 構建卡牌數組
+            cards = [];
+            for (const [cardId, count] of Object.entries(deckRef.selectedCards)) {
+              const card = globalDeck.cards.find(c => c.id === cardId);
+              if (card) {
+                // 根據指定的數量重複卡牌
+                for (let i = 0; i < count; i++) {
+                  cards.push({ ...card });
+                }
+              } else {
+                console.warn(`[DeckManager] Card ${cardId} not found in global deck ${deckRef.ref}`);
+              }
+            }
+            console.log(`[DeckManager] Applied selectedCards for deck ${deckRef.ref}: ${cards.length} cards total`);
+          }
+
           // 合併引用設置和全局卡牌
           return {
             ...globalDeck,
             ...deckRef,
-            cards: globalDeck.cards
+            cards: cards
           };
         }
 

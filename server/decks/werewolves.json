@@ -1,0 +1,82 @@
+{
+  "id": "werewolves",
+  "name": "經典狼人殺",
+  "type": "role",
+  "description": "經典狼人殺角色牌",
+  "cards": [
+    {
+      "id": "werewolf_1",
+      "name": "狼人",
+      "description": "",
+      "team": "red"
+    },
+    {
+      "id": "werewolf_2",
+      "name": "狼人",
+      "description": "狼人",
+      "team": "red"
+    },
+    {
+      "id": "werewolf_3",
+      "name": "狼人",
+      "description": "",
+      "team": "red"
+    },
+    {
+      "id": "werewolf_king",
+      "name": "狼王",
+      "description": "",
+      "team": "red"
+    },
+    {
+      "id": "sage",
+      "name": "預言家",
+      "description": "",
+      "team": "blue"
+    },
+    {
+      "id": "wizard",
+      "name": "女巫",
+      "description": "",
+      "team": "blue"
+    },
+    {
+      "id": "hunter",
+      "name": "獵人",
+      "description": "",
+      "team": "blue"
+    },
+    {
+      "id": "fool",
+      "name": "白痴",
+      "description": "",
+      "team": "blue"
+    },
+    {
+      "id": "civil_1",
+      "name": "村民",
+      "description": "",
+      "team": "green"
+    },
+    {
+      "id": "civil_2",
+      "name": "村民",
+      "description": "",
+      "team": "green"
+    },
+    {
+      "id": "civil_3",
+      "name": "村民",
+      "description": "",
+      "team": "green"
+    },
+    {
+      "id": "civil_4",
+      "name": "村民",
+      "description": "",
+      "team": "green"
+    }
+  ],
+  "createdAt": "2026-05-03T17:14:27.328Z",
+  "updatedAt": "2026-05-03T17:19:37.076Z"
+}

@@ -74,7 +74,16 @@ class ModuleLoader {
       const absolutePath = path.resolve(serverPath);
       delete require.cache[require.resolve(absolutePath)];
       const ModuleClass = require(absolutePath);
-      instance = new ModuleClass(resolvedManifest, session, config);
+
+      // Validate that ModuleClass is actually a constructor
+      if (typeof ModuleClass !== 'function' || !ModuleClass.prototype) {
+        console.error(`[ModuleLoader] Invalid server.js: ${serverPath} - must export a constructor/class`);
+        console.error(`[ModuleLoader] Export type: ${typeof ModuleClass}`);
+        console.error(`[ModuleLoader] Falling back to BaseModule`);
+        instance = new BaseModule(resolvedManifest, session, config);
+      } else {
+        instance = new ModuleClass(resolvedManifest, session, config);
+      }
     } else {
       // Use BaseModule directly (no file generation!)
       console.log(`[ModuleLoader] Using BaseModule for: ${moduleName}`);

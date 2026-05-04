@@ -32,6 +32,7 @@ async function initializeServer() {
 
 // ── Static files ─────────────────────────────────────────────────
 app.use(express.json());
+app.use(express.text({ type: 'text/plain' }));
 app.use('/mobile',  express.static(path.join(__dirname, '../client/mobile')));
 app.use('/display', express.static(path.join(__dirname, '../client/display')));
 app.use('/host',    express.static(path.join(__dirname, '../client/host')));
@@ -86,6 +87,162 @@ app.get('/api/rooms/:roomId', (req, res) => {
 // Available modules (summary list)
 app.get('/api/modules', (req, res) => {
   res.json(moduleLoader.listModules());
+});
+
+// Get module's server.js content
+app.get('/api/modules/:id/server', (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
+
+    const serverJsPath = path.join(__dirname, 'modules', id, 'server.js');
+    if (!fs.existsSync(serverJsPath)) {
+      return res.status(404).json({ error: 'server.js 不存在' });
+    }
+
+    const code = fs.readFileSync(serverJsPath, 'utf-8');
+    res.type('text/plain').send(code);
+  } catch (err) {
+    console.error('[Module] Failed to load server.js:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save or update module's server.js
+app.post('/api/modules/:id/server', (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
+    if (moduleInUse(id))      return res.status(409).json({ error: '此模組正在遊戲中，無法修改' });
+
+    const moduleDir = path.join(__dirname, 'modules', id);
+    const serverJsPath = path.join(moduleDir, 'server.js');
+
+    // Validate server.js content
+    const code = req.body;
+    try {
+      // Syntax check using acorn or simple parsing
+      // For Node.js modules, we'll check for balanced braces and basic structure
+      // instead of using new Function() which doesn't understand require/module.exports
+
+      if (code.trim()) {
+        // Check for balanced braces
+        let openBraces = 0;
+        let openBrackets = 0;
+        let openParens = 0;
+        let inString = false;
+        let inComment = false;
+        let escapeNext = false;
+
+        for (let i = 0; i < code.length; i++) {
+          const char = code[i];
+          const prevChar = i > 0 ? code[i - 1] : '';
+
+          if (escapeNext) {
+            escapeNext = false;
+            continue;
+          }
+
+          if (char === '\\' && inString) {
+            escapeNext = true;
+            continue;
+          }
+
+          // Handle comments
+          if (!inString && !inComment) {
+            if (char === '/' && prevChar === '/') {
+              inComment = 'line';
+              continue;
+            }
+            if (char === '*' && prevChar === '/') {
+              inComment = 'block';
+              continue;
+            }
+          }
+
+          if (inComment === 'line' && char === '\n') {
+            inComment = false;
+            continue;
+          }
+          if (inComment === 'block' && char === '/' && prevChar === '*') {
+            inComment = false;
+            continue;
+          }
+
+          if (inComment) continue;
+
+          // Handle strings
+          if (char === '"' || char === '\'' || char === '`') {
+            inString = !inString;
+            continue;
+          }
+
+          if (inString) continue;
+
+          // Count brackets
+          if (char === '{') openBraces++;
+          if (char === '}') openBraces--;
+          if (char === '[') openBrackets++;
+          if (char === ']') openBrackets--;
+          if (char === '(') openParens++;
+          if (char === ')') openParens--;
+        }
+
+        if (openBraces !== 0) {
+          return res.status(400).json({ error: `語法錯誤：大括號不平衡 (open: ${openBraces})` });
+        }
+        if (openBrackets !== 0) {
+          return res.status(400).json({ error: `語法錯誤：中括號不平衡 (open: ${openBrackets})` });
+        }
+        if (openParens !== 0) {
+          return res.status(400).json({ error: `語法錯誤：圓括號不平衡 (open: ${openParens})` });
+        }
+
+        // Check for BaseModule inheritance
+        if (!code.includes('BaseModule')) {
+          return res.status(400).json({ error: 'server.js 必須繼承 BaseModule' });
+        }
+
+        // Check for module.exports
+        if (!code.includes('module.exports')) {
+          return res.status(400).json({ error: 'server.js 必須導出模組類' });
+        }
+      }
+    } catch (e) {
+      return res.status(400).json({ error: `驗證失敗：${e.message}` });
+    }
+
+    // Write server.js
+    fs.writeFileSync(serverJsPath, code, 'utf-8');
+
+    console.log(`[Module] Saved server.js: ${id}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Module] Failed to save server.js:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete module's server.js
+app.delete('/api/modules/:id/server', (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
+    if (moduleInUse(id))      return res.status(409).json({ error: '此模組正在遊戲中，無法刪除' });
+
+    const serverJsPath = path.join(__dirname, 'modules', id, 'server.js');
+    if (!fs.existsSync(serverJsPath)) {
+      return res.status(404).json({ error: 'server.js 不存在' });
+    }
+
+    fs.unlinkSync(serverJsPath);
+
+    console.log(`[Module] Deleted server.js: ${id}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Module] Failed to delete server.js:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Full manifest for one module (for editor to load)

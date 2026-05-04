@@ -1,0 +1,61 @@
+{
+  "id": "public-vote-test",
+  "name": "公開投票測試",
+  "version": "1.0.0",
+  "minPlayers": 3,
+  "maxPlayers": 10,
+  "description": "測試公開投票功能，顯示誰投了誰",
+  "stages": [
+    {
+      "id": "stage_mopplb0q_t37a6",
+      "name": "身份確認",
+      "type": "identity_draw",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      },
+      "deckId": "deck_1"
+    },
+    {
+      "id": "public-vote-round",
+      "name": "公開投票測試",
+      "type": "vote",
+      "enabled": true,
+      "voteConfig": {
+        "voteId": "public-vote-1",
+        "voteTitle": "公開投票測試",
+        "voteType": "elimination",
+        "optionSource": "players",
+        "anonymous": false,
+        "countdownSeconds": 30,
+        "eliminateTopN": 1,
+        "allowSelfVote": true,
+        "advance": {
+          "trigger": "all_voted",
+          "fallback": "host"
+        }
+      }
+    },
+    {
+      "id": "stage_moppqlyg_g2iji",
+      "name": "結算",
+      "type": "result",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      }
+    }
+  ],
+  "decks": [
+    {
+      "id": "deck_1",
+      "name": "身份確認",
+      "type": "role",
+      "visibility": "private",
+      "drawCount": 1,
+      "allowDuplicate": true,
+      "enabled": true,
+      "ref": "fantasy-roles"
+    }
+  ]
+}

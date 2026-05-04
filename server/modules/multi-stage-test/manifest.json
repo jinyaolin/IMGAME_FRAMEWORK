@@ -1,0 +1,128 @@
+{
+  "id": "multi-stage-test",
+  "name": "狼人殺",
+  "version": "1.0.0",
+  "minPlayers": 3,
+  "maxPlayers": 3,
+  "description": "測試多階段遊戲流程：投票 → 結果",
+  "stages": [
+    {
+      "id": "stage_mopx9oyw_z5wev",
+      "name": "身份確認",
+      "type": "identity_draw",
+      "enabled": true,
+      "advance": {
+        "trigger": "all_confirmed",
+        "fallback": "host"
+      },
+      "deckId": "deck_d_moprtmew_v285n"
+    },
+    {
+      "id": "stage_moprremb_bex8j",
+      "name": "投票循環",
+      "type": "loop",
+      "enabled": true,
+      "loopType": "fixed",
+      "maxIterations": 3,
+      "stages": [
+        {
+          "id": "cs_moprukkg_uu7o7",
+          "name": "狼殺夜",
+          "type": "vote",
+          "enabled": true,
+          "advance": {
+            "trigger": "timer",
+            "duration": 10,
+            "fallback": "host"
+          },
+          "voteConfig": {
+            "countdownSeconds": 15,
+            "endWhenAllVoted": true,
+            "anonymous": true,
+            "resultAction": "wolf_kill",
+            "eliminateTopN": 1,
+            "eliminateCount": 1,
+            "optionSource": "all",
+            "teamName": "red",
+            "voterFilter": "team",
+            "voterTeamName": "red",
+            "voteTitle": "狼人請殺人",
+            "voteDescription": "和你的狼同伴一起決定要處決哪個玩家！"
+          }
+        },
+        {
+          "id": "cs_moq4222f_fsmrz",
+          "name": "天亮了",
+          "type": "intermission",
+          "enabled": true,
+          "advance": {
+            "trigger": "host"
+          }
+        },
+        {
+          "id": "cs_moq1ijqx_gw48o",
+          "name": "白天放逐",
+          "type": "vote",
+          "enabled": true,
+          "advance": {
+            "trigger": "timer",
+            "fallback": "host",
+            "duration": 10
+          },
+          "voteConfig": {
+            "countdownSeconds": 15,
+            "anonymous": false,
+            "allowSelfVote": true,
+            "endWhenAllVoted": true,
+            "resultAction": "eliminate",
+            "voteTitle": "放逐投票",
+            "voteDescription": "投出你覺得最像狼人的玩家！"
+          }
+        },
+        {
+          "id": "cs_moq416ky_5h2y6",
+          "name": "天黑請閉眼",
+          "type": "intermission",
+          "enabled": true,
+          "advance": {
+            "trigger": "host"
+          }
+        }
+      ],
+      "exitCondition": {
+        "type": "alivePlayers",
+        "operator": "lte",
+        "value": 1,
+        "checkAfter": "each_stage"
+      }
+    },
+    {
+      "id": "result-stage",
+      "name": "結果公告",
+      "type": "result",
+      "enabled": true
+    }
+  ],
+  "decks": [
+    {
+      "id": "deck_d_moprtmew_v285n",
+      "name": "奇幻身份",
+      "type": "role",
+      "visibility": "private",
+      "drawCount": 1,
+      "allowDuplicate": false,
+      "enabled": true,
+      "ref": "werewolves",
+      "selectedCards": {
+        "werewolf_1": 3,
+        "werewolf_king": 1,
+        "sage": 1,
+        "wizard": 1,
+        "hunter": 1,
+        "fool": 1,
+        "civil_1": 4
+      }
+    }
+  ],
+  "fieldConfig": {}
+}

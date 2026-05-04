@@ -309,7 +309,25 @@ npm run start:lan
    - 設定階段推進條件（手動、自動、倒數）
    - 配置投票參數（匿名、可否投自己、多選等）
    - 設定出牌回合的補牌模式和回合數
-4. **進階**分頁：直接編輯 manifest JSON 和 fieldConfig 結構描述
+4. **進階**分頁：
+   - 直接編輯 manifest JSON 和 fieldConfig 結構描述
+   - **編輯 server.js**：繼承 BaseModule 來實現自訂遊戲邏輯
+     - 點擊「➕ 新增 server.js」或「📝 編輯 server.js」按鈕
+     - 編輯器會自動驗證語法和基本結構
+     - 必須繼承 BaseModule 並導出模組類
+     - 範例：
+       ```javascript
+       const BaseModule = require('../../core/BaseModule');
+
+       class MyModule extends BaseModule {
+         async onPlayerAction(playerId, action, data, session) {
+           // 自訂行為
+         }
+       }
+
+       module.exports = MyModule;
+       ```
+     - 可刪除 server.js 來使用預設的 BaseModule 行為
 
 **快捷鍵**：
 - `⌘S` / `Ctrl+S`：儲存目前模組

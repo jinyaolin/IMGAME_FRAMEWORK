@@ -1,0 +1,65 @@
+{
+  "id": "vote-demo",
+  "name": "投票系統演示",
+  "version": "1.0.0",
+  "minPlayers": 3,
+  "maxPlayers": 10,
+  "description": "展示投票系統功能的演示模組，透過投票淘汰玩家直到剩下最後一個勝者",
+  "playerAttributes": [
+    {
+      "id": "team",
+      "label": "隊伍",
+      "type": "select",
+      "options": [
+        { "value": "red",  "label": "紅隊", "icon": "🔴" },
+        { "value": "blue", "label": "藍隊", "icon": "🔵" },
+        { "value": "none", "label": "無",   "icon": "⬜" }
+      ]
+    },
+    {
+      "id": "role",
+      "label": "角色",
+      "type": "select",
+      "options": [
+        { "value": "spy",      "label": "間諜",   "icon": "🕵️" },
+        { "value": "civilian", "label": "平民",   "icon": "👤" },
+        { "value": "guard",    "label": "守衛",   "icon": "🛡️" }
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "id": "vote-round-1",
+      "name": "第一回合投票",
+      "type": "vote",
+      "enabled": true,
+      "voteConfig": {
+        "voteId": "round-1-vote",
+        "voteTitle": "第一回合投票",
+        "voteType": "elimination",
+        "optionSource": "players",
+        "anonymous": true,
+        "countdownSeconds": 30,
+        "eliminateTopN": 1,
+        "allowSelfVote": true,
+        "endWhenAllVoted": true,
+        "resultAction": "eliminate",
+        "eliminateCount": 1
+      },
+      "advance": {
+        "trigger": "timer",
+        "duration": 5,
+        "fallback": "host"
+      }
+    },
+    {
+      "id": "stage_mooopf82_idri8",
+      "name": "結果公告",
+      "type": "result",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      }
+    }
+  ]
+}

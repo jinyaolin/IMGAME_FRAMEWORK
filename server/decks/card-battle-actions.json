@@ -1,0 +1,17 @@
+{
+  "id": "card-battle-actions",
+  "name": "卡牌對戰行動牌組",
+  "type": "action",
+  "cards": [
+    { "id": "c1",  "name": "火焰拳", "value": 9,  "description": "強力攻擊" },
+    { "id": "c2",  "name": "冰霜盾", "value": 3,  "description": "防禦姿態" },
+    { "id": "c3",  "name": "閃電箭", "value": 7,  "description": "快速打擊" },
+    { "id": "c4",  "name": "石牆術", "value": 2,  "description": "堅固防線" },
+    { "id": "c5",  "name": "毒霧陣", "value": 5,  "description": "持續傷害" },
+    { "id": "c6",  "name": "治癒光", "value": 4,  "description": "恢復體力" },
+    { "id": "c7",  "name": "疾風步", "value": 6,  "description": "迴避攻擊" },
+    { "id": "c8",  "name": "暗影刃", "value": 8,  "description": "致命一擊" },
+    { "id": "c9",  "name": "雷霆怒", "value": 10, "description": "最強一擊" },
+    { "id": "c10", "name": "泡泡術", "value": 1,  "description": "看起來很弱" }
+  ]
+}

@@ -347,6 +347,8 @@
   let rawMode            = false;   // raw JSON edit mode
   let activeTab          = 'basic';
   let globalDecks        = [];      // global decks from /api/decks
+  let serverCode         = '';      // server.js code content
+  let originalServerCode = '';      // original server.js code for dirty check
 
   const HIST_LIMIT = 30;
   const STAGE_TYPES = [
@@ -525,6 +527,9 @@
       history          = [];
       openDecks        = new Set();
       rawMode          = false;
+
+      // Load server.js if exists
+      await loadServerCode(id);
 
       // Update URL so refresh keeps the selection
       const url = new URL(location.href);
@@ -1662,7 +1667,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════════
-  //  TAB: ADVANCED — fieldConfig schema editor + raw JSON
+  //  TAB: ADVANCED — fieldConfig schema editor + raw JSON + server.js
   // ═══════════════════════════════════════════════════════════════
   function renderAdvancedTab() {
     const el = document.getElementById('cfgAdvanced');
@@ -1692,6 +1697,55 @@
       <div class="section-title">RAW JSON</div>
       <div class="help-text" style="margin-bottom:8px">直接編輯整個 manifest.json — 萬一 GUI 不夠用時的退路。</div>
       <button class="btn btn-ghost btn-sm" onclick="rawMode=true;renderAdvancedTab();">📝 進入 Raw JSON 編輯模式…</button>
+
+      <div class="section-title" style="margin-top:20px;">SERVER.JS（自訂遊戲邏輯）</div>
+      <div class="help-text" style="margin-bottom:8px">
+        在此編輯模組的 server.js，繼承 BaseModule 來實現自訂遊戲邏輯。<br>
+        若模組不需要自訂邏輯，可留空使用 BaseModule 預設行為。
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="toggleServerEdit()" id="serverEditBtn">
+        ${serverCode ? '📝 編輯 server.js（已存在）' : '➕ 新增 server.js'}
+      </button>
+      <div id="serverEditArea" style="display:none;margin-top:12px;">
+        <div class="raw-bar">
+          <button class="btn btn-primary btn-sm" onclick="saveServerCode()">💾 儲存 server.js</button>
+          <button class="btn-danger btn-sm" onclick="deleteServerCode()" ${serverCode ? '' : 'style="display:none;"'}>🗑️ 刪除 server.js</button>
+          <span id="serverValidationMsg" class="help-text" style="margin-left:auto;"></span>
+        </div>
+        <textarea class="field-input" id="serverCode"
+          spellcheck="false"
+          style="font-family:Monaco,Menlo,'Ubuntu Mono',Consolas,monospace;font-size:13px;line-height:1.4;min-height:400px;"
+          onchange="onServerCodeChange()"
+          placeholder="// 範例：繼承 BaseModule 並實現自訂回調
+
+const BaseModule = require('../../core/BaseModule');
+
+class MyModule extends BaseModule {
+  constructor(manifest, session, config) {
+    super(manifest, session, config);
+  }
+
+  // 當玩家出牌時的回調
+  async onCardPlayed(session, playerId, card) {
+    console.log('Player played:', card);
+  }
+
+  // 當投票結束時的回調
+  async onVoteEnded(session, results, voteConfig) {
+    console.log('Vote ended:', results);
+  }
+}
+
+module.exports = MyModule;">${escapeH(serverCode)}</textarea>
+        <div class="help-text" style="margin-top:6px;font-size:.7rem;">
+          💡 <strong>提示：</strong>
+          <ul style="margin:4px 0 0 20px;padding-left:16px;">
+            <li>必須繼承 <code>BaseModule</code></li>
+            <li>可選擇實現回調方法（如 <code>onCardPlayed</code>、<code>onVoteEnded</code>）</li>
+            <li>儲存時會自動檢查語法和繼承關係</li>
+          </ul>
+        </div>
+      </div>
     `;
   }
 
@@ -1783,6 +1837,151 @@
     pushHistory();
     manifest.fieldConfig[key].options[oi][prop] = val;
     afterChange(true);
+  }
+
+  // ─── Server.js 編輯功能 ───
+
+  /**
+   * 切換 server.js 編輯區域顯示
+   */
+  function toggleServerEdit() {
+    const area = document.getElementById('serverEditArea');
+    const btn = document.getElementById('serverEditBtn');
+    if (area.style.display === 'none') {
+      area.style.display = 'block';
+      btn.innerHTML = '▲ 收起';
+    } else {
+      area.style.display = 'none';
+      btn.innerHTML = serverCode ? '📝 編輯 server.js（已存在）' : '➕ 新增 server.js';
+    }
+  }
+
+  /**
+   * 儲存 server.js
+   */
+  async function saveServerCode() {
+    const code = document.getElementById('serverCode').value;
+    const validation = validateServerCode(code);
+    const msgEl = document.getElementById('serverValidationMsg');
+
+    if (!validation.valid) {
+      msgEl.innerHTML = `<span style="color:#ff7777;">❌ ${validation.error}</span>`;
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/modules/${encodeURIComponent(currentId)}/server`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: code
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || '儲存失敗');
+      }
+
+      serverCode = code;
+      originalServerCode = code;
+      msgEl.innerHTML = `<span style="color:#66dd99;">✅ 已儲存</span>`;
+      toast('✅ server.js 已儲存', 'ok');
+
+      // 更新按鈕文字
+      document.getElementById('serverEditBtn').innerHTML = '📝 編輯 server.js（已存在）';
+      document.querySelector('#serverEditArea .btn-danger').style.display = '';
+
+      // 3秒後清除訊息
+      setTimeout(() => { msgEl.innerHTML = ''; }, 3000);
+    } catch (err) {
+      msgEl.innerHTML = `<span style="color:#ff7777;">❌ 儲存失敗：${err.message}</span>`;
+      console.error('[Editor] Failed to save server.js:', err);
+    }
+  }
+
+  /**
+   * 刪除 server.js
+   */
+  async function deleteServerCode() {
+    if (!confirm('確定要刪除 server.js 嗎？此操作無法復原。')) return;
+
+    try {
+      const res = await fetch(`/api/modules/${encodeURIComponent(currentId)}/server`, {
+        method: 'DELETE'
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || '刪除失敗');
+      }
+
+      serverCode = '';
+      originalServerCode = '';
+      document.getElementById('serverCode').value = '';
+      document.getElementById('serverEditBtn').innerHTML = '➕ 新增 server.js';
+      document.querySelector('#serverEditArea .btn-danger').style.display = 'none';
+      toast('✅ server.js 已刪除', 'ok');
+    } catch (err) {
+      toast('❌ 刪除失敗：' + err.message, 'err');
+      console.error('[Editor] Failed to delete server.js:', err);
+    }
+  }
+
+  /**
+   * 驗證 server.js 代碼
+   * @returns {Object} { valid: boolean, error: string }
+   */
+  function validateServerCode(code) {
+    const errors = [];
+
+    // 基本語法檢查（嘗試解析為 JavaScript）
+    try {
+      new Function(code);
+    } catch (e) {
+      errors.push(`JavaScript 語法錯誤：${e.message}`);
+    }
+
+    // 檢查是否繼承 BaseModule
+    if (code.trim() && !code.includes('BaseModule')) {
+      errors.push('server.js 必須繼承 BaseModule（使用 require("../../core/BaseModule")）');
+    }
+
+    // 檢查是否有 module.exports
+    if (code.trim() && !code.includes('module.exports')) {
+      errors.push('server.js 必須導出模組類（使用 module.exports YourClass）');
+    }
+
+    // 檢查類別命名（建議使用 XxxxModule 結尾）
+    const classMatch = code.match(/class\s+(\w+)\s+extends/);
+    if (classMatch && !classMatch[1].endsWith('Module')) {
+      // 這只是警告，不算錯誤
+      console.warn('[Editor] Class name should end with "Module":', classMatch[1]);
+    }
+
+    if (errors.length > 0) {
+      return { valid: false, error: errors.join('; ') };
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * 當 server.js 編輯區域內容變化時進行驗證
+   */
+  function onServerCodeChange() {
+    const code = document.getElementById('serverCode').value;
+    const validation = validateServerCode(code);
+    const msgEl = document.getElementById('serverValidationMsg');
+
+    if (code.trim() === '') {
+      msgEl.innerHTML = '';
+      return;
+    }
+
+    if (!validation.valid) {
+      msgEl.innerHTML = `<span style="color:#ff7777;">⚠️ ${validation.error}</span>`;
+    } else {
+      msgEl.innerHTML = `<span style="color:#88ff88;">✓ 格式正確</span>`;
+    }
   }
   function addFcOpt(key) {
     pushHistory();
@@ -2104,6 +2303,32 @@
       }
     } catch (err) {
       console.error('[Editor] Failed to load global decks:', err);
+    }
+  }
+
+  /**
+   * 載入模組的 server.js 代碼
+   */
+  async function loadServerCode(moduleId) {
+    try {
+      const res = await fetch(`/api/modules/${encodeURIComponent(moduleId)}/server`);
+      if (res.status === 404) {
+        // server.js 不存在，這是正常的
+        serverCode = '';
+        originalServerCode = '';
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(`載入 server.js 失敗：${res.status}`);
+      }
+      const code = await res.text();
+      serverCode = code;
+      originalServerCode = code;
+      console.log('[Editor] Loaded server.js');
+    } catch (err) {
+      console.error('[Editor] Failed to load server.js:', err);
+      serverCode = '';
+      originalServerCode = '';
     }
   }
 

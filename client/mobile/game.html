@@ -1742,7 +1742,7 @@
     }
 
     function sendControllerInput(key, state) {
-      client.emit('player_action', { roomId, playerId, action: 'input', data: { key, state } });
+      client.playerAction('input', { key, state });
     }
   </script>
 </body>

@@ -1,0 +1,18 @@
+{
+  "id": "input-test",
+  "name": "控制器測試",
+  "description": "測試控制器輸入",
+  "minPlayers": 1,
+  "maxPlayers": 8,
+  "version": "1.0.0",
+  "stages": [
+    {
+      "id": "ctrl_stage",
+      "type": "input",
+      "name": "控制器",
+      "enabled": true,
+      "inputConfig": { "layout": "pad-4" },
+      "advance": { "trigger": "host" }
+    }
+  ]
+}

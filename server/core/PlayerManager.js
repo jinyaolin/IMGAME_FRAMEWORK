@@ -6,23 +6,33 @@ class PlayerState {
     this.name = name;
     this.socketId = socketId;
     this.role = 'player';
+    this.playerNumber = null;   // Assigned by module when game starts
     this.hand = [];
     this.score = 0;
-    this.isReady = false;
-    this.isConnected = true;
+    this.isReady = false;      // 業務邏輯：判斷遊戲是否能開始
+    this.isConnected = true;   // 業務邏輯：判斷玩家是否在線
+    this.isAlive = true;       // 業務邏輯：判斷玩家是否存活
     this.moduleData = {};
+    this.attributes = {}; // host-settable key/value pairs from module's playerAttributes
+    this.status = 'waiting';    // 顯示用：統一的狀態欄位
     this.joinedAt = Date.now();
   }
 
   toPublic() {
-    return {
+    const publicData = {
       id: this.id,
       name: this.name,
+      playerNumber: this.playerNumber,
       score: this.score,
-      isReady: this.isReady,
-      isConnected: this.isConnected,
+      isReady: this.isReady,           // 保留業務邏輯 flag
+      isConnected: this.isConnected,   // 保留業務邏輯 flag
+      isAlive: this.isAlive,          // 保留業務邏輯 flag
       handCount: this.hand.length,
+      status: this.status,            // 顯示用統一狀態
+      attributes: this.attributes,
     };
+    console.log(`[PlayerManager] toPublic for ${this.name}: playerNumber=${this.playerNumber}`);
+    return publicData;
   }
 
   toPrivate() {

@@ -50,11 +50,33 @@
       height: var(--topbar-h);
       background: var(--surface);
       border-bottom: 1px solid var(--border);
-      display: grid;
-      grid-template-columns: 56px 1fr auto;
+      display: flex;
       align-items: center;
       padding: 0 10px;
       flex-shrink: 0;
+    }
+    /* Left section: player number + identity slot */
+    #topbarLeft {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    /* Player number badge (rounded square) */
+    #playerNumber {
+      display: none; /* Hidden until player number is assigned */
+      justify-content: center; align-items: center;
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      background: #e67e22;
+      color: white;
+      font-size: .75rem;
+      font-weight: bold;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    #playerNumber:not(:empty) {
+      display: flex;
     }
     /* Identity slot — fixed top-left, small */
     #idSlot {
@@ -64,6 +86,7 @@
       background: #0a0a18; border: 2px solid var(--border);
       cursor: pointer; user-select: none;
       transition: border-color .15s, transform .1s;
+      flex-shrink: 0;
     }
     #idSlot:active { transform: scale(.94); }
     #idSlot.empty   { color: var(--text-faint); font-size: 1.1rem; }
@@ -75,6 +98,7 @@
     }
     /* Center: room + name + score (compact) */
     #topbarCenter {
+      flex: 1;
       display: flex; flex-direction: column; min-width: 0; padding: 0 10px;
     }
     #topbarCenter .name { font-size: .92rem; font-weight: 700; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -104,9 +128,17 @@
       flex-shrink: 0;
       border-bottom: 1px solid var(--border);
       background: var(--bg);
+      transition: background .25s, color .25s;
+    }
+    #statusbar.has-countdown {
+      background: linear-gradient(90deg, rgba(255,221,68,.08), rgba(255,221,68,.18), rgba(255,221,68,.08));
+      border-bottom-color: rgba(255,221,68,.4);
     }
     #statusbar .status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #statusbar .countdown { color: var(--accent); font-family: monospace; flex-shrink: 0; }
+    #statusbar .countdown {
+      color: var(--gold); font-family: monospace; flex-shrink: 0;
+      font-size: .98rem; font-weight: 700; letter-spacing: .04em;
+    }
 
     /* ───── CARD ZONE (the changeable region) ──────────── */
     #cardZone {
@@ -162,6 +194,11 @@
     .card.selected {
       border-color: var(--accent);
       box-shadow: 0 0 0 2px rgba(102, 136, 255, .35), 0 6px 20px rgba(85, 85, 255, .4);
+    }
+    .card.eliminated {
+      opacity: 0.4;
+      pointer-events: none;
+      filter: grayscale(100%);
     }
     .card .card-img {
       width: 100%; height: 70%;
@@ -252,6 +289,135 @@
     .id-actions .id-close   { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
     .id-confirmed-msg { margin-top: 12px; font-size: .82rem; color: var(--green); }
 
+    /* ───── VOTE OVERLAY ───────────────────────────────────────── */
+    #voteOverlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85); z-index: 200;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    #voteOverlay.hidden { display: none; }
+
+    /* ───── ELIMINATED SCREEN ─────────────────────────────────── */
+    #eliminatedScreen {
+      position: fixed; inset: 0; z-index: 500;
+      background: #0a0005;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 32px;
+    }
+    #eliminatedScreen .elim-icon { font-size: 4rem; margin-bottom: 16px; }
+    #eliminatedScreen .elim-title {
+      font-size: 1.6rem; font-weight: 800; color: #ff4444;
+      margin-bottom: 8px; letter-spacing: .04em;
+    }
+    #eliminatedScreen .elim-sub {
+      font-size: .95rem; color: #888899; margin-bottom: 32px; line-height: 1.5;
+    }
+    #eliminatedScreen .elim-watch-label {
+      font-size: .72rem; color: #555566; letter-spacing: .1em; text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+    #eliminatedScreen .vote-results {
+      background: #12121f;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      padding: 16px;
+      max-width: 320px;
+      width: 100%;
+    }
+    #eliminatedScreen .vote-results-title {
+      font-size: .85rem;
+      color: #8888bb;
+      margin-bottom: 12px;
+      text-align: left;
+    }
+    #eliminatedScreen .vote-result-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    #eliminatedScreen .vote-result-item:last-child {
+      border-bottom: none;
+    }
+    #eliminatedScreen .vote-result-target {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #eliminatedScreen .vote-result-number {
+      background: #e67e22;
+      color: white;
+      font-size: .7rem;
+      font-weight: bold;
+      width: 24px;
+      height: 24px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    #eliminatedScreen .vote-result-name {
+      font-size: .85rem;
+      color: #ccccee;
+    }
+    #eliminatedScreen .vote-result-count {
+      font-size: 1rem;
+      color: #ffdd44;
+      font-weight: bold;
+    }
+    .vote-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px; width: 100%; max-width: 340px;
+    }
+    .vote-header { margin-bottom: 20px; text-align: center; }
+    .vote-title { font-size: 1.3rem; color: #fff; margin-bottom: 6px; }
+    .vote-subtitle { font-size: .85rem; color: var(--text-dim); }
+    .vote-options {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      margin-bottom: 20px;
+    }
+    .vote-option {
+      background: #1a1a2e; border: 2px solid #3a3a5a;
+      border-radius: 12px; padding: 16px;
+      cursor: pointer; transition: all .2s;
+      text-align: center;
+    }
+    .vote-option:hover:not(.disabled) { border-color: var(--accent); background: #2a2a4a; }
+    .vote-option.selected { border-color: var(--accent); background: #1a1a3a; }
+    .vote-option.disabled { opacity: .4; cursor: not-allowed; }
+    .vote-option-name { font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 4px; }
+    .vote-option-icon { font-size: 2rem; }
+    .vote-option-type { font-size: .7rem; color: var(--text-dim); }
+    .vote-status { font-size: .9rem; color: var(--green); text-align: center; margin-bottom: 12px; }
+    .vote-timer { font-size: .8rem; color: var(--text-dim); text-align: center; margin-bottom: 16px; }
+    .vote-submit-btn {
+      width: calc(100% - 32px);
+      margin: 0 16px 16px;
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+      background: linear-gradient(135deg, #4a9eff 0%, #357abd 100%);
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .vote-submit-btn:hover { background: linear-gradient(135deg, #5aadff 0%, #4289d0 100%); }
+    .vote-submit-btn:disabled {
+      background: #3a3a5a;
+      color: #8888aa;
+      cursor: not-allowed;
+    }
+    .vote-submit-btn.submitted {
+      background: linear-gradient(135deg, #44cc77 0%, #339955 100%);
+      cursor: default;
+    }
+
     /* ───── LOBBY ────────────────────────────────────────── */
     #lobbyScreen {
       flex: 1;
@@ -318,8 +484,11 @@
   <div id="gameScreen" class="hidden" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
     <!-- Topbar -->
     <div id="topbar">
-      <div id="idSlot" class="empty" onclick="onIdSlotClick()">
-        <span id="idSlotIcon">🎭</span>
+      <div id="topbarLeft">
+        <div id="playerNumber"></div>
+        <div id="idSlot" class="empty" onclick="onIdSlotClick()">
+          <span id="idSlotIcon">🎭</span>
+        </div>
       </div>
       <div id="topbarCenter">
         <div class="name" id="hdrName">玩家</div>
@@ -388,6 +557,33 @@
     </div>
   </div>
 
+  <!-- ════════ ELIMINATED SCREEN ════════ -->
+  <div id="eliminatedScreen">
+    <div class="elim-icon">💀</div>
+    <div class="elim-title">你已被淘汰</div>
+    <div class="elim-sub" id="elimSubText">遊戲繼續進行中，你可以繼續觀看。</div>
+    <div class="elim-watch-label">觀戰模式</div>
+    <div class="vote-results" id="elimVoteResults"></div>
+  </div>
+
+  <!-- ════════ VOTE OVERLAY ════════ -->
+  <div id="voteOverlay" class="overlay hidden">
+    <div class="vote-box">
+      <div class="vote-header">
+        <div class="vote-title">🗳️ 投票階段</div>
+        <div class="vote-subtitle" id="voteSubtitle">請選擇要投票的玩家</div>
+      </div>
+
+      <div class="vote-options" id="voteOptions">
+        <!-- 動態生成投票選項 -->
+      </div>
+
+      <div class="vote-status" id="voteStatus">等待投票…</div>
+      <div class="vote-timer" id="voteTimer"></div>
+      <button id="voteSubmitBtn" class="vote-submit-btn" disabled>送出投票</button>
+    </div>
+  </div>
+
   <!-- ════════ RESULT SCREEN ════════ -->
   <div id="resultScreen">
     <div class="trophy">🏆</div>
@@ -421,7 +617,82 @@
     let isRevealed    = false;
     let hasPlayedThisRound = false;
     let identityConfirmed  = false;
+    let myIsAlive     = true;
+    let lastVoteResults = null; // Store most recent vote results
+    let currentPlayers = []; // Store current players list
     const playersById = new Map();
+
+    function showEliminatedScreen(subText) {
+      console.log('[Mobile] showEliminatedScreen called with:', subText);
+      const screen = document.getElementById('eliminatedScreen');
+      console.log('[Mobile] eliminatedScreen element:', screen);
+      if (subText) document.getElementById('elimSubText').textContent = subText;
+      screen.style.display = 'flex';
+      console.log('[Mobile] eliminatedScreen display set to flex. Current display:', screen.style.display);
+    }
+
+    function showEliminatedWithVoteResults(eliminationType = 'exile') {
+      console.log('[Mobile] showEliminatedWithVoteResults called with type:', eliminationType);
+      const screen = document.getElementById('eliminatedScreen');
+      console.log('[Mobile] eliminatedScreen element:', screen);
+
+      // Set elimination-specific content
+      const eliminationMessages = {
+        exile: { icon: '🏳️', title: '你被放逐了', subtext: '村民投票決定將你放逐。遊戲繼續進行中，你可以繼續觀看。' },
+        wolf_kill: { icon: '🐺', title: '你被狼人殺害了', subtext: '月黑風高的夜晚，狼人選擇了你作為獵物。遊戲繼續進行中，你可以繼續觀看。' },
+        poison: { icon: '☠️', title: '你被毒殺了', subtext: '不知名的毒藥結束了你的生命。遊戲繼續進行中，你可以繼續觀看。' },
+        shoot: { icon: '🔫', title: '你被槍殺了', subtext: '槍聲響起，你應聲倒地。遊戲繼續進行中，你可以繼續觀看。' }
+      };
+
+      const message = eliminationMessages[eliminationType] || eliminationMessages.exile;
+
+      // Update the eliminated screen content
+      const iconEl = screen.querySelector('.elim-icon');
+      const titleEl = screen.querySelector('.elim-title');
+      const subEl = document.getElementById('elimSubText');
+
+      if (iconEl) iconEl.textContent = message.icon;
+      if (titleEl) titleEl.textContent = message.title;
+      if (subEl) subEl.textContent = message.subtext;
+
+      screen.style.display = 'flex';
+      // Hide vote overlay if it's showing
+      const voteOverlay = document.getElementById('voteOverlay');
+      if (voteOverlay) {
+        voteOverlay.classList.add('hidden');
+        console.log('[Mobile] Hidden vote overlay');
+      }
+      console.log('[Mobile] eliminatedScreen display set to flex with type:', eliminationType);
+
+      // Display vote results if available
+      const resultsContainer = document.getElementById('elimVoteResults');
+      if (lastVoteResults && lastVoteResults.length > 0) {
+        let resultsHtml = '<div class="vote-results-title">📊 投票結果</div>';
+
+        lastVoteResults.forEach(result => {
+          const number = result.targetNumber || '?';
+          const name = result.targetName || result.targetId;
+          resultsHtml += `
+            <div class="vote-result-item">
+              <div class="vote-result-target">
+                <span class="vote-result-number">${number}</span>
+                <span class="vote-result-name">${name}</span>
+              </div>
+              <span class="vote-result-count">${result.count} 票</span>
+            </div>
+          `;
+        });
+
+        resultsContainer.innerHTML = resultsHtml;
+        resultsContainer.style.display = 'block';
+      } else {
+        resultsContainer.style.display = 'none';
+      }
+    }
+
+    function hideEliminatedScreen() {
+      document.getElementById('eliminatedScreen').style.display = 'none';
+    }
 
     // Layout: 'strip' | 'fan' | 'grid' — persisted per-device
     let cardLayout = localStorage.getItem('mobile.cardLayout') || 'strip';
@@ -460,8 +731,49 @@
     client.on('player_ready', d => renderPlayers(d.players || []));
 
     client.on('game_started', (data) => {
+      console.log('[Mobile] ========== GAME STARTED ==========');
+      console.log('[Mobile] Full data:', JSON.stringify(data, null, 2));
+      console.log('[Mobile] playerId:', playerId);
       phase = 'playing';
+      myIsAlive = true; // Reset alive status when game restarts
+      lastVoteResults = null; // Clear previous vote results
+      hideEliminatedScreen();
       updateStatus(data.sharedState || {});
+
+      // Set player number if provided
+      if (data.players) {
+        console.log('[Mobile] Players array:', JSON.stringify(data.players, null, 2));
+        const myPlayerData = data.players.find(p => p.id === playerId);
+        console.log('[Mobile] My player data:', myPlayerData);
+        if (myPlayerData) {
+          const numberEl = document.getElementById('playerNumber');
+          console.log('[Mobile] numberEl element:', numberEl);
+          console.log('[Mobile] numberEl before textContent:', numberEl.textContent);
+          console.log('[Mobile] playerNumber value:', myPlayerData.playerNumber);
+          console.log('[Mobile] playerNumber type:', typeof myPlayerData.playerNumber);
+
+          // IMPORTANT: Don't use || '' because it will make number 0 become empty string
+          if (myPlayerData.playerNumber !== undefined && myPlayerData.playerNumber !== null) {
+            numberEl.textContent = String(myPlayerData.playerNumber);
+            console.log('[Mobile] ✅ Set playerNumber to:', numberEl.textContent);
+          } else {
+            console.warn('[Mobile] ⚠️ playerNumber is', myPlayerData.playerNumber);
+            numberEl.textContent = '';
+          }
+
+          console.log('[Mobile] numberEl after textContent:', numberEl.textContent);
+          console.log('[Mobile] numberEl innerHTML:', numberEl.innerHTML);
+          console.log('[Mobile] numberEl classes:', numberEl.className);
+          console.log('[Mobile] numberEl computed display:', window.getComputedStyle(numberEl).display);
+        } else {
+          console.error('[Mobile] ERROR: Could not find my player data in players array!');
+          console.error('[Mobile] Available player IDs:', data.players.map(p => p.id));
+          console.error('[Mobile] My player ID:', playerId);
+        }
+      } else {
+        console.error('[Mobile] ERROR: No players array in game_started data!');
+      }
+
       document.getElementById('hdrScore').textContent = '0';
       selectedCard = null;
       myIdentity   = null;
@@ -476,9 +788,37 @@
       clearCountdown();
     });
 
+    // Handle player status updates (e.g., elimination, revival)
+    client.on('player_status_updated', (data) => {
+      if (data.playerId === playerId) {
+        const wasAlive = myIsAlive;
+        myIsAlive = data.isAlive !== false; // Default to true if not specified
+
+        if (myIsAlive && !wasAlive) {
+          // Player was revived
+          hideEliminatedScreen();
+        } else if (!myIsAlive && wasAlive) {
+          // Player was eliminated
+          showEliminatedScreen();
+        }
+      }
+    });
+
+    client.on('room_closed', () => {
+      document.body.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                    height:100vh;background:#0a0005;color:#cc8888;font-family:sans-serif;gap:16px;">
+          <div style="font-size:2rem;">🚪</div>
+          <div style="font-size:1.1rem;font-weight:700;">房間已關閉</div>
+          <div style="font-size:.85rem;color:#886688;">Host 已結束這個遊戲房間</div>
+        </div>`;
+    });
+
     client.on('game_ended',    (data) => { phase = 'result'; showResultScreen(data); });
     client.on('back_to_lobby', () => {
       phase = 'lobby';
+      myIsAlive = true;
+      hideEliminatedScreen();
       hideResultScreen();
       hideIdentityOverlay();
       document.getElementById('gameScreen').classList.add('hidden');
@@ -491,10 +831,15 @@
 
     client.on('identity_assigned', (data) => {
       myIdentity = data.card;
-      identityConfirmed = false;
       renderIdentityBadge();
       enterGameScreen();
-      openIdentityOverlay({ confirmMode: true });
+      if (data.isReconnect && data.alreadyConfirmed) {
+        // Player had already confirmed before disconnecting — restore state silently
+        identityConfirmed = true;
+      } else {
+        identityConfirmed = false;
+        openIdentityOverlay({ confirmMode: true });
+      }
     });
 
     client.on('phase_changed', (data) => {
@@ -540,11 +885,218 @@
       renderCards();
     });
 
+    // ════════════════════════════════════════════════════════════════
+    //   VOTE SYSTEM
+    // ════════════════════════════════════════════════════════════════
+    let voteHideTimer = null;
+
+    client.on('vote_started', (data) => {
+      console.log('[Mobile] ========== VOTE STARTED ==========');
+      console.log('[Mobile] myIsAlive:', myIsAlive);
+      console.log('[Mobile] Vote started:', data);
+      // Cancel any stale hide-timer from a previous round's result display
+      if (voteHideTimer) { clearTimeout(voteHideTimer); voteHideTimer = null; }
+      setStatus('投票階段');
+      showVoteScreen(data);
+    });
+
+    client.on('vote_cast', (data) => {
+      if (data.playerId === playerId) {
+        console.log('[Mobile] My vote cast', data.isReconnect ? '(reconnect restore)' : '');
+        voteSubmitted = true;
+        document.getElementById('voteStatus').textContent = '✓ 已投票';
+        const submitBtn = document.getElementById('voteSubmitBtn');
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.classList.add('submitted');
+          submitBtn.textContent = '已送出';
+        }
+      }
+    });
+
+    client.on('vote_rejected', () => {
+      voteSubmitted = false;
+      const submitBtn = document.getElementById('voteSubmitBtn');
+      submitBtn.textContent = '送出投票';
+      submitBtn.disabled = !selectedVoteOption;
+      submitBtn.classList.remove('submitted');
+      document.getElementById('voteStatus').textContent = '⚠ 投票未能送出，請重試';
+      document.querySelectorAll('.vote-option').forEach(el => {
+        el.classList.remove('disabled');
+        el.onclick = () => selectVoteOption(el.dataset.optionId, el);
+      });
+    });
+
+    client.on('vote_countdown', (d) => {
+      const el = document.getElementById('countdownText');
+      if (d.remaining > 0) {
+        el.textContent = `⏱ 剩餘 ${d.remaining} 秒`;
+      } else {
+        el.textContent = '';
+      }
+    });
+
+    client.on('vote_ended', (data) => {
+      console.log('[Mobile] Vote ended:', data);
+
+      // Store vote results for later display in eliminated screen
+      lastVoteResults = data.results || null;
+
+      // Show vote results before hiding screen
+      if (data.results && data.results.length > 0) {
+        const maxVotes = Math.max(...data.results.map(r => r.count));
+        const isTie = data.results.filter(r => r.count === maxVotes).length > 1;
+
+        let resultHtml = '<div style="padding:20px;text-align:center;"><h3 style="color:#fff;margin-bottom:16px;">📊 投票結果</h3>';
+
+        if (isTie) {
+          resultHtml += '<div style="color:#ffdd44;margin-bottom:12px;">平票！</div>';
+        }
+
+        resultHtml += data.results.map((result, index) => {
+          const name = result.targetName || result.targetId;
+          const isLeading = result.count === maxVotes && result.count > 0;
+
+          let votersHtml = '';
+          if (result.voters && result.voters.length > 0) {
+            votersHtml = `<div style="font-size:.75rem;color:#8888aa;margin-top:4px;">🗳️ ${result.voters.join('、')}</div>`;
+          }
+
+          return `
+            <div style="background:${isLeading ? '#1a1a3a' : '#14143a'};border:2px solid ${isLeading ? '#ffdd44' : '#3a3a7a'};border-radius:12px;padding:12px;margin-bottom:8px;text-align:center;">
+              <div style="font-size:1.5rem;color:#ffdd44;font-weight:700;">${result.count} 票</div>
+              <div style="font-size:1rem;color:#aaaaff;">${name}</div>
+              ${votersHtml}
+            </div>
+          `;
+        }).join('');
+
+        resultHtml += '</div>';
+
+        // Replace vote options with results
+        const optionsContainer = document.getElementById('voteOptions');
+        if (optionsContainer) {
+          optionsContainer.innerHTML = resultHtml;
+        }
+
+        // Update status
+        document.getElementById('voteStatus').textContent = '投票結束';
+
+        // Hide screen after delay (store ref so next round can cancel it)
+        voteHideTimer = setTimeout(() => {
+          voteHideTimer = null;
+          hideVoteScreen();
+          setStatus('投票結束');
+        }, 5000);
+      } else {
+        hideVoteScreen();
+        setStatus('投票結束');
+      }
+    });
+
+    client.on('players_eliminated', (data) => {
+      console.log('[Mobile] ========== PLAYERS ELIMINATED ==========');
+      console.log('[Mobile] Eliminated data:', data);
+      console.log('[Mobile] Elimination type:', data.eliminationType);
+      console.log('[Mobile] My playerId:', playerId);
+      console.log('[Mobile] data.players:', data.players);
+      console.log('[Mobile] data.players type:', typeof data.players);
+      console.log('[Mobile] data.players length:', data.players ? data.players.length : 'N/A');
+      if (!data.players || !Array.isArray(data.players)) {
+        console.error('[Mobile] ❌ data.players is not an array!');
+        return;
+      }
+      data.players.forEach((p, index) => {
+        console.log(`[Mobile] [${index}] Player:`, p);
+        console.log(`[Mobile] [${index}] Player ID:`, p.id, 'vs my playerId:', playerId);
+        if (p.id && p.id === playerId) {
+          console.log('[Mobile] ❌ I AM ELIMINATED!');
+          myIsAlive = false;
+          showEliminatedWithVoteResults(data.eliminationType);
+        }
+      });
+    });
+
+    client.on('player_alive_changed', (data) => {
+      if (data.playerId !== playerId) return;
+      myIsAlive = data.isAlive;
+      if (data.isAlive) {
+        hideEliminatedScreen();
+      } else {
+        showEliminatedScreen('主持人手動設定你為淘汰狀態。');
+      }
+    });
+
+    client.on('player_renamed', (data) => {
+      if (data.playerId !== playerId) return;
+      playerName = data.newName;
+      renderPlayers(currentPlayers.map(p =>
+        p.id === data.playerId ? { ...p, name: data.newName } : p
+      ));
+      showToast(`✏️ 你的名稱已改為 ${data.newName}`);
+    });
+
+    client.on('player_numbers_updated', (data) => {
+      console.log('[Mobile] Player numbers updated:', data);
+      // Check if currentPlayers exists
+      if (!currentPlayers || !Array.isArray(currentPlayers)) {
+        console.warn('[Mobile] currentPlayers not initialized yet, skipping number update');
+        return;
+      }
+      // Update player numbers for all players
+      currentPlayers = currentPlayers.map(p => ({
+        ...p,
+        playerNumber: data.players[p.id] !== undefined ? data.players[p.id] : p.playerNumber
+      }));
+      // Re-render players to show updated numbers
+      renderPlayers(currentPlayers);
+      // Update my own number badge if I'm in the list
+      const myPlayerData = currentPlayers.find(p => p.id === playerId);
+      if (myPlayerData && myPlayerData.playerNumber !== undefined && myPlayerData.playerNumber !== null) {
+        const numberEl = document.getElementById('playerNumber');
+        if (numberEl) {
+          numberEl.textContent = String(myPlayerData.playerNumber);
+          console.log('[Mobile] Updated my player number to:', myPlayerData.playerNumber);
+        }
+      }
+    });
+
+    // ════════════════════════════════════════════════════════════════
+    //   STAGE EVENTS
+    // ════════════════════════════════════════════════════════════════
     client.on('stage_started', (data) => {
-      setStatus(`階段：${data.stageName}`);
+      console.log('[Mobile] Stage started:', data.stageName, 'type:', data.stageType);
+
+      // Handle different stage types
+      if (data.stageType === 'intermission') {
+        // Show pause stage with description
+        const statusText = data.stageDescription
+          ? `⏸️ ${data.stageName}：${data.stageDescription}`
+          : `⏸️ ${data.stageName}`;
+        setStatus(statusText);
+        hideIdentityOverlay();
+      } else if (data.stageType === 'identity_draw') {
+        // Entering identity_draw stage - show identity overlay if not already shown
+        console.log('[Mobile] Entering identity_draw stage');
+        setStatus(`階段：${data.stageName}`);
+        if (!myIdentity) {
+          // No identity assigned yet, show waiting message
+          setStatus('等待身份分配...');
+        } else if (!identityConfirmed) {
+          // Identity assigned but not confirmed, show overlay
+          openIdentityOverlay({ confirmMode: true });
+        }
+      } else if (data.stageType === 'vote') {
+        // Entering vote stage - hide identity overlay
+        console.log('[Mobile] Entering vote stage');
+        setStatus(`階段：${data.stageName}`);
+        hideIdentityOverlay();
+      } else {
+        // Other stage types - close overlay so player sees the new stage UI
+        setStatus(`階段：${data.stageName}`);
+        hideIdentityOverlay();
+      }
       clearCountdown();
-      // Leaving identity_draw stage → close overlay so player sees the new stage UI
-      if (data.stageType !== 'identity_draw') hideIdentityOverlay();
     });
     client.on('round_started', (data) => {
       setStatus(`第 ${data.roundNumber} 回合 (共 ${data.totalRounds} 回合)`);
@@ -564,11 +1116,14 @@
 
     client.on('countdown', (d) => {
       const el = document.getElementById('countdownText');
+      const bar = document.getElementById('statusbar');
       if (d.remaining > 0) {
-        el.textContent = `⏱ ${d.remaining}s`;
+        el.textContent = `⏱ ${d.remaining}s / ${d.total}s`;
+        bar.classList.add('has-countdown');
         if (!isRevealed) { isRevealed = true; renderCards(); }
       } else {
         el.textContent = '';
+        bar.classList.remove('has-countdown');
       }
     });
 
@@ -581,6 +1136,16 @@
     client.on('score_update', (data) => {
       if (data.playerId === playerId) {
         document.getElementById('hdrScore').textContent = data.score;
+      }
+    });
+
+    // Listen for bulk score updates
+    client.on('scores_updated', (data) => {
+      if (data.players) {
+        const myScore = data.players.find(p => p.id === playerId);
+        if (myScore) {
+          document.getElementById('hdrScore').textContent = myScore.score;
+        }
       }
     });
 
@@ -700,13 +1265,14 @@
     function renderCardElement(card, extraStyle = '') {
       const imgUrl  = cardImageUrl(card);
       const isSel   = selectedCard === card._instanceId;
+      const eliminated = !myIsAlive; // Add visual state for eliminated players
       const valTag  = (card.value !== undefined && card.value !== null && card.value !== '')
         ? `<div class="card-value-pill">${card.value}</div>` : '';
       const visual  = imgUrl
         ? `<img class="card-img" src="${imgUrl}" alt="${card.name||''}" onerror="this.style.display='none';this.nextElementSibling&&(this.nextElementSibling.style.display='flex');"><div class="card-img-fallback" style="display:none">${(card.name||'').slice(0,2)}</div>`
         : `<div class="card-img-fallback">${(card.name||'').slice(0,2)}</div>`;
       const noImgCls = imgUrl ? '' : 'no-img';
-      return `<div class="card ${noImgCls} ${isSel?'selected':''}"
+      return `<div class="card ${noImgCls} ${isSel?'selected':''} ${eliminated?'eliminated':''}"
                    data-instance-id="${card._instanceId}"
                    onclick="selectCard('${card._instanceId}')"
                    style="${extraStyle}">
@@ -763,6 +1329,7 @@
     }
 
     function selectCard(instanceId) {
+      if (!myIsAlive) return; // Cannot select cards if eliminated
       selectedCard = (selectedCard === instanceId) ? null : instanceId;
       renderCards();
     }
@@ -770,6 +1337,9 @@
     function updateActionButton() {
       const btn = document.getElementById('playBtn');
       // Hide button entirely when not in a play context (no hand)
+      if (!myIsAlive) {
+        btn.disabled = true; btn.textContent = '已淘汰'; return;
+      }
       if (!myHand.length) {
         btn.disabled = true; btn.textContent = '尚未拿到牌'; return;
       }
@@ -781,7 +1351,7 @@
     }
 
     function playSelected() {
-      if (!selectedCard || isPlayingCard) return;
+      if (!selectedCard || isPlayingCard || !myIsAlive) return;
       isPlayingCard = true;
       client.playCard(selectedCard, null);
       updateActionButton();
@@ -805,6 +1375,7 @@
       setCardLayout(cardLayout);
     }
     function renderPlayers(plist) {
+      currentPlayers = plist || []; // Update currentPlayers
       plist.forEach(p => playersById.set(p.id, p));
       const el = document.getElementById('playerList');
       el.innerHTML = plist.map(p => `
@@ -860,11 +1431,157 @@
       window.location.href = `/mobile?${qs}`;
     }
 
+    // ── VOTE SYSTEM ───────────────────────────────────────────────
+    let currentVoteData = null;
+    let selectedVoteOption = null;
+    let voteSubmitted = false;
+
+    function showVoteScreen(data) {
+      console.log('[Mobile] showVoteScreen called, myIsAlive =', myIsAlive);
+      // Don't show vote screen if player is eliminated
+      if (!myIsAlive) {
+        console.log('[Mobile] ❌ Player is eliminated, skipping vote screen');
+        return;
+      }
+
+      // Check if player is eligible to vote
+      if (data.eligibleVoters && !data.eligibleVoters.includes(playerId)) {
+        console.log('[Mobile] ❌ Player is not in eligibleVoters list, skipping vote screen');
+        console.log('[Mobile] eligibleVoters:', data.eligibleVoters);
+        console.log('[Mobile] my playerId:', playerId);
+        setStatus('非投票階段');
+        return;
+      }
+      console.log('[Mobile] ✓ Player is alive and eligible to vote, showing vote screen');
+
+      currentVoteData = data;
+      selectedVoteOption = null; // Reset selection
+      voteSubmitted = false; // Reset submitted state
+
+      const overlay = document.getElementById('voteOverlay');
+      const optionsContainer = document.getElementById('voteOptions');
+      const submitBtn = document.getElementById('voteSubmitBtn');
+      const titleEl = overlay.querySelector('.vote-title');
+      const subtitleEl = document.getElementById('voteSubtitle');
+
+      // Update title and subtitle
+      if (titleEl && data.voteTitle) {
+        titleEl.textContent = data.voteTitle;
+      } else {
+        titleEl.textContent = '🗳️ 投票階段';
+      }
+
+      if (subtitleEl) {
+        subtitleEl.textContent = data.voteDescription || '請選擇要投票的對象';
+      }
+
+      // Clear previous options
+      optionsContainer.innerHTML = '';
+
+      // Generate vote options
+      data.options.forEach(option => {
+        const div = document.createElement('div');
+        div.className = 'vote-option';
+        div.dataset.optionId = option.id;
+        div.onclick = () => selectVoteOption(option.id, div);
+        div.dataset.selected = 'false';
+
+        if (option.type === 'player') {
+          div.innerHTML = `
+            <div class="vote-option-icon">👤</div>
+            <div class="vote-option-name">${option.name}</div>
+          `;
+        } else {
+          div.innerHTML = `
+            ${option.icon ? `<div class="vote-option-icon">${option.icon}</div>` : ''}
+            <div class="vote-option-name">${option.name}</div>
+            ${option.type ? `<div class="vote-option-type">${option.type}</div>` : ''}
+          `;
+        }
+
+        optionsContainer.appendChild(div);
+      });
+
+      // Show overlay
+      overlay.classList.remove('hidden');
+
+      // Reset status and disable submit button until an option is selected
+      document.getElementById('voteStatus').textContent = '請選擇一個選項';
+      document.getElementById('voteTimer').textContent = '';
+      submitBtn.disabled = true;
+      submitBtn.classList.remove('submitted');
+      submitBtn.disabled = true;
+      submitBtn.classList.remove('submitted');
+      submitBtn.textContent = '送出投票';
+    }
+
+    function hideVoteScreen() {
+      document.getElementById('voteOverlay').classList.add('hidden');
+      currentVoteData = null;
+      selectedVoteOption = null;
+      voteSubmitted = false;
+    }
+
+    function selectVoteOption(optionId, element) {
+      if (voteSubmitted) return; // Already submitted, can't change
+
+      // Update UI - mark selected option
+      document.querySelectorAll('.vote-option').forEach(el => {
+        el.classList.remove('selected');
+        el.dataset.selected = 'false';
+      });
+
+      element.classList.add('selected');
+      element.dataset.selected = 'true';
+      selectedVoteOption = optionId;
+
+      const submitBtn = document.getElementById('voteSubmitBtn');
+      submitBtn.disabled = false;
+      submitBtn.classList.remove('submitted');
+
+      // Update status
+      document.getElementById('voteStatus').textContent = `已選擇，請點擊送出`;
+    }
+
+    function castVote() {
+      if (!currentVoteData || !selectedVoteOption || voteSubmitted) return;
+
+      console.log('[Mobile] Casting vote for:', selectedVoteOption);
+
+      // Send vote
+      client.playerAction('cast_vote', {
+        targetId: selectedVoteOption,
+        voteId: currentVoteData.voteId
+      });
+
+      console.log('[Mobile] Vote sent successfully');
+
+      // Mark as submitted
+      voteSubmitted = true;
+
+      // Update UI
+      const submitBtn = document.getElementById('voteSubmitBtn');
+      submitBtn.textContent = '✓ 已送出';
+      submitBtn.disabled = true;
+      submitBtn.classList.add('submitted');
+
+      document.getElementById('voteStatus').textContent = '✓ 投票已送出（不可更改）';
+
+      // Disable all options
+      document.querySelectorAll('.vote-option').forEach(el => {
+        el.classList.add('disabled');
+        el.onclick = null;
+      });
+    }
+
     // ════════════════════════════════════════════════════════════════
     //   INIT — apply layout class on first paint
     // ════════════════════════════════════════════════════════════════
     document.querySelectorAll('.lt-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.layout === cardLayout));
+
+    // Setup vote submit button
+    document.getElementById('voteSubmitBtn').addEventListener('click', castVote);
   </script>
 </body>
 </html>

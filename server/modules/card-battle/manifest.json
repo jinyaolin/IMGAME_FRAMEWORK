@@ -17,62 +17,13 @@
   "decks": [
     {
       "id": "identity",
-      "name": "身份牌組",
+      "name": "奇幻角色",
       "type": "role",
       "visibility": "private",
       "drawCount": 1,
       "allowDuplicate": false,
       "enabled": true,
-      "cards": [
-        {
-          "id": "r1",
-          "name": "戰士",
-          "team": "red",
-          "description": "勇猛的戰士"
-        },
-        {
-          "id": "r2",
-          "name": "法師",
-          "team": "blue",
-          "description": "智慧的法師"
-        },
-        {
-          "id": "r3",
-          "name": "刺客",
-          "team": "red",
-          "description": "敏捷的刺客"
-        },
-        {
-          "id": "r4",
-          "name": "治療師",
-          "team": "blue",
-          "description": "守護的治療師"
-        },
-        {
-          "id": "r5",
-          "name": "遊俠",
-          "team": "green",
-          "description": "自由的遊俠"
-        },
-        {
-          "id": "r6",
-          "name": "聖騎士",
-          "team": "gold",
-          "description": "正義的聖騎士"
-        },
-        {
-          "id": "r7",
-          "name": "死靈法師",
-          "team": "purple",
-          "description": "神秘的死靈法師"
-        },
-        {
-          "id": "r8",
-          "name": "狂戰士",
-          "team": "red",
-          "description": "無懼的狂戰士"
-        }
-      ]
+      "ref": "fantasy-roles"
     },
     {
       "id": "action",
@@ -82,68 +33,7 @@
       "drawCount": 5,
       "allowDuplicate": true,
       "enabled": true,
-      "cards": [
-        {
-          "id": "c1",
-          "name": "火焰拳",
-          "value": 9,
-          "description": "強力攻擊"
-        },
-        {
-          "id": "c2",
-          "name": "冰霜盾",
-          "value": 3,
-          "description": "防禦姿態"
-        },
-        {
-          "id": "c3",
-          "name": "閃電箭",
-          "value": 7,
-          "description": "快速打擊"
-        },
-        {
-          "id": "c4",
-          "name": "石牆術",
-          "value": 2,
-          "description": "堅固防線"
-        },
-        {
-          "id": "c5",
-          "name": "毒霧陣",
-          "value": 5,
-          "description": "持續傷害"
-        },
-        {
-          "id": "c6",
-          "name": "治癒光",
-          "value": 4,
-          "description": "恢復體力"
-        },
-        {
-          "id": "c7",
-          "name": "疾風步",
-          "value": 6,
-          "description": "迴避攻擊"
-        },
-        {
-          "id": "c8",
-          "name": "暗影刃",
-          "value": 8,
-          "description": "致命一擊"
-        },
-        {
-          "id": "c9",
-          "name": "雷霆怒",
-          "value": 10,
-          "description": "最強一擊"
-        },
-        {
-          "id": "c10",
-          "name": "泡泡術",
-          "value": 1,
-          "description": "看起來很弱"
-        }
-      ]
+      "ref": "card-battle-actions"
     }
   ],
   "stages": [

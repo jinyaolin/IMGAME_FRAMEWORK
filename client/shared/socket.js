@@ -73,8 +73,28 @@ class GameClient {
     this.socket.emit('host_next_phase', { roomId: this.roomId, data });
   }
 
+  closeRoom() {
+    this.socket.emit('host_close_room', { roomId: this.roomId });
+  }
+
   kickPlayer(playerId) {
     this.socket.emit('host_kick_player', { roomId: this.roomId, playerId });
+  }
+
+  setPlayerAlive(playerId, isAlive) {
+    this.socket.emit('host_set_player_alive', { roomId: this.roomId, playerId, isAlive });
+  }
+
+  setPlayerAttribute(playerId, attrId, value) {
+    this.socket.emit('host_set_player_attribute', { roomId: this.roomId, playerId, attrId, value });
+  }
+
+  setPlayerOrder(order) {
+    this.socket.emit('host_set_player_order', { roomId: this.roomId, order });
+  }
+
+  renamePlayer(playerId, newName) {
+    this.socket.emit('host_rename_player', { roomId: this.roomId, playerId, newName });
   }
 }
 

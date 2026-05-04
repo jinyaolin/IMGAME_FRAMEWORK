@@ -54,11 +54,26 @@ app.use('/api/decks', (req, res, next) => {
 
 // Create a new room (called by host)
 app.post('/api/rooms', (req, res) => {
+  const { moduleId } = req.body || {};
   const roomId = generateRoomCode();
   const session = new GameSession(roomId, io);
+
+  if (moduleId) {
+    const manifest = moduleLoader.getManifest(moduleId);
+    if (!manifest) return res.status(400).json({ error: `Module "${moduleId}" not found` });
+    session.manifest = manifest;
+    session.moduleName = moduleId;
+  }
+
   sessions.set(roomId, session);
-  console.log(`[Room] Created: ${roomId}`);
-  res.json({ roomId });
+  console.log(`[Room] Created: ${roomId}${moduleId ? ` (module: ${moduleId})` : ''}`);
+  res.json({ roomId, manifest: session.manifest });
+});
+
+// List all active rooms
+app.get('/api/rooms', (req, res) => {
+  const rooms = Array.from(sessions.values()).map(session => session.toSummary());
+  res.json(rooms);
 });
 
 // Room info
@@ -425,7 +440,19 @@ io.on('connection', (socket) => {
     const session = getSession(socket, roomId);
     if (!session) return;
 
-    socket.join(roomId);
+    // Enforce maxPlayers if manifest is pre-loaded (skip for reconnects)
+    const isExisting = session.players.get(playerId);
+    if (!isExisting && session.manifest?.maxPlayers) {
+      const connected = session.players.all().filter(p => p.isConnected).length;
+      if (connected >= session.manifest.maxPlayers) {
+        socket.emit('error', { message: `房間已滿，最多 ${session.manifest.maxPlayers} 人` });
+        return;
+      }
+    }
+
+    // Use uppercase roomId for socket.io room to match session room
+    const upperRoomId = roomId.toUpperCase();
+    socket.join(upperRoomId);
     const player = session.addPlayer(playerId, playerName, socket.id);
 
     socket.emit('room_joined', {
@@ -469,11 +496,20 @@ io.on('connection', (socket) => {
       roomId,
       phase: session.phase,
       moduleName: session.moduleName,
+      manifest: session.manifest,
       players: session.players.publicList(),
       availableModules: moduleLoader.listModules(),
       sharedState: session.sharedState,
     });
     console.log(`[Room:${roomId}] Host connected`);
+  });
+
+  // ── Host: toggle QR display ──────────────────────────────────
+  socket.on('host_toggle_qr', ({ roomId, visible }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    session.broadcastDisplay('qr_toggled', { visible });
+    console.log(`[Room:${roomId}] QR toggled: ${visible ? 'SHOW' : 'HIDE'}`);
   });
 
   // ── Player ready ────────────────────────────────────────────
@@ -482,8 +518,16 @@ io.on('connection', (socket) => {
     if (!session) return;
     const player = session.players.get(playerId);
     if (player) {
+      // Update business logic flag
       player.isReady = !!isReady;
+      // Sync display status
+      player.status = isReady ? 'ready' : 'waiting';
+      // Broadcast both old event (for compatibility) and new status update
       session.broadcastAll('player_ready', { playerId, players: session.players.publicList() });
+      session.broadcastAll('player_status_updated', {
+        playerId: playerId,
+        status: player.status
+      });
     }
   });
 
@@ -533,6 +577,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Host: close room ────────────────────────────────────────
+  socket.on('host_close_room', ({ roomId }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    session.broadcastAll('room_closed', {});
+    sessions.delete(roomId);
+    console.log(`[Room] Closed by host: ${roomId}`);
+  });
+
   // ── Host: next phase ────────────────────────────────────────
   socket.on('host_next_phase', ({ roomId, data }) => {
     const session = sessions.get(roomId);
@@ -546,6 +599,94 @@ io.on('connection', (socket) => {
     if (!session || session.hostSocketId !== socket.id) return;
     session.players.remove(playerId);
     session.broadcastAll('player_left', { playerId, players: session.players.publicList() });
+  });
+
+  // ── Host: broadcast player display order to display clients ─
+  socket.on('host_set_player_order', ({ roomId, order }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    session.broadcastDisplay('player_order_changed', { order });
+  });
+
+  // ── Host: broadcast player number updates to all clients ────────
+  socket.on('player_numbers_updated', ({ roomId, players }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    // Update player numbers in the session
+    for (const [playerId, playerNumber] of Object.entries(players)) {
+      const player = session.players.get(playerId);
+      if (player) {
+        player.playerNumber = playerNumber;
+      }
+    }
+    // Broadcast to all clients (mobile, display, and host)
+    session.broadcastAll('player_numbers_updated', { players });
+  });
+
+  // ── Host: set a module-defined attribute on a player ────────
+  socket.on('host_set_player_attribute', ({ roomId, playerId, attrId, value }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    const player = session.players.get(playerId);
+    if (!player) return;
+    player.attributes[attrId] = value;
+    if (session.currentModule?.players) {
+      const mp = session.currentModule.players.find(p => p.id === playerId);
+      if (mp) mp.attributes = player.attributes;
+    }
+    session.broadcastAll('player_attribute_changed', {
+      playerId,
+      attrId,
+      value,
+      attributes: player.attributes,
+    });
+    session.sendHostGameState();
+  });
+
+  // ── Host: manually set player alive/eliminated ──────────────
+  socket.on('host_set_player_alive', ({ roomId, playerId, isAlive }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    const player = session.players.get(playerId);
+    if (!player) return;
+    player.isAlive = isAlive;
+    player.isEliminated = !isAlive;
+    // Sync display status
+    player.status = isAlive ? 'thinking' : 'eliminated';
+    // Also update the reference in the active module's players array
+    if (session.currentModule?.players) {
+      const mp = session.currentModule.players.find(p => p.id === playerId);
+      if (mp) {
+        mp.isAlive = isAlive;
+        mp.isEliminated = !isAlive;
+        mp.status = player.status;
+      }
+    }
+    session.broadcastAll('player_alive_changed', { playerId, isAlive, playerName: player.name });
+    session.broadcastAll('player_status_updated', { playerId, status: player.status });
+    session.sendHostGameState();
+  });
+
+  // ── Host: rename player ───────────────────────────────────────
+  socket.on('host_rename_player', ({ roomId, playerId, newName }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    const player = session.players.get(playerId);
+    if (!player) return;
+    if (!newName || newName.trim().length === 0) return;
+
+    const oldName = player.name;
+    player.name = newName.trim();
+
+    // Also update the reference in the active module's players array
+    if (session.currentModule?.players) {
+      const mp = session.currentModule.players.find(p => p.id === playerId);
+      if (mp) mp.name = newName.trim();
+    }
+
+    console.log(`[Room:${roomId}] Player renamed: ${oldName} → ${newName}`);
+    session.broadcastAll('player_renamed', { playerId, oldName, newName: player.name });
+    session.sendHostGameState();
   });
 
   // ── Disconnect ──────────────────────────────────────────────

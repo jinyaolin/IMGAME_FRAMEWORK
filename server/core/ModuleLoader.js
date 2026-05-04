@@ -34,6 +34,10 @@ class ModuleLoader {
     return Array.from(this.registry.values());
   }
 
+  getManifest(moduleId) {
+    return this.registry.get(moduleId) || null;
+  }
+
   async load(moduleName, session, hostConfig) {
     const manifest = this.registry.get(moduleName);
     if (!manifest) throw new Error(`Module "${moduleName}" not found`);
@@ -94,12 +98,7 @@ class ModuleLoader {
         if (deckRef.ref) {
           const globalDeck = this.deckManager.getDeck(deckRef.ref);
           if (!globalDeck) {
-            console.error(`[ModuleLoader] Referenced deck not found: ${deckRef.ref}`);
-            // Return a safe fallback with empty cards array
-            return {
-              ...deckRef,
-              cards: []
-            };
+            throw new Error(`Deck "${deckRef.ref}" not found. Check that the deck is defined and enabled in DeckManager.`);
           }
 
           // Merge reference settings with global deck
@@ -112,8 +111,8 @@ class ModuleLoader {
           };
         }
 
-        // Inline deck, return as-is
-        return deckRef;
+        // Inline decks are no longer supported — all decks must reference a global deck
+        throw new Error(`Deck "${deckRef.id || deckRef.name}" has no "ref". All decks must reference a global deck.`);
       })
     };
 
@@ -135,7 +134,19 @@ class ModuleLoader {
     // stages: use host-edited stages if provided, else manifest defaults
     const stages = hostConfig?.stages ?? manifest.stages ?? [];
 
-    return { fieldValues, decks, stages };
+    // Preserve any additional host config options (like voteTimeOverride)
+    const config = { fieldValues, decks, stages };
+
+    // Copy all other properties from hostConfig
+    if (hostConfig) {
+      Object.keys(hostConfig).forEach(key => {
+        if (!config.hasOwnProperty(key)) {
+          config[key] = hostConfig[key];
+        }
+      });
+    }
+
+    return config;
   }
 }
 

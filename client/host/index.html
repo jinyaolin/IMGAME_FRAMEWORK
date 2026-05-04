@@ -45,16 +45,171 @@
     .btn-neutral  { background: #2a2a5a; color: #aaaaff; border: 1px solid #4444aa; }
     .btn-full     { width: 100%; margin-bottom: 8px; display: block; }
 
+    /* ── Players column header ── */
+    .col-title-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+      font-size: .7rem; letter-spacing: .1em; color: #6666aa; text-transform: uppercase;
+    }
+    .sort-wrap { position: relative; }
+    .sort-btn {
+      background: #1a1a3a; border: 1px solid #3a3a6a; border-radius: 6px;
+      color: #8888cc; font-size: .68rem; padding: 3px 8px; cursor: pointer;
+      white-space: nowrap;
+    }
+    .sort-btn:hover { background: #22224a; color: #aaaaff; }
+    .sort-menu {
+      display: none; position: absolute; right: 0; top: calc(100% + 4px);
+      background: #181830; border: 1px solid #3a3a6a; border-radius: 8px;
+      padding: 4px 0; min-width: 160px; z-index: 910;
+      box-shadow: 0 6px 20px rgba(0,0,0,.6);
+    }
+    .sort-menu.open { display: block; }
+    .sort-opt {
+      padding: 7px 14px; font-size: .8rem; color: #ccccee;
+      cursor: pointer; white-space: nowrap; text-transform: none; letter-spacing: 0;
+    }
+    .sort-opt:hover { background: #22224a; }
+    .sort-opt.active { color: #aaaaff; font-weight: 700; }
+    .sort-divider { height: 1px; background: #2a2a4a; margin: 4px 0; }
+
     /* ── Players column ── */
-    .player-row { background: #12122a; border: 1px solid #2a2a4a; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+    .players-container {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 8px;
+      align-items: start;
+    }
+    .number-column {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .number-item {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 40px;
+      height: 40px;
+      padding: 0 6px;
+      border-radius: 5px;
+      background: #e67e22;
+      color: white;
+      font-size: .85rem;
+      font-weight: bold;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .player-row {
+      background: #12122a; border: 1px solid #2a2a4a; border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; position: relative; transition: opacity .15s; height: 40px; margin-bottom: 6px;
+    }
+    #playerList {
+      display: flex;
+      flex-direction: column;
+    }
+    .player-row.dragging   { opacity: .35; }
+    .player-row.drag-over  { border-top: 2px solid #6666ff; margin-top: -1px; }
+    .player-row.locked {
+      opacity: .7;
+      cursor: not-allowed;
+    }
+    .player-row.locked .drag-handle {
+      cursor: not-allowed;
+      opacity: .5;
+    }
+    .drag-handle {
+      color: #44446a; font-size: .85rem; cursor: grab; flex-shrink: 0;
+      padding: 0 2px; line-height: 1; user-select: none;
+      display: none;
+    }
+    .player-row:active .drag-handle { cursor: grabbing; }
+    body.sort-manual .drag-handle { display: block; }
     .player-row .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .dot.on  { background: #44ff88; }
     .dot.off { background: #555; }
     .player-row .info { flex: 1; min-width: 0; }
-    .player-row .pname { font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .player-row .pmeta { font-size: .7rem; color: #8888aa; margin-top: 2px; }
-    .pkick { background: none; border: 1px solid #4a1a1a; border-radius: 6px; color: #aa4444; font-size: .7rem; padding: 3px 8px; cursor: pointer; flex-shrink: 0; }
-    .pkick:hover { background: #2a0a0a; }
+    .player-row .pname-row { display: flex; align-items: center; gap: 4px; }
+    .player-row .pname { font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .player-number-badge {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 5px;
+      background: #e67e22;
+      color: white;
+      font-size: .75rem;
+      font-weight: bold;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .player-row .pmeta { font-size: .68rem; color: #8888aa; margin-top: 2px; }
+    .player-row.eliminated { opacity: .5; }
+    .player-row.eliminated .pname::after { content: ' ❌'; font-size: .65rem; }
+    /* attribute icon chips on the name row */
+    .attr-icon { font-size: .8rem; line-height: 1; flex-shrink: 0; cursor: default; }
+    /* ⋮ menu button */
+    .pstats {
+      display: flex;
+      align-items: center;
+      margin-left: auto;
+      margin-right: 4px;
+      flex-shrink: 0;
+    }
+    .pstat-status {
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    .player-row.eliminated .pstats {
+      opacity: 0.4;
+    }
+    .pmenu-btn {
+      background: none; border: none; color: #6666aa; font-size: 1.1rem;
+      padding: 2px 6px; border-radius: 4px; cursor: pointer; flex-shrink: 0;
+      letter-spacing: -.05em; line-height: 1;
+    }
+    .pmenu-btn:hover { background: #1e1e40; color: #aaaaff; }
+    /* floating dropdown */
+    #playerDropdown {
+      position: fixed; z-index: 900;
+      background: #181830; border: 1px solid #3a3a6a; border-radius: 10px;
+      padding: 6px 0; min-width: 190px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.6);
+      display: none;
+    }
+    #playerDropdown.open { display: block; }
+    .pd-section { padding: 6px 14px 2px; font-size: .62rem; color: #6666aa; letter-spacing: .08em; text-transform: uppercase; }
+    .pd-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 14px; font-size: .82rem; cursor: pointer;
+      white-space: nowrap; color: #ccccee;
+    }
+    .pd-row:hover { background: #22224a; }
+    .pd-row.danger { color: #cc4444; }
+    .pd-row.danger:hover { background: #2a1010; }
+    .pd-divider { height: 1px; background: #2a2a4a; margin: 4px 0; }
+    /* attr option buttons inside dropdown */
+    .pd-attr-opts { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 14px 8px; }
+    .pd-opt {
+      border: 1px solid #3a3a6a; border-radius: 5px;
+      background: none; color: #aaaacc; font-size: .75rem;
+      padding: 3px 8px; cursor: pointer;
+    }
+    .pd-opt:hover { background: #22224a; }
+    .pd-opt.active { background: #3a3a8a; border-color: #6666ff; color: #eeeeff; }
+    /* hover tooltip — global fixed element, follows cursor */
+    #playerTooltip {
+      display: none; position: fixed; z-index: 9999;
+      background: #181830; border: 1px solid #3a3a6a; border-radius: 8px;
+      padding: 8px 12px; font-size: .76rem; color: #ccccee;
+      min-width: 130px; pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,.6);
+      white-space: nowrap;
+    }
+    #playerTooltip .tt-row { margin-bottom: 3px; }
+    #playerTooltip .tt-row:last-child { margin-bottom: 0; }
 
     /* ── Module grid (lobby) ── */
     .section { margin-bottom: 20px; }
@@ -109,9 +264,11 @@
     .gp-player-row.waiting { border-color: #2a2a4a; }
     .gp-player-row.disconnected { opacity: .45; }
     .gp-status-icon { font-size: 1rem; width: 20px; text-align: center; flex-shrink: 0; }
-    .gp-pname  { flex: 1; font-size: .88rem; }
-    .gp-pscore { font-size: .78rem; color: #ffdd44; }
-    .gp-pstatus{ font-size: .7rem; color: #6666aa; }
+    .gp-pname  { font-size: .88rem; min-width: 80px; flex-shrink: 0; }
+    .gp-pidentity { font-size: .78rem; min-width: 100px; flex-shrink: 0; padding: 2px 8px; border-radius: 4px; text-align: center; }
+    .gp-pidentity.empty { background: transparent; }
+    .gp-pstatus { font-size: .7rem; color: #6666aa; flex: 1; text-align: right; }
+    .gp-pscore { font-size: .78rem; color: #ffdd44; min-width: 80px; text-align: right; flex-shrink: 0; }
 
     /* Reveal cards (host view) */
     .gp-reveals { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-bottom: 16px; }
@@ -127,6 +284,37 @@
 
     /* Action buttons zone */
     .gp-actions { display: flex; flex-direction: column; gap: 8px; }
+
+    /* ── Vote panel ── */
+    #votePanel { display: none; }
+
+    .vote-results {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .vote-result-item {
+      background: #1a1a3a;
+      border: 1px solid #3a3a6a;
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+    }
+    .vote-result-item.leading {
+      border-color: #ffdd44;
+      background: #2a2a1a;
+    }
+    .vote-result-name {
+      font-size: .9rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .vote-result-count {
+      font-size: 1.4rem;
+      color: #ffdd44;
+      font-weight: 700;
+    }
 
     /* ── Result panel ── */
     #resultPanel { display: none; }
@@ -159,7 +347,69 @@
     #setupScreen { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 16px; padding: 40px; }
     #setupScreen h2 { font-size: 1.4rem; color: #aaaaff; }
     #setupScreen p  { color: #6666aa; font-size: .9rem; }
+
+    /* ── Setup module picker ── */
+    .setup-module-list { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 480px; max-height: 220px; overflow-y: auto; }
+    .setup-module-item {
+      background: #12122a;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all .15s;
+    }
+    .setup-module-item:hover { background: #1a1a3a; border-color: #4444aa; }
+    .setup-module-item.selected { border-color: #6666ff; background: #1a1a40; }
+    .setup-module-item .smi-name { font-size: .9rem; color: #ccccff; font-weight: 600; }
+    .setup-module-item .smi-meta { font-size: .75rem; color: #6666aa; }
+    .setup-module-item .smi-check { color: #6666ff; font-size: 1rem; visibility: hidden; }
+    .setup-module-item.selected .smi-check { visibility: visible; }
     #mainLayout { display: none; flex: 1; overflow: hidden; }
+
+    /* ── Room list ── */
+    .room-item {
+      background: #12122a;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .room-item:hover {
+      background: #1a1a3a;
+      border-color: #4444aa;
+      transform: translateX(4px);
+    }
+    .room-info {
+      flex: 1;
+    }
+    .room-id {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #aaaaff;
+      letter-spacing: .1em;
+    }
+    .room-details {
+      font-size: .75rem;
+      color: #6666aa;
+      margin-top: 4px;
+    }
+    .room-arrow {
+      font-size: 1.2rem;
+      color: #5555ff;
+      opacity: 0;
+      transition: opacity .2s;
+    }
+    .room-item:hover .room-arrow {
+      opacity: 1;
+    }
 
     .hidden { display: none !important; }
     .divider { border: none; border-top: 1px solid #1a1a3a; margin: 14px 0; }
@@ -259,6 +509,13 @@
               padding:6px 12px;border-radius:6px;background:#14142a;">
       📝 模組編輯器
     </a>
+    <button class="btn btn-neutral"
+            id="toggleQrBtn"
+            onclick="toggleDisplayQR()"
+            style="padding:6px 12px;font-size:.82rem;"
+            title="在 Display 顯示/隱藏玩家加入 QR Code">
+      📱 使用者加入條碼
+    </button>
     <div class="badge"
          style="cursor:pointer;"
          onclick="openDisplayPage()"
@@ -268,9 +525,32 @@
 
 <!-- Setup screen -->
 <div id="setupScreen">
-  <h2>建立新房間</h2>
-  <p>點擊按鈕建立遊戲房間，然後分享 QR Code 給玩家</p>
-  <button class="btn btn-primary" onclick="createRoom()" style="padding:14px 40px;font-size:1rem;">建立房間</button>
+  <h2>🎮 遊戲房間</h2>
+  <p>選擇現有房間或建立新遊戲房間</p>
+
+  <!-- Room list -->
+  <div style="margin-bottom:24px;width:100%;max-width:480px;">
+    <div class="section-title" style="margin-bottom:12px;">現有房間</div>
+    <div id="roomList" style="min-height:60px;">
+      <div style="color:#555;font-size:.8rem;text-align:center;padding:20px;">載入中…</div>
+    </div>
+  </div>
+
+  <!-- Create new room -->
+  <div style="border-top:1px solid #2a2a4a;padding-top:24px;width:100%;max-width:480px;">
+    <div class="section-title" style="margin-bottom:12px;">建立新房間 — 選擇遊戲模組</div>
+    <div id="setupModuleList" class="setup-module-list">
+      <div style="color:#555;font-size:.8rem;text-align:center;padding:16px;">載入中…</div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      <button class="btn btn-primary btn-full" id="createRoomBtn" onclick="createRoom()" style="margin-bottom:8px;" disabled>
+        ➕ 建立新房間
+      </button>
+    </div>
+    <button class="btn btn-neutral btn-full" onclick="refreshRooms()" style="font-size:.82rem;">
+      🔄 重新整理房間列表
+    </button>
+  </div>
 </div>
 
 <!-- Main layout -->
@@ -278,8 +558,27 @@
 
   <!-- ── Left: Players ── -->
   <div class="col">
-    <div class="col-title">玩家 (<span id="playerCount">0</span>)</div>
-    <div id="playerList"><div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">等待玩家加入…</div></div>
+    <div class="col-title-row">
+      <span>玩家 (<span id="playerCount">0</span>)</span>
+      <div class="sort-wrap">
+        <button class="sort-btn" id="sortBtn" onclick="toggleSortMenu(event)">
+          <span id="sortLabel">登入順序</span> ▾
+        </button>
+        <div class="sort-menu" id="sortMenu">
+          <div class="sort-opt" data-mode="join"     onclick="setSortMode('join')">登入順序</div>
+          <div class="sort-opt" data-mode="name-asc" onclick="setSortMode('name-asc')">名字 A → Z</div>
+          <div class="sort-opt" data-mode="name-desc"onclick="setSortMode('name-desc')">名字 Z → A</div>
+          <div class="sort-divider"></div>
+          <div class="sort-opt" data-mode="manual"   onclick="setSortMode('manual')">手動排列（可拖曳）</div>
+        </div>
+      </div>
+    </div>
+    <div class="players-container">
+      <div class="number-column" id="numberColumn">
+        <!-- Fixed number badges will be rendered here -->
+      </div>
+      <div id="playerList"><div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">等待玩家加入…</div></div>
+    </div>
   </div>
 
   <!-- ── Center: Control panels ── -->
@@ -291,8 +590,8 @@
         <span class="phase-badge"><span class="phase-dot"></span><span id="phaseBadgeText">LOBBY</span></span>
       </div>
 
-      <div class="section">
-        <div class="section-title">選擇遊戲模組</div>
+      <div class="section" id="moduleSelectSection">
+        <div class="section-title" id="moduleSelectTitle">選擇遊戲模組</div>
         <div class="module-grid" id="moduleGrid">
           <div style="color:#555;font-size:.8rem;">載入中…</div>
         </div>
@@ -329,6 +628,7 @@
       <div class="section" style="margin-top:12px;">
         <button class="btn btn-success btn-full" id="startBtn" onclick="startGame()" disabled>啟動遊戲模組</button>
         <div id="startHint" style="font-size:.73rem;color:#cc8800;text-align:center;min-height:1.2em;margin-bottom:4px;"></div>
+        <button class="btn btn-danger btn-full" onclick="closeRoom()" style="margin-top:4px;font-size:.82rem;">關閉房間</button>
       </div>
     </div>
 
@@ -341,9 +641,10 @@
       </div>
 
       <!-- Auto-advance status (visible when an automatic trigger is pending) -->
-      <div id="gpAdvanceBadge" class="hidden"
+      <div id="gpAdvanceBadge"
            style="background:#0e0e22;border:1px solid #2a4a6a;border-left-width:4px;
-                  border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.82rem;">
+	                  border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.82rem;
+	                  min-height:38px;opacity:0;transition:opacity .3s;visibility:hidden;">
         <span id="gpAdvanceText">⏱ 自動推進中…</span>
         <span id="gpAdvanceTimer" style="float:right;font-family:monospace;color:#66bbff;"></span>
       </div>
@@ -383,7 +684,34 @@
       <div class="rp-leaderboard" id="rpLeaderboard"></div>
       <hr class="divider">
       <button class="btn btn-success btn-full" onclick="hostAction('restart')">重新開始（同模組）</button>
-      <button class="btn btn-neutral btn-full" onclick="hostAction('back_to_lobby')">換遊戲模組</button>
+      <button class="btn btn-danger btn-full" onclick="closeRoom()">結束房間</button>
+    </div>
+
+    <!-- PANEL D: Vote -->
+    <div id="votePanel">
+      <div class="gp-header">
+        <span class="gp-module-name" id="voteModuleName">🗳️ 投票階段</span>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span id="voteTimer" style="font-size:.85rem;color:#ffdd44;font-weight:600;"></span>
+          <span class="phase-badge"><span class="phase-dot"></span><span id="votePhaseLabel">投票中</span></span>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <span class="section-title">投票進度</span>
+        <div class="gp-player-grid" id="votePlayerGrid"></div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="section-title">即時票數</div>
+      <div class="vote-results" id="voteResults">
+        <div style="color:#666;font-size:.82rem;text-align:center;padding:20px;">等待投票…</div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="gp-actions" id="voteActions"></div>
     </div>
 
   </div>
@@ -409,18 +737,193 @@
   let currentPlayers  = [];
   let availableModules= [];
   let currentPhase    = 'lobby';   // lobby | playing | result
+  let currentGamePhase = null;     // Current game phase (identity_draw, card_play, vote, etc.)
+  let voteSubmissions = new Set(); // Track which players have submitted votes
+  let playerNumberMap = {};        // playerId → playerNumber mapping (assigned when player joins, never changes)
   const client = new GameClient();
+
+  // ── Helper: Show/hide advance badge without affecting layout ─────
+  function showAdvanceBadge(text, timer = '') {
+    console.log('[Host] showAdvanceBadge:', text, timer);
+    const badge = document.getElementById('gpAdvanceBadge');
+    const textEl = document.getElementById('gpAdvanceText');
+    const timerEl = document.getElementById('gpAdvanceTimer');
+    if (badge && textEl && timerEl) {
+      textEl.textContent = text;
+      timerEl.textContent = timer;
+      badge.style.opacity = '1';
+      badge.style.visibility = 'visible';
+    }
+  }
+
+  function hideAdvanceBadge() {
+    console.log('[Host] hideAdvanceBadge called');
+    const badge = document.getElementById('gpAdvanceBadge');
+    const timerEl = document.getElementById('gpAdvanceTimer');
+    if (badge) {
+      badge.style.opacity = '0';
+      badge.style.visibility = 'hidden';
+    }
+    if (timerEl) timerEl.textContent = '';
+  }
+
+  // ── Room list ───────────────────────────────────────────────────
+  let roomsCache = [];
+
+  async function refreshRooms() {
+    try {
+      const res = await fetch('/api/rooms');
+      const rooms = await res.json();
+      roomsCache = rooms;
+      renderRoomList(rooms);
+    } catch (err) {
+      console.error('[Host] Failed to load rooms:', err);
+      document.getElementById('roomList').innerHTML =
+        '<div style="color:#884444;font-size:.8rem;text-align:center;padding:20px;">載入失敗</div>';
+    }
+  }
+
+  function renderRoomList(rooms) {
+    const container = document.getElementById('roomList');
+    if (!rooms || rooms.length === 0) {
+      container.innerHTML = '<div style="color:#555;font-size:.8rem;text-align:center;padding:20px;">沒有現有房間</div>';
+      return;
+    }
+
+    container.innerHTML = rooms.map(room => `
+      <div class="room-item" onclick="joinRoom('${room.roomId}')">
+        <div class="room-info">
+          <div class="room-id">${room.roomId}</div>
+          <div class="room-details">
+            ${room.moduleName ? room.moduleName : '等待選擇模組'} · ${room.playerCount} 玩家
+          </div>
+        </div>
+        <div class="room-arrow">→</div>
+      </div>
+    `).join('');
+  }
+
+  async function joinRoom(targetRoomId) {
+    try {
+      // First verify room exists
+      const res = await fetch(`/api/rooms/${targetRoomId}`);
+      if (!res.ok) {
+        alert('房間不存在');
+        refreshRooms();
+        return;
+      }
+
+      roomId = targetRoomId;
+
+      // Clear player number map when joining existing room
+      playerNumberMap = {};
+
+      document.getElementById('setupScreen').style.display = 'none';
+      document.getElementById('mainLayout').style.display  = 'grid';
+
+      // Reset QR button state
+      qrVisible = false;
+      const qrBtn = document.getElementById('toggleQrBtn');
+      qrBtn.style.background = '#2a2a5a';
+      qrBtn.style.color = '#aaaaff';
+      qrBtn.innerHTML = '📱 使用者加入條碼';
+
+      client.connect();
+      client.on('connect', () => client.joinHost(roomId));
+      setupEvents();
+    } catch (err) {
+      console.error('[Host] Failed to join room:', err);
+      alert('無法加入房間');
+      refreshRooms();
+    }
+  }
+
+  // ── Setup: module picker ────────────────────────────────────────
+  let setupModuleId = null;
+
+  async function loadSetupModules() {
+    try {
+      const res = await fetch('/api/modules');
+      const modules = await res.json();
+      const container = document.getElementById('setupModuleList');
+      if (!modules.length) {
+        container.innerHTML = '<div style="color:#555;font-size:.8rem;text-align:center;padding:16px;">沒有可用模組</div>';
+        return;
+      }
+      container.innerHTML = modules.map(m => `
+        <div class="setup-module-item" id="smi-${m.id}" onclick="selectSetupModule('${m.id}')">
+          <div>
+            <div class="smi-name">${m.name || m.id}</div>
+            <div class="smi-meta">${m.minPlayers}–${m.maxPlayers} 人 · ${m.description || ''}</div>
+          </div>
+          <span class="smi-check">✓</span>
+        </div>
+      `).join('');
+    } catch (err) {
+      console.error('[Host] Failed to load setup modules:', err);
+    }
+  }
+
+  function selectSetupModule(id) {
+    setupModuleId = id;
+    document.querySelectorAll('.setup-module-item').forEach(el =>
+      el.classList.toggle('selected', el.id === `smi-${id}`)
+    );
+    document.getElementById('createRoomBtn').disabled = false;
+  }
 
   // ── Create room ────────────────────────────────────────────────
   async function createRoom() {
-    const res  = await fetch('/api/rooms', { method: 'POST' });
+    if (!setupModuleId) return;
+    const res  = await fetch('/api/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ moduleId: setupModuleId }),
+    });
     const data = await res.json();
     roomId = data.roomId;
+
+    // Clear player number map for new game
+    playerNumberMap = {};
+
     document.getElementById('setupScreen').style.display = 'none';
     document.getElementById('mainLayout').style.display  = 'grid';
+
+    // Reset QR button state
+    qrVisible = false;
+    const qrBtn = document.getElementById('toggleQrBtn');
+    qrBtn.style.background = '#2a2a5a';
+    qrBtn.style.color = '#aaaaff';
+    qrBtn.innerHTML = '📱 使用者加入條碼';
+
     client.connect();
     client.on('connect', () => client.joinHost(roomId));
     setupEvents();
+  }
+
+  // ── Close room ──────────────────────────────────────────────────
+  function closeRoom() {
+    if (!confirm('確定要關閉房間嗎？所有玩家將被踢出。')) return;
+    client.closeRoom();
+  }
+
+  // ── Back to setup (create a new room) ──────────────────────────
+  function backToSetup() {
+    if (client.socket) client.socket.disconnect();
+    // Clear accumulated event handlers so the next session starts clean
+    client._handlers = {};
+    // Reset all game state
+    roomId = null; selectedModule = null; selectedManifest = null; setupModuleId = null;
+    currentPhase = 'lobby'; currentGamePhase = null;
+    currentPlayers = []; voteSubmissions = new Set();
+    // Reset panel to lobby so next room opens correctly
+    showPanel('lobby');
+    document.getElementById('mainLayout').style.display = 'none';
+    document.getElementById('setupScreen').style.display = 'flex';
+    document.getElementById('moduleSelectSection').style.display = '';
+    document.getElementById('createRoomBtn').disabled = true;
+    document.querySelectorAll('.setup-module-item').forEach(el => el.classList.remove('selected'));
+    refreshRooms();
   }
 
   // ── Open Display page ───────────────────────────────────────────
@@ -433,6 +936,31 @@
     window.open(displayUrl, '_blank');
   }
 
+  // ── Toggle QR on Display ────────────────────────────────────────
+  let qrVisible = false;
+  function toggleDisplayQR() {
+    if (!roomId) {
+      alert('請先建立房間');
+      return;
+    }
+    qrVisible = !qrVisible;
+    client.socket.emit('host_toggle_qr', { roomId, visible: qrVisible });
+
+    // Update button style
+    const btn = document.getElementById('toggleQrBtn');
+    if (qrVisible) {
+      btn.style.background = '#5555ff';
+      btn.style.color = '#fff';
+      btn.innerHTML = '📱 隱藏加入條碼';
+      addLog('顯示 Display 加入條碼');
+    } else {
+      btn.style.background = '#2a2a5a';
+      btn.style.color = '#aaaaff';
+      btn.innerHTML = '📱 使用者加入條碼';
+      addLog('隱藏 Display 加入條碼');
+    }
+  }
+
   // ── Events ────────────────────────────────────────────────────
   function setupEvents() {
     client.on('host_joined', d => {
@@ -440,48 +968,95 @@
       setPhaseBadge(d.phase || 'lobby');
       availableModules = d.availableModules || [];
       renderModules(availableModules);
+      // If room was created with a pre-loaded manifest, apply it and hide the picker
+      if (d.manifest) {
+        selectedManifest = d.manifest;
+        selectedModule   = d.manifest.id;
+        renderModuleDetails(selectedManifest);
+        document.getElementById('moduleSelectSection').style.display = 'none';
+        document.getElementById('moduleSelectTitle').textContent = '遊戲模組';
+      }
       renderPlayers(d.players || []);
       setQR(d.roomId);
+      updateSortButtonState(); // Initialize sort button state
       addLog('Host 已連線');
     });
 
-    client.on('player_joined',      d => { renderPlayers(d.players || []); addLog(`${d.player?.name} 加入`); });
+    client.on('room_closed', () => backToSetup());
+
+    client.on('player_joined',      d => {
+      console.log('[Host] player_joined event received:', d);
+      // Assign player number when joining (never changes after this)
+      if (d.player && !playerNumberMap[d.player.id]) {
+        const nextNumber = Object.keys(playerNumberMap).length + 1;
+        playerNumberMap[d.player.id] = nextNumber;
+        console.log('[Host] Assigned player number', nextNumber, 'to', d.player.name);
+      }
+      renderPlayers(d.players || []);
+      addLog(`${d.player?.name} 加入`);
+    });
     client.on('player_left',        d => { renderPlayers(d.players || []); addLog('玩家離開'); });
     client.on('player_ready',       d => { renderPlayers(d.players || []); updateLobbyBtns(); addLog('玩家準備完成'); });
     client.on('player_disconnected',d => addLog('玩家斷線'));
     client.on('player_reconnected', d => addLog('玩家重連'));
 
     client.on('game_started', d => {
+      console.log('[Host] Game started:', d);
       currentPhase = 'playing';
       setPhaseBadge('playing');
-      showPanel('game');
-      // Reset player score display on restart (if currentPlayers exists)
-      if (currentPlayers && currentPlayers.length > 0) {
-        currentPlayers = currentPlayers.map(p => ({ ...p, score: 0, handCount: 0 }));
+      updateSortButtonState(); // Disable sort button during game
+
+      // Update current players from game_started data if available
+      if (d.players) {
+        currentPlayers = d.players;
+        // Sync player numbers from server if not yet assigned
+        d.players.forEach(p => {
+          if (!playerNumberMap[p.id] && p.playerNumber) {
+            playerNumberMap[p.id] = p.playerNumber;
+          }
+        });
+        renderPlayers(currentPlayers);
+      } else if (currentPlayers && currentPlayers.length > 0) {
+        // Reset existing players
+        currentPlayers = currentPlayers.map(p => ({ ...p, score: 0, handCount: 0, status: 'thinking' }));
         renderPlayers(currentPlayers);
       }
+
+      // Don't immediately show game panel - wait for stage/vote events
+      // showPanel('game');
       addLog(`遊戲開始：${d.module}`);
     });
 
     // ── Stage & Round Events ───────────────────────────────────────
     client.on('stage_started', (d) => {
-      console.log('[Host] Stage started:', d.stageId, d.stageName);
+      console.log('[Host] Stage started:', d.stageId, d.stageName, 'type:', d.stageType);
       addLog(`📍 階段開始：${d.stageName}`);
-      // Clear countdown display but keep badge visible
-      const badge = document.getElementById('gpAdvanceBadge');
-      badge.classList.add('hidden');
-      const tEl = document.getElementById('gpAdvanceTimer');
-      if (tEl) tEl.textContent = '';
+
+      // Show appropriate panel based on stage type
+      if (d.stageType === 'vote') {
+        console.log('[Host] Switching to vote panel for vote stage');
+        showPanel('vote');
+      } else if (d.stageType === 'result') {
+        showPanel('result');
+      } else if (d.stageType === 'intermission') {
+        console.log('[Host] Entering intermission stage');
+        showPanel('game');
+        // Clear any existing actions and show intermission message
+        renderIntermissionMessage();
+      } else {
+        showPanel('game');
+      }
+
+      // Hide countdown badge
+      hideAdvanceBadge();
     });
 
     client.on('round_started', (d) => {
       console.log('[Host] Round started:', d.roundNumber, 'of', d.totalRounds);
       addLog(`🔄 第 ${d.roundNumber} 回合 (共 ${d.totalRounds} 回合)`);
-      // Clear countdown display but keep badge visible for next round
-      const badge = document.getElementById('gpAdvanceBadge');
-      badge.classList.add('hidden');
-      const tEl = document.getElementById('gpAdvanceTimer');
-      if (tEl) tEl.textContent = '';
+      // Hide countdown badge when round starts (after countdown ends)
+      hideAdvanceBadge();
+      // Status updated via all_players_status_updated event
     });
 
     client.on('card_played', (d) => {
@@ -489,12 +1064,70 @@
       const playerName = player?.name || d.playerId;
       console.log('[Host] Card played:', playerName);
       if (playerName) addLog(`${playerName} 已出牌`);
+      // Status updated via player_status_updated event
+    });
+
+    client.on('player_status_updated', (d) => {
+      if (currentPlayers && d.playerId) {
+        const player = currentPlayers.find(p => p.id === d.playerId);
+        if (player && d.status) {
+          player.status = d.status;
+          renderPlayers(currentPlayers);
+          refreshCurrentTooltip(); // Refresh tooltip if showing
+        }
+      }
+    });
+
+    client.on('all_players_status_updated', (d) => {
+      if (currentPlayers && d.players) {
+        d.players.forEach(update => {
+          const player = currentPlayers.find(p => p.id === update.playerId);
+          if (player && update.status) {
+            player.status = update.status;
+          }
+        });
+        renderPlayers(currentPlayers);
+        refreshCurrentTooltip(); // Refresh tooltip if showing
+      }
+    });
+
+    client.on('player_hand_updated', (d) => {
+      if (currentPlayers && d.playerId) {
+        const player = currentPlayers.find(p => p.id === d.playerId);
+        if (player) {
+          if (d.handCount !== undefined) {
+            player.handCount = d.handCount;
+          }
+          if (d.status) {
+            player.status = d.status;
+          }
+          renderPlayers(currentPlayers);
+          refreshCurrentTooltip(); // Refresh tooltip if showing
+        }
+      }
+    });
+
+    client.on('all_hands_updated', (d) => {
+      if (currentPlayers && d.players) {
+        d.players.forEach(update => {
+          const player = currentPlayers.find(p => p.id === update.playerId);
+          if (player) {
+            if (update.handCount !== undefined) {
+              player.handCount = update.handCount;
+            }
+            if (update.status) {
+              player.status = update.status;
+            }
+          }
+        });
+        renderPlayers(currentPlayers);
+        refreshCurrentTooltip(); // Refresh tooltip if showing
+      }
     });
 
     client.on('cards_revealed', (d) => {
       console.log('[Host] Cards revealed:', d);
       addLog('🃏 翻牌！');
-
       // Log winners if winner data is available
       if (d.winners && d.winners.length > 0 && currentPlayers) {
         const winnerNames = d.winners.map(id => {
@@ -525,6 +1158,7 @@
       currentPhase = 'result';
       renderResultPanel(d);
       showPanel('result');
+      updateSortButtonState(); // Re-enable sort button when game ends
       addLog(`遊戲結束 🏆 ${d.champions?.join(', ')}`);
     });
 
@@ -532,16 +1166,125 @@
       currentPhase = 'lobby';
       setPhaseBadge('lobby');
       showPanel('lobby');
+      // Clear player number map when returning to lobby
+      playerNumberMap = {};
       // Re-render module grid so the previously selected card stays highlighted,
       // and refresh the read-only details panel.
       renderModules(availableModules);
       if (selectedManifest) renderModuleDetails(selectedManifest);
       updateLobbyBtns();
+      updateSortButtonState(); // Re-enable sort button in lobby
       addLog('回到 Lobby');
     });
 
-    client.on('state_update', d => { /* display only */ });
+    // Listen for score and state updates
+    client.on('scores_updated', (data) => {
+      if (data.players && currentPlayers) {
+        // Update each player's score and handCount
+        data.players.forEach(updatedPlayer => {
+          const player = currentPlayers.find(p => p.id === updatedPlayer.id);
+          if (player) {
+            player.score = updatedPlayer.score;
+            if (updatedPlayer.handCount !== undefined) {
+              player.handCount = updatedPlayer.handCount;
+            }
+          }
+        });
+        renderPlayers(currentPlayers);
+        refreshCurrentTooltip(); // Refresh tooltip if showing
+      }
+    });
+
+    client.on('state_update', (data) => {
+      // Update player states if provided
+      if (data.players && currentPlayers) {
+        data.players.forEach(updatedPlayer => {
+          const player = currentPlayers.find(p => p.id === updatedPlayer.id);
+          if (player) {
+            Object.assign(player, updatedPlayer);
+          }
+        });
+        renderPlayers(currentPlayers);
+        refreshCurrentTooltip(); // Refresh tooltip if showing
+      }
+    });
+
     client.on('error', d => addLog(`ERROR: ${d.message}`, true));
+
+    // ── Vote Events ─────────────────────────────────────────────────
+    client.on('vote_started', (d) => {
+      console.log('[Host] Vote started:', d);
+      showVotePanel(d);
+      addLog('🗳️ 投票階段開始');
+    });
+
+    client.on('vote_cast', (d) => {
+      console.log('[Host] Vote cast');
+      // Track submissions
+      if (d.playerId) {
+        voteSubmissions.add(d.playerId);
+      }
+      renderVoteProgress(d);
+    });
+
+    client.on('vote_countdown', (d) => {
+      updateVoteTimer(d.remaining, d.total);
+    });
+
+    client.on('vote_ended', (d) => {
+      console.log('[Host] Vote ended:', d);
+      // Keep vote panel visible and show results
+      showVoteResults(d.results);
+      addLog('📊 投票結束');
+    });
+
+    client.on('vote_can_advance', (d) => {
+      console.log('[Host] Vote can advance:', d);
+      addLog('✅ 可推進到下一階段');
+      // Show the next stage button in vote results actions
+      renderVoteResultsActions();
+    });
+
+    client.on('intermission_can_advance', (d) => {
+      console.log('[Host] Intermission can advance:', d);
+      addLog(`✅ ${d.message || '可推進到下一階段'}`);
+      // Show the next stage button in intermission panel
+      showIntermissionAdvanceButton();
+    });
+
+    client.on('players_eliminated', (d) => {
+      console.log('[Host] Players eliminated:', d);
+      addLog(`❌ 淘汰玩家：${d.players.map(p => p.name).join('、')}`);
+      renderPlayers(currentPlayers.map(p => {
+        if (d.players.find(dp => dp.id === p.id)) {
+          return { ...p, isAlive: false, isReady: false };
+        }
+        return p;
+      }));
+    });
+
+    client.on('player_alive_changed', (d) => {
+      addLog(d.isAlive ? `♻️ 復活玩家：${d.playerName}` : `❌ 手動淘汰：${d.playerName}`);
+      renderPlayers(currentPlayers.map(p =>
+        p.id === d.playerId ? { ...p, isAlive: d.isAlive } : p
+      ));
+      refreshCurrentTooltip(); // Refresh tooltip if showing
+    });
+
+    client.on('player_attribute_changed', (d) => {
+      renderPlayers(currentPlayers.map(p =>
+        p.id === d.playerId ? { ...p, attributes: d.attributes } : p
+      ));
+      refreshCurrentTooltip(); // Refresh tooltip if showing
+    });
+
+    client.on('player_renamed', (d) => {
+      renderPlayers(currentPlayers.map(p =>
+        p.id === d.playerId ? { ...p, name: d.newName } : p
+      ));
+      addLog(`✏️ ${d.oldName} 改名為 ${d.newName}`);
+      refreshCurrentTooltip(); // Refresh tooltip if showing
+    });
 
     client.on('modules_updated', d => {
       availableModules = d.modules || availableModules;
@@ -551,26 +1294,27 @@
 
     // Auto-advance countdown broadcast from card-battle (and future modules)
     client.on('countdown', d => {
-      const tEl = document.getElementById('gpAdvanceTimer');
-      if (!tEl) return;
-
-      // Show badge when countdown is active
-      const badge = document.getElementById('gpAdvanceBadge');
       if (d.remaining > 0) {
-        badge.classList.remove('hidden');
-        document.getElementById('gpAdvanceText').textContent = '⏱ 自動進入下一回合';
-        tEl.textContent = `${d.remaining}s / ${d.total}s`;
+        showAdvanceBadge('⏱ 自動進入下一回合', `${d.remaining}s / ${d.total}s`);
       } else {
-        tEl.textContent = '';
+        hideAdvanceBadge();
       }
     });
   }
 
   // ── Panel switching ───────────────────────────────────────────
   function showPanel(name) {
+    console.log('[Host] Switching to panel:', name);
     document.getElementById('lobbyPanel') .style.display = name === 'lobby'  ? 'block' : 'none';
     document.getElementById('gamePanel')  .style.display = name === 'game'   ? 'block' : 'none';
     document.getElementById('resultPanel').style.display = name === 'result' ? 'block' : 'none';
+    document.getElementById('votePanel')  .style.display = name === 'vote'   ? 'block' : 'none';
+    console.log('[Host] Panel display states:', {
+      lobby: document.getElementById('lobbyPanel').style.display,
+      game: document.getElementById('gamePanel').style.display,
+      result: document.getElementById('resultPanel').style.display,
+      vote: document.getElementById('votePanel').style.display
+    });
   }
 
   // ── Read-only module details ──────────────────────────────────
@@ -681,14 +1425,29 @@
     advance_identity: { label: '▶ 全員確認，開始發牌', cls: 'btn-primary' },
     force_reveal:     { label: '⚡ 強制翻牌',          cls: 'btn-warning' },
     next_round:       { label: '▶ 下一回合',          cls: 'btn-primary' },
+    next_stage:       { label: '▶ 下一階段',          cls: 'btn-success' },
     end_game:         { label: '✕ 結束遊戲',          cls: 'btn-danger'  },
     restart:          { label: '↺ 重新開始',          cls: 'btn-success' },
-    back_to_lobby:    { label: '← 換遊戲模組',        cls: 'btn-neutral' },
+    back_to_lobby:    { label: '← 返回 Lobby',        cls: 'btn-neutral' },
   };
-  const PHASE_COLORS = { waiting: '#cc8800', reveal: '#5555ff', result: '#33bb66', deal: '#888', identity: '#aa44ff' };
+  const PHASE_COLORS = { waiting: '#cc8800', reveal: '#5555ff', result: '#33bb66', deal: '#888', identity_draw: '#aa44ff', card_play: '#33bb66' };
   const TEAM_COLORS  = { red:'#ff6666', blue:'#6688ff', green:'#44cc88', gold:'#ffdd44', purple:'#bb66ff' };
 
   function renderGamePanel(state) {
+    currentGamePhase = state.phase; // Store current game phase for use in renderPlayers
+    console.log('[Host] renderGamePanel called with phase:', state.phase, 'playerStates:', state.playerStates?.length);
+
+    // Update currentPlayers with playerStates from game panel
+    if (state.playerStates && currentPlayers) {
+      state.playerStates.forEach(updatedPlayer => {
+        const player = currentPlayers.find(p => p.id === updatedPlayer.id);
+        if (player) {
+          Object.assign(player, updatedPlayer);
+        }
+      });
+      renderPlayers(currentPlayers); // Re-render to show/hide identity badges
+    }
+
     // header
     document.getElementById('gpModuleName').textContent = state.module || '';
     document.getElementById('gpPhaseLabel').textContent = state.phaseLabel || state.phase;
@@ -696,10 +1455,9 @@
     dot.style.background = PHASE_COLORS[state.phase] || '#5555ff';
 
     // Auto-advance badge
+    // Note: Don't hide badge here if countdown is active (managed by countdown events)
     const adv = state.advance;
-    const badge = document.getElementById('gpAdvanceBadge');
     if (adv && adv.autoPending) {
-      badge.classList.remove('hidden');
       const triggerLabels = {
         all_played: '全員出牌後自動推進',
         all_confirmed: '全員確認後自動推進',
@@ -709,12 +1467,13 @@
       };
       const lbl = triggerLabels[adv.trigger] || adv.trigger;
       const fb  = adv.hostCanForce ? '（host 仍可強制）' : '';
-      document.getElementById('gpAdvanceText').textContent = `⏱ ${lbl}${fb}`;
-      if (adv.trigger !== 'timer') document.getElementById('gpAdvanceTimer').textContent = '';
-    } else {
-      badge.classList.add('hidden');
-      // Don't clear gpAdvanceTimer here - it's managed by countdown events
+      // Only show if not showing countdown timer (countdown events take precedence)
+      const timerEl = document.getElementById('gpAdvanceTimer');
+      if (!timerEl || !timerEl.textContent) {
+        showAdvanceBadge(`⏱ ${lbl}${fb}`, '');
+      }
     }
+    // Don't hide badge here - let countdown events and stage/round events manage it
 
     // round progress
     const dots = Array.from({ length: state.maxRounds }, (_, i) => {
@@ -728,10 +1487,11 @@
 
     // grid label
     const players = state.playerStates || [];
-    const played  = players.filter(p => p.hasPlayed).length;
-    const total   = players.length;
+    const alivePlayers = players.filter(p => p.isAlive !== false);
+    const played  = alivePlayers.filter(p => p.hasPlayed).length;
+    const total   = alivePlayers.length;
 
-    if (state.phase === 'identity') {
+    if (state.phase === 'identity_draw') {
       const confirmed = state.identityProgress?.confirmed ?? players.filter(p => p.confirmed).length;
       const totalI    = state.identityProgress?.total     ?? total;
       document.getElementById('gpGridLabel').textContent = `身份確認狀態 (${confirmed}/${totalI})`;
@@ -740,33 +1500,30 @@
         state.phase === 'waiting' ? `玩家出牌狀態 (${played}/${total})` : '玩家狀態';
     }
 
-    // player rows — identity phase shows assigned role + confirmation; other phases show play state
+    // player rows — show status, remove identity column
     document.getElementById('gpPlayerGrid').innerHTML = players.map(p => {
-      if (state.phase === 'identity') {
-        const id        = p.identity || {};
-        const teamColor = TEAM_COLORS[id.team] || '#8888aa';
-        const teamTag   = id.team
-          ? `<span style="background:${teamColor}22;color:${teamColor};padding:1px 7px;border-radius:8px;font-size:.65rem;margin-left:6px;">${id.team}</span>`
-          : '';
-        const icon = !p.isConnected ? '✕' : (p.confirmed ? '✓' : '⏳');
-        const rowCls = !p.isConnected ? 'disconnected' : p.confirmed ? 'played' : 'waiting';
-        const status = !p.isConnected ? '斷線' : p.confirmed ? '已確認' : '查看中';
-        return `<div class="gp-player-row ${rowCls}">
-          <span class="gp-status-icon">${icon}</span>
-          <span class="gp-pname">${p.name}</span>
-          <span class="gp-pstatus" style="font-size:.78rem">
-            ${id.name ? `<b style="color:${teamColor}">${id.name}</b>` : '<i style="color:#666">未分配</i>'}${teamTag}
-          </span>
-          <span class="gp-pscore" style="color:${p.confirmed ? '#33bb66' : '#cc8800'}">${status}</span>
-        </div>`;
+      const id = p.identity || {};
+
+      // Status icon and row class based on phase
+      let statusIcon, rowCls, statusText, scoreText;
+
+      if (state.phase === 'identity_draw') {
+        statusIcon = !p.isConnected ? '✕' : (p.confirmed ? '✓' : '⏳');
+        rowCls = !p.isConnected ? 'disconnected' : p.confirmed ? 'played' : 'waiting';
+        statusText = !p.isConnected ? '斷線' : p.confirmed ? '已確認' : '查看中';
+        scoreText = statusText;
+      } else {
+        statusIcon = p.hasPlayed ? '✓' : (p.isConnected ? '⏳' : '✕');
+        rowCls = !p.isConnected ? 'disconnected' : p.hasPlayed ? 'played' : 'waiting';
+        statusText = p.hasPlayed ? '已出牌' : (p.isConnected ? '等待中' : '斷線');
+        scoreText = `${p.score}pt · ${p.handCount}張`;
       }
-      const statusIcon = p.hasPlayed ? '✓' : (p.isConnected ? '⏳' : '✕');
-      const rowCls     = !p.isConnected ? 'disconnected' : p.hasPlayed ? 'played' : 'waiting';
+
       return `<div class="gp-player-row ${rowCls}">
         <span class="gp-status-icon">${statusIcon}</span>
         <span class="gp-pname">${p.name}</span>
-        <span class="gp-pstatus">${p.hasPlayed ? '已出牌' : (p.isConnected ? '等待中' : '斷線')}</span>
-        <span class="gp-pscore">${p.score}pt · ${p.handCount}張</span>
+        <span class="gp-pstatus">${statusText}</span>
+        <span class="gp-pscore">${scoreText}</span>
       </div>`;
     }).join('');
 
@@ -828,29 +1585,433 @@
     client.nextPhase({ action });
   }
 
-  // ── Players column ────────────────────────────────────────────
-  function renderPlayers(list) {
-    currentPlayers = list;
-    updateLobbyBtns();
-    const el = document.getElementById('playerList');
-    document.getElementById('playerCount').textContent = list.length;
-    if (!list.length) {
-      el.innerHTML = '<div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">等待玩家加入…</div>';
+  // ── Player sort & order ───────────────────────────────────────
+  let sortMode    = 'join';   // 'join' | 'name-asc' | 'name-desc' | 'manual'
+  let playerOrder = [];       // canonical ID order (updated on join/leave/drag)
+  let _dragSrcId  = null;
+
+  const SORT_LABELS = {
+    'join':      '登入順序',
+    'name-asc':  '名字 A→Z',
+    'name-desc': '名字 Z→A',
+    'manual':    '手動排列',
+  };
+
+  function setSortMode(mode) {
+    // Prevent changing sort mode during gameplay
+    if (currentPhase === 'playing') {
       return;
     }
-    el.innerHTML = list.map(p => `
-      <div class="player-row">
-        <div class="dot ${p.isConnected !== false ? 'on' : 'off'}"></div>
-        <div class="info">
-          <div class="pname">${p.name}</div>
-          <div class="pmeta">${p.score ?? 0}pt · ${p.handCount ?? 0}張 · ${p.isReady ? '✓ 準備' : '等待'}</div>
-        </div>
-        <button class="pkick" onclick="kickPlayer('${p.id}')">踢</button>
-      </div>`).join('');
+    sortMode = mode;
+    document.getElementById('sortLabel').textContent = SORT_LABELS[mode];
+    document.body.classList.toggle('sort-manual', mode === 'manual');
+    // mark active option
+    document.querySelectorAll('.sort-opt').forEach(el =>
+      el.classList.toggle('active', el.dataset.mode === mode));
+    closeSortMenu();
+    renderPlayers(currentPlayers);
   }
 
-  function kickPlayer(pid) {
-    if (confirm('確定踢除這位玩家？')) client.kickPlayer(pid);
+  function toggleSortMenu(e) {
+    e.stopPropagation();
+    // Disable sorting during gameplay
+    if (currentPhase === 'playing') {
+      return;
+    }
+    document.getElementById('sortMenu').classList.toggle('open');
+  }
+
+  function updateSortButtonState() {
+    const sortBtn = document.getElementById('sortBtn');
+    if (currentPhase === 'playing') {
+      sortBtn.disabled = true;
+      sortBtn.style.opacity = '0.3';
+      sortBtn.style.cursor = 'not-allowed';
+    } else {
+      sortBtn.disabled = false;
+      sortBtn.style.opacity = '1';
+      sortBtn.style.cursor = 'pointer';
+    }
+  }
+
+  function closeSortMenu() {
+    document.getElementById('sortMenu').classList.remove('open');
+  }
+
+  document.addEventListener('click', () => closeSortMenu());
+
+  function getDisplayList(list) {
+    // keep playerOrder in sync: remove departed, append new
+    const ids = new Set(list.map(p => p.id));
+    playerOrder = playerOrder.filter(id => ids.has(id));
+    for (const p of list) {
+      if (!playerOrder.includes(p.id)) playerOrder.push(p.id);
+    }
+
+    if (sortMode === 'name-asc')
+      return [...list].sort((a, b) => a.name.localeCompare(b.name, 'zh-TW'));
+    if (sortMode === 'name-desc')
+      return [...list].sort((a, b) => b.name.localeCompare(a.name, 'zh-TW'));
+    if (sortMode === 'manual')
+      return playerOrder.map(id => list.find(p => p.id === id)).filter(Boolean);
+    return list; // 'join' — server order
+  }
+
+  // ── Players column ────────────────────────────────────────────
+  let _menuPlayerId = null;
+
+  function renderPlayers(list) {
+    console.log('[Host] renderPlayers called with', list.length, 'players:', list);
+    currentPlayers = list;
+    updateLobbyBtns();
+
+    const numberColumnEl = document.getElementById('numberColumn');
+    const playerListEl = document.getElementById('playerList');
+    console.log('[Host] numberColumnEl:', numberColumnEl, 'playerListEl:', playerListEl);
+    document.getElementById('playerCount').textContent = list.length;
+
+    if (!list.length) {
+      if (numberColumnEl) numberColumnEl.innerHTML = '';
+      if (playerListEl) playerListEl.innerHTML = '<div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">等待玩家加入…</div>';
+      return;
+    }
+
+    const attrDefs = selectedManifest?.playerAttributes || [];
+    const display  = getDisplayList(list);
+
+    // Sync display order to the display screen
+    client.setPlayerOrder(display.map(p => p.id));
+
+    // Assign numbers based on current display order
+    let numbersChanged = false;
+    display.forEach((p, index) => {
+      const newNumber = index + 1;
+      if (playerNumberMap[p.id] !== newNumber) {
+        playerNumberMap[p.id] = newNumber;
+        numbersChanged = true;
+        console.log('[Host] Updated player number:', p.name, '→', newNumber);
+      }
+    });
+
+    // Notify clients of player number updates ONLY if numbers actually changed
+    if (numbersChanged && (currentPhase === 'playing' || currentPhase === 'lobby')) {
+      const playerNumbers = {};
+      display.forEach((p, index) => {
+        playerNumbers[p.id] = index + 1;
+      });
+      client.socket.emit('player_numbers_updated', { roomId, players: playerNumbers });
+      console.log('[Host] Broadcasting player numbers:', playerNumbers);
+    }
+
+    // Render number column (in display order)
+    if (numberColumnEl) {
+      numberColumnEl.innerHTML = display.map(p => {
+        const num = playerNumberMap[p.id];
+        return `<div class="number-item">${num}</div>`;
+      }).join('');
+    }
+
+    // Render player list (can be reordered by drag/drop)
+    if (playerListEl) {
+      const playersHtml = display.map(p => {
+      const alive = p.isAlive !== false;
+      const attrs = p.attributes || {};
+
+      const iconHtml = attrDefs.map(def => {
+        const opt = def.options?.find(o => o.value === attrs[def.id]);
+        return opt ? `<span class="attr-icon" title="${def.label}：${opt.label}">${opt.icon}</span>` : '';
+      }).join('');
+
+      // Build identity badge (always show if available)
+      const identityHtml = p.identity
+        ? `<span class="identity-badge" style="background:${TEAM_COLORS[p.identity.team] || '#888'};color:#000;font-size:0.65rem;padding:1px 4px;border-radius:3px;margin-left:6px;">${p.identity.name}</span>`
+        : '';
+
+      // Build inline status display
+      const statusLabels = {
+        'waiting': '⏳ 等待準備',
+        'ready': '✓ 已準備',
+        'viewing': '👁️ 查看中',
+        'confirmed': '✓ 已確認',
+        'thinking': '🤔 思考中',
+        'played': '✓ 已出牌',
+        'voting': '🗳️ 投票中',
+        'voted': '✓ 已投票',
+        'completed': '✓ 已完成',
+        'eliminated': '❌ 已淘汰',
+        'disconnected': '🔴 已斷線'
+      };
+      const statusLabel = statusLabels[p.status] || p.status || '未知';
+      const statusIcon = statusLabel.split(' ')[0]; // Take emoji only for inline display
+      const statsHtml = `
+        <div class="pstats">
+          ${statusIcon ? `<span class="pstat-status" title="${statusLabel}">${statusIcon}</span>` : ''}
+        </div>
+      `;
+
+      // Build tooltip with all detailed info
+      const aliveRow = `<div class="tt-row">${alive ? '✅ 存活' : '❌ 淘汰'}</div>`;
+      const scoreRow = `<div class="tt-row">🏆 分數：${p.score ?? 0}</div>`;
+      const handRow = `<div class="tt-row">🃏 手牌：${p.handCount ?? 0} 張</div>`;
+      const statusRow = `<div class="tt-row">${statusLabel}</div>`;
+      const readyRow = `<div class="tt-row">${p.isReady ? '✓ 已準備' : '⏳ 等待中'}</div>`;
+      const attrRows = attrDefs.map(def => {
+        const opt = def.options?.find(o => o.value === attrs[def.id]);
+        return `<div class="tt-row">${def.label}：${opt ? opt.icon + ' ' + opt.label : '—'}</div>`;
+      }).join('');
+      const tooltipHtml = (aliveRow + scoreRow + handRow + statusRow + readyRow + attrRows).replace(/"/g, '&quot;');
+
+      const canDrag = currentPhase !== 'playing'; // Disable dragging during game
+
+      return `
+      <div class="player-row${alive ? '' : ' eliminated'}${canDrag ? '' : ' locked'}"
+           data-pid="${p.id}"
+           draggable="${canDrag}"
+           onmouseenter="showTooltip(event,this)"
+           onmousemove="moveTooltip(event)"
+           onmouseleave="hideTooltip()"
+           ondragstart="onDragStart(event,'${p.id}')"
+           ondragover="onDragOver(event,'${p.id}')"
+           ondragleave="onDragLeave(event)"
+           ondrop="onDrop(event,'${p.id}')"
+           ondragend="onDragEnd()">
+        ${canDrag ? '<span class="drag-handle">⠿</span>' : ''}
+        <div class="dot ${p.isConnected !== false ? 'on' : 'off'}"></div>
+        <div class="info">
+          <div class="pname-row">
+            <span class="pname">${p.name}</span>${iconHtml}${identityHtml}
+          </div>
+        </div>
+        ${statsHtml}
+        <button class="pmenu-btn" onclick="openPlayerMenu(event,'${p.id}')">⋮</button>
+      </div>`;
+      }).join('');
+      console.log('[Host] Generated HTML for', display.length, 'players, length:', playersHtml.length);
+      playerListEl.innerHTML = playersHtml;
+      console.log('[Host] Set innerHTML, current playerListEl children:', playerListEl.children.length);
+    } else {
+      console.error('[Host] playerListEl not found!');
+    }
+  }
+
+  // ── Drag-and-drop handlers ────────────────────────────────────
+  function onDragStart(e, pid) {
+    if (sortMode !== 'manual') return e.preventDefault();
+    _dragSrcId = pid;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => {
+      const el = document.querySelector(`.player-row[data-pid="${pid}"]`);
+      if (el) el.classList.add('dragging');
+    }, 0);
+  }
+
+  function onDragOver(e, pid) {
+    if (!_dragSrcId || _dragSrcId === pid) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.player-row.drag-over')
+      .forEach(el => el.classList.remove('drag-over'));
+    const el = document.querySelector(`.player-row[data-pid="${pid}"]`);
+    if (el) el.classList.add('drag-over');
+  }
+
+  function onDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+
+  function onDrop(e, targetPid) {
+    if (!_dragSrcId || _dragSrcId === targetPid) return;
+    e.preventDefault();
+    const from = playerOrder.indexOf(_dragSrcId);
+    const to   = playerOrder.indexOf(targetPid);
+    if (from === -1 || to === -1) return;
+    playerOrder.splice(from, 1);
+    playerOrder.splice(to, 0, _dragSrcId);
+    renderPlayers(currentPlayers);
+  }
+
+  function onDragEnd() {
+    _dragSrcId = null;
+    document.querySelectorAll('.player-row.dragging, .player-row.drag-over')
+      .forEach(el => el.classList.remove('dragging', 'drag-over'));
+  }
+
+  function openPlayerMenu(e, pid) {
+    e.stopPropagation();
+    _menuPlayerId = pid;
+    const p = currentPlayers.find(x => x.id === pid);
+    if (!p) return;
+    const alive = p.isAlive !== false;
+    const attrs = p.attributes || {};
+    const attrDefs = selectedManifest?.playerAttributes || [];
+
+    let html = '';
+
+    // Rename
+    html += `<div class="pd-section">玩家管理</div>`;
+    html += `<div class="pd-row" onclick="menuRename()">✏️ 修改名稱</div>`;
+
+    // Alive toggle
+    html += `<div class="pd-divider"></div>`;
+    html += `<div class="pd-section">存活狀態</div>`;
+    if (alive) {
+      html += `<div class="pd-row" onclick="menuSetAlive(false)">❌ 淘汰玩家</div>`;
+    } else {
+      html += `<div class="pd-row" onclick="menuSetAlive(true)">♻️ 復活玩家</div>`;
+    }
+
+    // Attribute sections
+    attrDefs.forEach(def => {
+      html += `<div class="pd-divider"></div>`;
+      html += `<div class="pd-section">${def.label}</div>`;
+      html += `<div class="pd-attr-opts">`;
+      (def.options || []).forEach(opt => {
+        const active = attrs[def.id] === opt.value ? ' active' : '';
+        html += `<button class="pd-opt${active}" onclick="menuSetAttr('${def.id}','${opt.value}')">${opt.icon} ${opt.label}</button>`;
+      });
+      html += `</div>`;
+    });
+
+    // Kick
+    html += `<div class="pd-divider"></div>`;
+    html += `<div class="pd-row danger" onclick="menuKick()">🚫 踢除玩家</div>`;
+
+    const dd = document.getElementById('playerDropdown');
+    dd.innerHTML = html;
+
+    // Position near button
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    dd.style.top  = rect.bottom + 4 + 'px';
+    dd.style.left = Math.min(rect.left, window.innerWidth - 210) + 'px';
+    dd.classList.add('open');
+  }
+
+  function closePlayerMenu() {
+    document.getElementById('playerDropdown').classList.remove('open');
+    _menuPlayerId = null;
+  }
+
+  function menuSetAlive(isAlive) {
+    if (!_menuPlayerId) return;
+    client.setPlayerAlive(_menuPlayerId, isAlive);
+    closePlayerMenu();
+  }
+
+  function menuSetAttr(attrId, value) {
+    if (!_menuPlayerId) return;
+    client.setPlayerAttribute(_menuPlayerId, attrId, value);
+    closePlayerMenu();
+  }
+
+  function menuRename() {
+    if (!_menuPlayerId) return;
+    const p = currentPlayers.find(x => x.id === _menuPlayerId);
+    if (!p) return;
+
+    const newName = prompt(`修改玩家名稱`, p.name);
+    if (newName === null) return; // User cancelled
+    if (newName.trim() === '') {
+      alert('名稱不能為空');
+      return;
+    }
+
+    client.renamePlayer(_menuPlayerId, newName);
+    closePlayerMenu();
+  }
+
+  function menuKick() {
+    if (!_menuPlayerId) return;
+    const p = currentPlayers.find(x => x.id === _menuPlayerId);
+    const name = p ? p.name : _menuPlayerId;
+    if (confirm(`確定踢除玩家「${name}」？`)) client.kickPlayer(_menuPlayerId);
+    closePlayerMenu();
+  }
+
+  // Close dropdown on outside click or Escape
+  document.addEventListener('click', () => closePlayerMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePlayerMenu(); });
+
+  // ── Player tooltip ────────────────────────────────────────────
+  const _tt = () => document.getElementById('playerTooltip');
+  let _currentTooltipPlayer = null; // Track which player's tooltip is showing
+
+  function showTooltip(e, el) {
+    const tt = _tt();
+    _currentTooltipPlayer = el.dataset.pid; // Track current player
+    updateTooltipContent(el); // Update content
+    tt.style.display = 'block';
+    positionTooltip(e);
+  }
+
+  function updateTooltipContent(el) {
+    const tt = _tt();
+    const playerId = el.dataset.pid;
+    const player = currentPlayers?.find(p => p.id === playerId);
+    if (!player) return;
+
+    // Rebuild tooltip content dynamically based on current player state
+    const alive = player.isAlive !== false;
+    const attrDefs = selectedManifest?.playerAttributes || [];
+    const attrs = player.attributes || {};
+
+    const aliveRow = `<div class="tt-row">${alive ? '✅ 存活' : '❌ 淘汰'}</div>`;
+    const scoreRow = `<div class="tt-row">🏆 分數：${player.score ?? 0}</div>`;
+    const handRow = `<div class="tt-row">🃏 手牌：${player.handCount ?? 0} 張</div>`;
+
+    // Display player status (unified status field)
+    const statusLabels = {
+      'waiting': '⏳ 等待準備',
+      'ready': '✓ 已準備',
+      'viewing': '👁️ 查看中',
+      'confirmed': '✓ 已確認',
+      'thinking': '🤔 思考中',
+      'played': '✓ 已出牌',
+      'voting': '🗳️ 投票中',
+      'voted': '✓ 已投票',
+      'completed': '✓ 已完成',
+      'eliminated': '❌ 已淘汰',
+      'disconnected': '🔴 已斷線'
+    };
+    const statusLabel = statusLabels[player.status] || player.status || '未知';
+    const statusRow = `<div class="tt-row">${statusLabel}</div>`;
+
+    const attrRows = attrDefs.map(def => {
+      const opt = def.options?.find(o => o.value === attrs[def.id]);
+      return `<div class="tt-row">${def.label}：${opt ? opt.icon + ' ' + opt.label : '—'}</div>`;
+    }).join('');
+
+    tt.innerHTML = aliveRow + scoreRow + handRow + statusRow + attrRows;
+  }
+
+  function refreshCurrentTooltip() {
+    if (!_currentTooltipPlayer) return;
+    const el = document.querySelector(`[data-pid="${_currentTooltipPlayer}"]`);
+    if (el && _tt().style.display === 'block') {
+      updateTooltipContent(el);
+    }
+  }
+
+  function moveTooltip(e) {
+    positionTooltip(e);
+  }
+
+  function hideTooltip() {
+    _tt().style.display = 'none';
+    _currentTooltipPlayer = null;
+  }
+
+  function positionTooltip(e) {
+    const tt = _tt();
+    const offset = 14;
+    const tw = tt.offsetWidth;
+    const th = tt.offsetHeight;
+    let x = e.clientX + offset;
+    let y = e.clientY + offset;
+    if (x + tw > window.innerWidth  - 8) x = e.clientX - tw - offset;
+    if (y + th > window.innerHeight - 8) y = e.clientY - th - offset;
+    tt.style.left = x + 'px';
+    tt.style.top  = y + 'px';
   }
 
   // ── Helpers ───────────────────────────────────────────────────
@@ -878,6 +2039,191 @@
     list.prepend(el);
     if (list.children.length > 60) list.lastChild.remove();
   }
+
+  // ── Vote System ───────────────────────────────────────────────
+  let voteData = null;
+
+  function showVotePanel(data) {
+    voteData = data;
+    voteSubmissions.clear(); // Clear submissions when new vote starts
+    showPanel('vote');
+
+    document.getElementById('voteModuleName').textContent = data.voteTitle || data.stageName || '投票階段';
+    document.getElementById('votePhaseLabel').textContent = data.anonymous ? '匿名投票' : '公開投票';
+
+    console.log('[Host] Showing vote panel with data:', data);
+
+    renderVotePlayers(data);
+    renderVoteOptions(data);
+    renderVoteActions(data);
+  }
+
+  function renderVotePlayers(data) {
+    const players = currentPlayers || [];
+
+    // Use voteSubmissions Set to track who has submitted
+    const grid = document.getElementById('votePlayerGrid');
+    grid.innerHTML = players.map(p => {
+      const hasSubmitted = voteSubmissions.has(p.id);
+      return `<div class="gp-player-row ${hasSubmitted ? 'played' : 'waiting'}">
+        <span class="gp-status-icon">${hasSubmitted ? '✓' : '⏳'}</span>
+        <span class="gp-pname">${p.name}</span>
+        <span class="gp-pstatus">${hasSubmitted ? '已送出' : '未送出'}</span>
+      </div>`;
+    }).join('');
+
+    // Update vote count display
+    if (data.voteConfig) {
+      const config = data.voteConfig;
+      const totalPlayers = players.filter(p => p.isAlive !== false).length;
+      const submittedCount = voteSubmissions.size;
+      document.getElementById('votePlayerGrid').innerHTML =
+        `<div style="font-size:.9rem;color:#8888bb;margin-bottom:8px;">送出進度：${submittedCount} / ${totalPlayers}</div>` + grid.innerHTML;
+    }
+  }
+
+  function renderVoteOptions(data) {
+    const resultsContainer = document.getElementById('voteResults');
+
+    if (!data.options || data.options.length === 0) {
+      resultsContainer.innerHTML = '<div style="color:#666;font-size:.82rem;text-align:center;padding:20px;">載入投票選項中…</div>';
+      return;
+    }
+
+    resultsContainer.innerHTML = data.options.map(opt => {
+      return `
+        <div class="vote-result-item" data-option-id="${opt.id}">
+          <div class="vote-result-name">${opt.name}</div>
+          <div class="vote-result-count" id="vote-count-${opt.id}">0 票</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderVoteProgress(d) {
+    console.log('[Host] Vote progress update:', d);
+
+    if (d.playerId) {
+      const players = currentPlayers || [];
+      const player = players.find(p => p.id === d.playerId);
+      if (player) {
+        addLog(`${player.name} 已投票`);
+      }
+
+      // Update vote option counts if available
+      if (d.currentCounts) {
+        Object.entries(d.currentCounts).forEach(([optId, count]) => {
+          const countEl = document.getElementById(`vote-count-${optId}`);
+          if (countEl) {
+            countEl.textContent = `${count} 票`;
+          }
+        });
+      }
+
+      // Update player grid
+      if (voteData) {
+        renderVotePlayers(voteData);
+      }
+    }
+  }
+
+  function updateVoteTimer(remaining, total) {
+    const timerEl = document.getElementById('voteTimer');
+    if (timerEl && remaining > 0) {
+      timerEl.textContent = `⏱ 剩餘 ${remaining} 秒`;
+    } else if (timerEl) {
+      timerEl.textContent = '';
+    }
+  }
+
+  function showVoteResults(results) {
+    const resultsContainer = document.getElementById('voteResults');
+
+    if (!results || results.length === 0) {
+      resultsContainer.innerHTML = '<div style="color:#666;font-size:.82rem;text-align:center;padding:20px;">無投票結果</div>';
+      return;
+    }
+
+    // Find max votes
+    const maxVotes = Math.max(...results.map(r => r.count));
+
+    resultsContainer.innerHTML = results.map(r => {
+      // Use targetName if available, otherwise fallback to targetId
+      const name = r.targetName || r.targetId;
+      const isLeading = r.count === maxVotes && r.count > 0;
+
+      // Build voters display for non-anonymous votes
+      let votersDisplay = '';
+      if (r.voters && r.voters.length > 0) {
+        const voterNames = r.voters.map(voterId => {
+          const voter = currentPlayers.find(p => p.id === voterId);
+          return voter ? voter.name : voterId;
+        }).join('、');
+        votersDisplay = `<div style="font-size:.65rem;color:#6666aa;margin-top:4px;">🗳️ 來自: ${voterNames}</div>`;
+      }
+
+      return `
+        <div class="vote-result-item ${isLeading ? 'leading' : ''}">
+          <div class="vote-result-name">${name}</div>
+          <div class="vote-result-count">${r.count} 票</div>
+          ${votersDisplay}
+          ${isLeading ? '<div style="font-size:.65rem;color:#ffdd44;margin-top:4px;">👑 最高票</div>' : ''}
+        </div>
+      `;
+    }).join('');
+
+    // Update action buttons
+    renderVoteResultsActions();
+  }
+
+  function renderVoteActions(data) {
+    const actionsContainer = document.getElementById('voteActions');
+    const actions = [];
+
+    if (data.voteConfig && data.voteConfig.advance && data.voteConfig.advance.trigger !== 'all_voted') {
+      actions.push({ action: 'end_vote', label: '▶ 結束投票', cls: 'btn-primary' });
+    }
+
+    actionsContainer.innerHTML = actions.map(a => {
+      return `<button class="btn ${a.cls} btn-full" onclick="hostAction('${a.action}')">${a.label}</button>`;
+    }).join('');
+  }
+
+  function renderVoteResultsActions() {
+    const actionsContainer = document.getElementById('voteActions');
+    actionsContainer.innerHTML = `
+      <button class="btn btn-success btn-full" onclick="hostAction('next_stage')">▶ 下一階段</button>
+    `;
+  }
+
+  function renderIntermissionMessage() {
+    const actionsContainer = document.getElementById('gpActions');
+    actionsContainer.innerHTML = `
+      <div style="text-align:center;padding:16px;background:#1a1a3a;border:1px solid #3a3a6a;border-radius:10px;margin-bottom:12px;">
+        <div style="font-size:1.2rem;margin-bottom:8px;">⏸️ 遊戲暫停</div>
+        <div style="font-size:.8rem;color:#8888aa;">等待主持人推進到下一階段</div>
+      </div>
+    `;
+  }
+
+  function showIntermissionAdvanceButton() {
+    const actionsContainer = document.getElementById('gpActions');
+    actionsContainer.innerHTML = `
+      <div style="text-align:center;padding:16px;background:#1a1a3a;border:1px solid #3a3a6a;border-radius:10px;margin-bottom:12px;">
+        <div style="font-size:1.2rem;margin-bottom:8px;">⏸️ 遊戲暫停</div>
+        <div style="font-size:.8rem;color:#8888aa;margin-bottom:12px;">可以推進到下一階段</div>
+      </div>
+      <button class="btn btn-success btn-full" onclick="hostAction('next_stage')">▶ 下一階段</button>
+    `;
+  }
+
+  // ── Initialize setup screen on page load ───────────────────────
+  refreshRooms();
+  loadSetupModules();
 </script>
+<!-- shared player dropdown — moved via JS positioning -->
+<div id="playerDropdown"></div>
+<!-- global tooltip — follows cursor, always on top -->
+<div id="playerTooltip"></div>
 </body>
 </html>

@@ -189,6 +189,13 @@
     .stage-order-btns button:disabled { opacity: .3; cursor: not-allowed; }
     .stage-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
     .stage-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stage-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+    @media (max-width: 768px) {
+      .stage-grid-3 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 480px) {
+      .stage-grid-3 { grid-template-columns: 1fr; }
+    }
 
     /* Toggle switch */
     .toggle-switch { position: relative; display: inline-block; width: 34px; height: 19px; flex-shrink: 0; }
@@ -221,6 +228,19 @@
 
     .raw-bar { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
     .help-text { font-size: .72rem; color: #6666aa; line-height: 1.5; margin-top: 4px; }
+
+    /* Loop stage */
+    .loop-block { background: #090818; border: 1px solid #3a2060; border-radius: 8px; margin-top: 10px; padding: 12px 14px; }
+    .loop-block-title { font-size: .78rem; color: #aa88ee; font-weight: 700; letter-spacing: .04em; margin-bottom: 10px; }
+    .loop-cfg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .loop-exit-block { background: #0d0d20; border: 1px solid #2a1a50; border-radius: 6px; padding: 10px 12px; margin-top: 10px; }
+    .loop-exit-title { font-size: .72rem; color: #8866cc; margin-bottom: 8px; font-weight: 600; }
+    .loop-exit-grid { display: grid; grid-template-columns: 1fr 1fr 60px 1fr; gap: 6px; align-items: end; }
+    .child-stages-wrap { margin-top: 10px; }
+    .child-stages-title { font-size: .72rem; color: #8866cc; margin-bottom: 6px; font-weight: 600; }
+    .child-stage-row { background: #10102a; border: 1px solid #2a2a55; border-left: 3px solid #6633bb; border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; margin-left: 12px; }
+    .child-stage-row.disabled { opacity: .55; }
+    .child-stage-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -336,6 +356,21 @@
     { value: 'result',        label: '結算' },
     { value: 'input',         label: '填寫資料' },
     { value: 'intermission',  label: '暫停' },
+    { value: 'loop',          label: '🔁 循環' },
+  ];
+
+  const LOOP_EXIT_TYPES = [
+    { value: 'alivePlayers', label: '存活玩家數' },
+    { value: 'teamPlayers',  label: '特定陣營玩家數' },
+    { value: 'iterations',   label: '已執行次數' },
+  ];
+  const LOOP_OPERATORS = [
+    { value: 'lte', label: '≤' },
+    { value: 'lt',  label: '<' },
+    { value: 'gte', label: '≥' },
+    { value: 'gt',  label: '>' },
+    { value: 'eq',  label: '=' },
+    { value: 'neq', label: '≠' },
   ];
 
   // 推進選項根據階段類型和用途過濾，實現兩階段設定
@@ -364,10 +399,15 @@
     { value: 'auto_next',         label: '⏭️ 看完結果立即進下一回合', types: ['card_play'], category: 'next_round' },
     { value: 'round_timer',       label: '⏱️ 翻牌後倒數進下一回合', types: ['card_play'], category: 'next_round' },
 
+    // === 投票階段 ===
+    { value: 'host',              label: '🎮 Host 手動推進', types: ['vote'], category: 'stage_advance' },
+    { value: 'auto',              label: '⏭️ 開票後立即進下一階段', types: ['vote'], category: 'stage_advance' },
+    { value: 'timer',             label: '⏱️ 開票後倒數進下一階段', types: ['vote'], category: 'stage_advance' },
+
     // === 其他階段類型 ===
-    { value: 'all_voted',         label: '🗳️ 全員投票後立即開票', types: ['vote'], category: 'stage_advance' },
     { value: 'all_submitted',     label: '📝 全員提交後立即處理', types: ['input'], category: 'stage_advance' },
-    { value: 'generic_timer',     label: '⏱️ 固定時間倒數後推進', types: ['intermission'], category: 'stage_advance' },
+    { value: 'host',              label: '🎮 Host 手動推進', types: ['intermission'], category: 'stage_advance' },
+    { value: 'timer',             label: '⏱️ 固定時間倒數後推進', types: ['intermission'], category: 'stage_advance' },
     { value: 'auto',              label: '⏭️ 立即自動推進（不顯示倒數）', types: ['intermission'], category: 'stage_advance' },
   ];
   const DECK_TYPES = [
@@ -641,7 +681,6 @@
     document.getElementById('cfgDecks').innerHTML = decks.map((d, di) =>
       renderDeckBlock(d, di)
     ).join('') + `<button class="add-card-btn" style="margin-top:8px" onclick="addDeck()">+ 新增牌組</button>`;
-    // Restore expanded state
     decks.forEach((d, di) => {
       if (openDecks.has(d.id)) {
         document.getElementById(`deck_cards_${di}`)?.classList.add('open');
@@ -652,16 +691,12 @@
   }
 
   function renderDeckBlock(deck, di) {
-    const isRef = !!deck.ref;
-    const typeLbl = DECK_TYPES.find(t => t.value === deck.type)?.label || deck.type;
-
-    // Global deck selector
+    const globalDeck = globalDecks.find(d => d.id === deck.ref);
+    const typeLbl = DECK_TYPES.find(t => t.value === (globalDeck?.type || deck.type))?.label || deck.type || '—';
+    const cardCount = globalDeck?.cards?.length ?? '?';
     const globalDeckOptions = globalDecks
-      .filter(d => !isRef || d.type === deck.type) // Show all or filter by type
       .map(d => `<option value="${d.id}" ${deck.ref === d.id ? 'selected' : ''}>${escapeH(d.name)} (${d.id})</option>`)
       .join('');
-
-    const cardRows = (deck.cards || []).map((c, ci) => renderCardRow(c, di, ci, deck.type)).join('');
 
     return `<div class="deck-block" id="deck_${di}">
       <div class="deck-header" onclick="toggleDeck(${di})">
@@ -670,52 +705,38 @@
                  onchange="setDeckProp(${di},'enabled',this.checked)">
           <span class="toggle-slider"></span>
         </label>
-        <span class="deck-header-name">${escapeH(deck.name)} ${isRef ? '<span style="color:#66aaff;font-size:.65rem;">(全局卡牌)</span>' : ''}</span>
+        <span class="deck-header-name">${escapeH(deck.name || deck.ref || '未命名')}</span>
         <span class="deck-type-badge">${escapeH(typeLbl)}</span>
-        <span style="font-size:.65rem;color:#5566aa;">${isRef ? '🔗 全局引用' : (deck.cards||[]).length + ' 張'}</span>
+        <span style="font-size:.65rem;color:#5566aa;">${deck.ref ? cardCount + ' 張' : '⚠ 未選擇'}</span>
         <span class="deck-toggle">▾</span>
       </div>
       <div class="deck-cards" id="deck_cards_${di}">
         <div class="deck-meta-row">
           <div class="field-row" style="margin:0">
-            <label class="field-label">牌組來源</label>
-            <select class="field-input" onchange="setDeckSource(${di}, this.value)">
-              <option value="">本地卡牌 (自定義)</option>
-              <option value="" disabled>──────────</option>
-              ${globalDecks.map(d => `<option value="${d.id}" ${deck.ref === d.id ? 'selected' : ''}>📦 ${escapeH(d.name)} (${d.id})</option>`).join('')}
+            <label class="field-label">全局牌組</label>
+            <select class="field-input" onchange="setDeckRef(${di}, this.value)">
+              <option value="">— 請選擇全局牌組 —</option>
+              ${globalDeckOptions}
             </select>
           </div>
         </div>
-        ${isRef ? `
-          <div class="deck-meta-row" style="background:#1a2a3a;padding:8px;border-radius:4px;margin:4px 0;">
-            <div style="font-size:.78rem;color:#88aaff;">
-              🔗 引用全局卡牌：<strong>${escapeH(globalDecks.find(d => d.id === deck.ref)?.name || deck.ref)}</strong>
-            </div>
-            <div style="font-size:.72rem;color:#6688aa;margin-top:4px;">
-              此牌組使用全局卡牌，共有 ${globalDecks.find(d => d.id === deck.ref)?.cards.length || 0} 張卡牌。
-              您可以修改抽牌數和設定，但卡牌內容由全局卡牌管理。
-            </div>
+        ${deck.ref ? `
+          <div class="deck-meta-row" style="background:#1a2a3a;padding:6px 8px;border-radius:4px;margin:4px 0;font-size:.75rem;color:#88aaff;">
+            📦 ${escapeH(globalDeck?.name || deck.ref)}（${cardCount} 張卡牌）
           </div>
-        ` : `
           <div class="deck-meta-row">
             <div class="field-row" style="margin:0">
-              <label class="field-label">牌組名稱</label>
-              <input class="field-input" value="${escapeH(deck.name||'')}" oninput="setDeckProp(${di},'name',this.value)">
-            </div>
-            <div class="field-row" style="margin:0">
-              <label class="field-label">類型</label>
-              <select class="field-input" onchange="setDeckProp(${di},'type',this.value);renderDecksTab();">
-                ${DECK_TYPES.map(t => `<option value="${t.value}" ${deck.type===t.value?'selected':''}>${t.label}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field-row" style="margin:0">
-              <label class="field-label">牌組 ID（給 stage 引用）</label>
+              <label class="field-label">牌組 ID（stage 引用用）</label>
               <input class="field-input" value="${escapeH(deck.id||'')}" style="font-family:monospace;font-size:.78rem"
                      oninput="setDeckProp(${di},'id',this.value)">
             </div>
+            <div class="field-row" style="margin:0">
+              <label class="field-label">顯示名稱</label>
+              <input class="field-input" value="${escapeH(deck.name||'')}" oninput="setDeckProp(${di},'name',this.value)">
+            </div>
           </div>
           <div class="deck-draw-row">
-            <span title="此牌組的預設抽牌數，可被遊戲參數覆寫">預設抽牌數 💡</span>
+            <span>預設抽牌數</span>
             <input type="number" min="1" max="20" value="${deck.drawCount || 1}"
                    oninput="setDeckProp(${di},'drawCount',Number(this.value))">
             允許重複
@@ -726,35 +747,13 @@
             </label>
             <button class="ci-del" style="margin-left:auto" onclick="deleteDeck(${di})">刪除牌組</button>
           </div>
-          <div class="card-row-header">
-            <span class="ci-name">名稱</span>
-            <span class="ci-val">${deck.type === 'role' ? '陣營' : '點數'}</span>
-            <span class="ci-desc">說明</span>
-          </div>
-          <div id="deck_cardlist_${di}">${cardRows}</div>
-          <button class="add-card-btn" onclick="addCard(${di})">+ 新增卡牌</button>
-        `}
-        ${isRef ? `
-          <div class="deck-draw-row" style="margin-top:8px;">
-            <span title="此牌組的預設抽牌數，可被遊戲參數覆寫">預設抽牌數 💡</span>
-            <input type="number" min="1" max="20" value="${deck.drawCount || 1}"
-                   oninput="setDeckProp(${di},'drawCount',Number(this.value))">
+        ` : `
+          <div style="color:#886644;font-size:.78rem;padding:6px 0;">請從上方選擇一個全局牌組</div>
+          <div class="deck-draw-row" style="margin-top:4px;">
             <button class="ci-del" style="margin-left:auto" onclick="deleteDeck(${di})">刪除牌組</button>
           </div>
-        ` : ''}
+        `}
       </div>
-    </div>`;
-  }
-
-  function renderCardRow(card, di, ci, deckType) {
-    const valField = deckType === 'role'
-      ? `<input class="ci-val" placeholder="陣營" value="${escapeH(card.team||'')}" oninput="setCardProp(${di},${ci},'team',this.value)">`
-      : `<input class="ci-val" type="number" placeholder="點數" value="${card.value??''}" oninput="setCardProp(${di},${ci},'value',this.value===''?null:Number(this.value))">`;
-    return `<div class="card-row">
-      <input class="ci-name" placeholder="名稱" value="${escapeH(card.name||'')}" oninput="setCardProp(${di},${ci},'name',this.value)">
-      ${valField}
-      <input class="ci-desc" placeholder="說明" value="${escapeH(card.description||'')}" oninput="setCardProp(${di},${ci},'description',this.value)">
-      <button class="ci-del" onclick="deleteCard(${di},${ci})">✕</button>
     </div>`;
   }
 
@@ -772,81 +771,25 @@
     pushHistory();
     const oldId = manifest.decks[di].id;
     manifest.decks[di][key] = val;
-    // If id changed and deck was open, transfer state
     if (key === 'id' && openDecks.has(oldId)) {
       openDecks.delete(oldId); openDecks.add(val);
     }
-    if (key === 'name' || key === 'enabled' || key === 'id' || key === 'type' || key === 'drawCount') {
-      // Update header card count or rerender — for type change we already rerender from caller
-      const headerName = document.querySelector(`#deck_${di} .deck-header-name`);
-      if (headerName && key === 'name') headerName.textContent = val;
-    }
     afterChange(true);
   }
 
-  function setDeckSource(di, globalDeckId) {
+  function setDeckRef(di, globalDeckId) {
+    pushHistory();
     const deck = manifest.decks[di];
-
-    if (!globalDeckId) {
-      // Switch to local deck
-      delete deck.ref;
-      // Ensure local deck has required fields
-      if (!deck.name || deck.name === '本地牌組') {
-        deck.name = '本地牌組';
-      }
-      if (!deck.type) {
-        deck.type = 'action'; // Default type
-      }
-      if (!deck.cards) {
-        deck.cards = [];
-      }
-    } else {
-      // Switch to global deck reference
-      const globalDeck = globalDecks.find(d => d.id === globalDeckId);
-      if (!globalDeck) {
-        alert('找不到指定的全局卡牌');
-        return;
-      }
-
-      // Set reference and copy all properties from global deck
-      deck.ref = globalDeckId;
-      deck.name = globalDeck.name;  // This will satisfy the name validation
+    const globalDeck = globalDecks.find(d => d.id === globalDeckId);
+    if (globalDeckId && !globalDeck) { alert('找不到指定的全局牌組'); return; }
+    delete deck.cards;
+    if (globalDeckId) {
+      deck.ref  = globalDeckId;
+      deck.name = deck.name || globalDeck.name;
       deck.type = globalDeck.type;
-      // Remove local cards since we're using global
-      delete deck.cards;
+    } else {
+      delete deck.ref;
     }
-
-    // Save history first
-    pushHistory();
-    // Then update UI and validation
-    afterChange(true);
-  }
-
-  function setCardProp(di, ci, key, val) {
-    pushHistory();
-    manifest.decks[di].cards[ci][key] = val;
-    afterChange(true);
-  }
-
-  function addCard(di) {
-    pushHistory();
-    const deck = manifest.decks[di];
-    deck.cards = deck.cards || [];
-    deck.cards.push({ id: uid('card'), name: '', value: 0, description: '', team: '' });
-    const ci = deck.cards.length - 1;
-    document.getElementById(`deck_cardlist_${di}`)
-      .insertAdjacentHTML('beforeend', renderCardRow(deck.cards[ci], di, ci, deck.type));
-    // Update header count
-    const cnt = document.querySelector(`#deck_${di} .deck-header span:nth-of-type(2)`);
-    if (cnt && cnt.textContent.endsWith(' 張')) cnt.textContent = `${deck.cards.length} 張`;
-    afterChange(true);
-  }
-
-  function deleteCard(di, ci) {
-    const card = manifest.decks[di].cards[ci];
-    if (!confirm(`刪除卡牌「${card.name || '(未命名)'}」？`)) return;
-    pushHistory();
-    manifest.decks[di].cards.splice(ci, 1);
     renderDecksTab();
     afterChange(true);
   }
@@ -854,10 +797,10 @@
   function addDeck() {
     pushHistory();
     manifest.decks = manifest.decks || [];
-    const newId = 'deck_' + (manifest.decks.length + 1);
+    const newId = 'deck_' + uid('d');
     manifest.decks.push({
       id: newId, name: '新牌組', type: 'action',
-      visibility: 'private', drawCount: 1, allowDuplicate: true, enabled: true, cards: []
+      visibility: 'private', drawCount: 1, allowDuplicate: true, enabled: true, ref: ''
     });
     openDecks.add(newId);
     renderDecksTab();
@@ -906,6 +849,7 @@
               ${STAGE_TYPES.map(t => `<option value="${t.value}" ${s.type===t.value?'selected':''}>${t.label}</option>`).join('')}
             </select>
           </div>
+          ${s.type !== 'loop' ? `
           <div class="field-row" style="margin:0">
             <label class="field-label">使用牌組 (deckId)</label>
             <select class="field-input" onchange="setStageProp(${si},'deckId',this.value || undefined)">
@@ -913,13 +857,22 @@
               ${deckOptsFor(s.deckId)}
             </select>
           </div>
+          ` : '<div></div>'}
           <div class="field-row" style="margin:0">
             <label class="field-label">階段 ID</label>
             <input class="field-input" value="${escapeH(s.id||'')}" style="font-family:monospace;font-size:.78rem"
                    oninput="setStageProp(${si},'id',this.value)">
           </div>
+          ${s.type === 'intermission' ? `
+          <div class="field-row" style="margin:0;grid-column:1/-1;">
+            <label class="field-label">暫停說明</label>
+            <input class="field-input" placeholder="例如：休息一下、準備下一階段等"
+                   value="${escapeH(s.description||'')}"
+                   oninput="setStageProp(${si},'description',this.value)">
+          </div>
+          ` : ''}
         </div>
-        ${renderAdvanceBlock(si, '階段結束時推進', 'advance', s.advance, '此階段所有事情完成後，如何進入下一個階段')}
+        ${s.type !== 'loop' ? renderAdvanceBlock(si, '階段結束時推進', 'advance', s.advance, '此階段所有事情完成後，如何進入下一個階段') : ''}
         ${s.type === 'card_play' ? `
           <div style="margin-top:12px;padding:10px;background:#0d0d1f;border:1px solid #2a2a4a;border-radius:8px;">
             <div style="font-size:.8rem;color:#aaaacc;font-weight:600;margin-bottom:10px;">🎮 回合設定</div>
@@ -940,10 +893,12 @@
                 '每回合翻牌後的行為（最後一回合除外）', 'next_round')}
           </div>
         ` : ''}
+        ${s.type === 'vote' ? renderVoteConfigBlock(s, String(si), null) : ''}
+        ${s.type === 'loop' ? renderLoopBlock(si, s) : ''}
       </div>`).join('') + `<button class="add-card-btn" onclick="addStage()">+ 新增階段</button>`;
   }
 
-  function renderStageRoundField(si, key, label, value, defaultVal, unit = '') {
+  function renderStageRoundField(si, key, label, value, defaultVal, unit = '', configPath = null) {
     const stage = manifest.stages[si];
     const isNumber = typeof defaultVal === 'number';
     let input = '';
@@ -956,10 +911,14 @@
       </select>`;
     } else {
       const type = isNumber ? 'number' : 'text';
+      const oninput = configPath === 'voteConfig'
+        ? `oninput="setVoteConfigProp(${si},'${key}',${isNumber ? 'Number(this.value)' : 'this.value'})"`
+        : `oninput="setStageProp(${si},'${key}',${isNumber ? 'Number(this.value)' : 'this.value'})"`;
+
       input = `<input class="field-input" type="${type}" value="${value ?? ''}"
-               min="1" max="20"
+               min="1" max="300"
                placeholder="${defaultVal}"
-               oninput="setStageProp(${si},'${key}',${isNumber ? 'Number(this.value)' : 'this.value'})">
+               ${oninput}>
       ${unit ? `<span style="margin-left:4px;color:#8888bb;font-size:.78rem;">${unit}</span>` : ''}
       </select>`;
     }
@@ -967,6 +926,140 @@
     return `<div class="field-row" style="margin:0">
       <label class="field-label">${label}</label>
       ${input}
+    </div>`;
+  }
+
+  function renderVoteConfigField(si, key, label, value, defaultVal) {
+    const currentValue = value ?? defaultVal;
+
+    return `<div class="field-row" style="margin:0">
+      <label class="field-label">${label}</label>
+      <label class="toggle-switch">
+        <input type="checkbox" ${currentValue ? 'checked' : ''} onchange="setVoteConfigProp(${si},'${key}',this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>`;
+  }
+
+  // 统一的投票配置区块渲染（同时支持顶层阶段和子阶段）
+  function renderVoteConfigBlock(stage, configPath, setConfigFunc) {
+    const vc = stage.voteConfig || {};
+    const isChild = configPath.includes(','); // 判断是否为子阶段
+
+    // 提取 si 和 ci
+    const [si, ci] = isChild ? configPath.split(',').map(Number) : [configPath, null];
+
+    return `<div style="padding:10px;background:#0d0d1f;border:1px solid #2a2a4a;border-radius:8px;">
+      <div style="font-size:.8rem;color:#aaaacc;font-weight:600;margin-bottom:10px;">🗳️ 投票設定</div>
+      <div class="stage-grid-3" style="margin-top:8px">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">投票時間（秒）</label>
+          <input class="field-input" type="number" min="1" max="300" placeholder="30"
+                 style="width:60px;padding:4px 8px;font-size:.78rem;"
+                 value="${vc.countdownSeconds ?? ''}"
+                 onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'countdownSeconds',Number(this.value))` : `setVoteConfigProp(${si},'countdownSeconds',Number(this.value))`}">
+        </div>
+        <div class="field-row" style="margin:0">
+          <label class="field-label">匿名投票</label>
+          <label class="toggle-switch">
+            <input type="checkbox" ${vc.anonymous ? 'checked' : ''}
+                   onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'anonymous',this.checked)` : `setVoteConfigProp(${si},'anonymous',this.checked)`}">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="field-row" style="margin:0">
+          <label class="field-label">可投自己</label>
+          <label class="toggle-switch">
+            <input type="checkbox" ${vc.allowSelfVote !== false ? 'checked' : ''}
+                   onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'allowSelfVote',this.checked)` : `setVoteConfigProp(${si},'allowSelfVote',this.checked)`}">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="field-row" style="margin:0">
+          <label class="field-label">全員投票後立即開票</label>
+          <label class="toggle-switch">
+            <input type="checkbox" ${vc.endWhenAllVoted !== false ? 'checked' : ''}
+                   onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'endWhenAllVoted',this.checked)` : `setVoteConfigProp(${si},'endWhenAllVoted',this.checked)`}">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="stage-grid-2" style="margin-top:8px">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">投票標題</label>
+          <input class="field-input" type="text" placeholder="例如：夜晚投票"
+                 style="font-size:.78rem;padding:4px 8px;"
+                 value="${vc.voteTitle || ''}"
+                 onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'voteTitle',this.value)` : `setVoteConfigProp(${si},'voteTitle',this.value)`}">
+        </div>
+        <div class="field-row" style="margin:0">
+          <label class="field-label">投票說明</label>
+          <input class="field-input" type="text" placeholder="例如：請選擇要殺害的目標"
+                 style="font-size:.78rem;padding:4px 8px;"
+                 value="${vc.voteDescription || ''}"
+                 onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'voteDescription',this.value)` : `setVoteConfigProp(${si},'voteDescription',this.value)`}">
+        </div>
+      </div>
+      <div class="stage-grid-3" style="margin-top:8px">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">誰可投票</label>
+          <select class="field-input" style="font-size:.78rem;padding:4px 8px;"
+                  onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'voterFilter',this.value)` : `setVoteConfigProp(${si},'voterFilter',this.value)`}">
+            <option value="all" ${(vc.voterFilter || 'all') === 'all' ? 'selected' : ''}>全部存活玩家</option>
+            <option value="team" ${(vc.voterFilter || 'all') === 'team' ? 'selected' : ''}>特定陣營</option>
+          </select>
+        </div>
+        ${vc.voterFilter === 'team' ? `
+        <div class="field-row" style="margin:0">
+          <label class="field-label">投票陣營</label>
+          <select class="field-input"
+                  style="font-size:.78rem;padding:4px 8px;"
+                  onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'voterTeamName',this.value)` : `setVoteConfigProp(${si},'voterTeamName',this.value)`}">
+            <option value="">請選擇陣營</option>
+            <option value="red" ${vc.voterTeamName === 'red' ? 'selected' : ''}>紅色陣營 (red)</option>
+            <option value="blue" ${vc.voterTeamName === 'blue' ? 'selected' : ''}>藍色陣營 (blue)</option>
+            <option value="green" ${vc.voterTeamName === 'green' ? 'selected' : ''}>綠色陣營 (green)</option>
+            <option value="gold" ${vc.voterTeamName === 'gold' ? 'selected' : ''}>金色陣營 (gold)</option>
+            <option value="purple" ${vc.voterTeamName === 'purple' ? 'selected' : ''}>紫色陣營 (purple)</option>
+          </select>
+        </div>` : '<div></div>'}
+        <div class="field-row" style="margin:0">
+          <label class="field-label">投票對象</label>
+          <select class="field-input" style="font-size:.78rem;padding:4px 8px;"
+                  onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'optionSource',this.value)` : `setVoteConfigProp(${si},'optionSource',this.value)`}">
+            <option value="all" ${(vc.optionSource || 'all') === 'all' ? 'selected' : ''}>全部存活玩家</option>
+            <option value="team" ${(vc.optionSource || 'all') === 'team' ? 'selected' : ''}>特定陣營</option>
+          </select>
+        </div>
+        ${vc.optionSource === 'team' ? `
+        <div class="field-row" style="margin:0">
+          <label class="field-label">對象陣營</label>
+          <select class="field-input"
+                  style="font-size:.78rem;padding:4px 8px;"
+                  onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'teamName',this.value)` : `setVoteConfigProp(${si},'teamName',this.value)`}">
+            <option value="">請選擇陣營</option>
+            <option value="red" ${vc.teamName === 'red' ? 'selected' : ''}>紅色陣營 (red)</option>
+            <option value="blue" ${vc.teamName === 'blue' ? 'selected' : ''}>藍色陣營 (blue)</option>
+            <option value="green" ${vc.teamName === 'green' ? 'selected' : ''}>綠色陣營 (green)</option>
+            <option value="gold" ${vc.teamName === 'gold' ? 'selected' : ''}>金色陣營 (gold)</option>
+            <option value="purple" ${vc.teamName === 'purple' ? 'selected' : ''}>紫色陣營 (purple)</option>
+          </select>
+        </div>` : '<div></div>'}
+      </div>
+      <div class="stage-grid-3" style="margin-top:8px">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">投票效果</label>
+          <select class="field-input" style="font-size:.78rem;padding:4px 8px;"
+                  onchange="${isChild ? `setChildVoteConfigProp(${si},${ci},'resultAction',this.value)` : `setVoteConfigProp(${si},'resultAction',this.value)`}">
+            <option value="none" ${(vc.resultAction || 'none') === 'none' ? 'selected' : ''}>無效果</option>
+            <option value="eliminate" ${(vc.resultAction || 'none') === 'eliminate' ? 'selected' : ''}>最高票放逐</option>
+            <option value="wolf_kill" ${(vc.resultAction || 'none') === 'wolf_kill' ? 'selected' : ''}>最高票狼殺</option>
+            <option value="poison" ${(vc.resultAction || 'none') === 'poison' ? 'selected' : ''}>最高票毒殺</option>
+            <option value="shoot" ${(vc.resultAction || 'none') === 'shoot' ? 'selected' : ''}>最高票槍殺</option>
+            <option value="sheriff" ${(vc.resultAction || 'none') === 'sheriff' ? 'selected' : ''}>最高票當選警長</option>
+          </select>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -992,7 +1085,7 @@
       return true;
     });
 
-    const showDuration = adv.trigger === 'auto' || adv.trigger?.includes('timer');
+    const showDuration = adv.trigger?.includes('timer') || adv.trigger === 'timer';
 
     return `<div style="background:#0a0a18;border:1px solid #1a1a3a;border-radius:6px;padding:10px;margin-top:8px;">
       <div style="font-size:.72rem;color:#8888bb;letter-spacing:.05em;margin-bottom:6px;">${escapeH(label)}</div>
@@ -1023,8 +1116,41 @@
     pushHistory();
     manifest.stages[si][key] = val;
     if (key === 'enabled') document.getElementById(`stage_row_${si}`)?.classList.toggle('disabled', !val);
+    if (key === 'type' && val === 'loop') {
+      // Initialize loop-specific defaults
+      const s = manifest.stages[si];
+      s.loopType = s.loopType || 'fixed';
+      s.maxIterations = s.maxIterations || 3;
+      s.stages = s.stages || [];
+      delete s.deckId;
+      delete s.advance;
+    }
+    // 当阶段类型改为 vote 时，初始化 voteConfig 和 advance
+    if (key === 'type' && val === 'vote') {
+      const s = manifest.stages[si];
+      s.voteConfig = s.voteConfig || {
+        countdownSeconds: 30,
+        anonymous: false,
+        allowSelfVote: true,
+        endWhenAllVoted: true
+      };
+      // 设置默认推进条件：等待 host 手动推进
+      s.advance = s.advance || { trigger: 'host' };
+    }
     // Re-render to toggle refill mode field visibility or stage-specific fields
     if (key === 'refillMode' || key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+
+  function setVoteConfigProp(si, key, val) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    stage.voteConfig = stage.voteConfig || {};
+    stage.voteConfig[key] = val;
+    // Re-render to toggle teamName field visibility when optionSource or voterFilter changes
+    if (key === 'optionSource' || key === 'voterFilter') {
+      renderStagesTab();
+    }
     afterChange(true);
   }
   function setAdvKey(si, advKey, prop, val) {
@@ -1049,10 +1175,21 @@
   function addStage() {
     pushHistory();
     manifest.stages = manifest.stages || [];
-    manifest.stages.push({
+    const newStage = {
       id: uid('stage'), name: '新階段', type: 'card_play',
       enabled: true, advance: { trigger: 'host' },
-    });
+    };
+    // 如果是投票阶段，设置默认配置
+    if (newStage.type === 'vote') {
+      newStage.voteConfig = {
+        countdownSeconds: 30,
+        anonymous: false,
+        allowSelfVote: true,
+        endWhenAllVoted: true
+      };
+      newStage.advance = { trigger: 'host' };
+    }
+    manifest.stages.push(newStage);
     renderStagesTab();
     afterChange(true);
   }
@@ -1060,6 +1197,300 @@
     if (!confirm(`刪除階段「${manifest.stages[si].name}」？`)) return;
     pushHistory();
     manifest.stages.splice(si, 1);
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  // ── Loop Block ────────────────────────────────────────────────
+  function renderLoopBlock(si, stage) {
+    const loopType = stage.loopType || 'fixed';
+    const ec = stage.exitCondition || {};
+    const ecType = ec.type || 'alivePlayers';
+    const ecOp   = ec.operator || 'lte';
+    const ecVal  = ec.value ?? 1;
+    const ecCheck = ec.checkAfter || 'each_iteration';
+
+    const typeOpts = LOOP_EXIT_TYPES.map(t =>
+      `<option value="${t.value}" ${ecType===t.value?'selected':''}>${t.label}</option>`).join('');
+    const opOpts = LOOP_OPERATORS.map(o =>
+      `<option value="${o.value}" ${ecOp===o.value?'selected':''}>${o.label}</option>`).join('');
+
+    return `<div class="loop-block">
+      <div class="loop-block-title">🔁 循環設定</div>
+
+      <div class="loop-cfg-grid">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">循環模式</label>
+          <select class="field-input" onchange="setLoopProp(${si},'loopType',this.value)">
+            <option value="fixed"    ${loopType==='fixed'?'selected':''}>固定次數</option>
+            <option value="infinite" ${loopType==='infinite'?'selected':''}>無限循環</option>
+          </select>
+        </div>
+        ${loopType === 'fixed' ? `
+        <div class="field-row" style="margin:0">
+          <label class="field-label">最大循環次數</label>
+          <input class="field-input" type="number" min="1" max="99"
+                 value="${stage.maxIterations ?? 3}"
+                 oninput="setLoopProp(${si},'maxIterations',Number(this.value))">
+        </div>` : '<div></div>'}
+      </div>
+
+      <div class="loop-exit-block">
+        <div class="loop-exit-title">🚪 逃脫條件（選填）</div>
+        <div class="help-text" style="margin-bottom:8px">滿足條件時提前結束循環。不設定則跑完所有次數後自然結束。</div>
+        <div class="loop-exit-grid">
+          <div class="field-row" style="margin:0">
+            <label class="field-label">條件類型</label>
+            <select class="field-input" onchange="setLoopCondProp(${si},'type',this.value)">${typeOpts}</select>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">運算子</label>
+            <select class="field-input" onchange="setLoopCondProp(${si},'operator',this.value)">${opOpts}</select>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">值</label>
+            <input class="field-input" type="number" min="0"
+                   value="${ecVal}"
+                   oninput="setLoopCondProp(${si},'value',Number(this.value))">
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">檢查時機</label>
+            <select class="field-input" onchange="setLoopCondProp(${si},'checkAfter',this.value)">
+              <option value="each_stage"     ${ecCheck==='each_stage'?'selected':''}>每個子階段結束後</option>
+              <option value="each_iteration" ${ecCheck==='each_iteration'?'selected':''}>每次完整循環後</option>
+            </select>
+          </div>
+        </div>
+        ${ecType === 'teamPlayers' ? `
+        <div class="field-row" style="margin-top:8px;margin-bottom:0">
+          <label class="field-label">陣營名稱</label>
+          <input class="field-input" placeholder="例如：wolf" value="${escapeH(ec.team||'')}"
+                 oninput="setLoopCondProp(${si},'team',this.value)">
+        </div>` : ''}
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+          <label class="toggle-switch">
+            <input type="checkbox" ${ec.type ? 'checked' : ''}
+                   onchange="toggleLoopExitCondition(${si},this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:.75rem;color:#9988bb;">啟用逃脫條件</span>
+          ${!ec.type ? '<span style="font-size:.7rem;color:#665577;margin-left:4px;">（目前未啟用，循環將跑完所有次數）</span>' : ''}
+        </div>
+      </div>
+
+      ${renderChildStages(si, stage)}
+    </div>`;
+  }
+
+  function renderChildStages(si, stage) {
+    const children = (stage.stages || []);
+    const decks = manifest.decks || [];
+    const deckOptsFor = (selId) => decks.map(d =>
+      `<option value="${escapeH(d.id)}" ${d.id===selId?'selected':''}>${escapeH(d.name)} (${escapeH(d.id)})</option>`
+    ).join('');
+
+    const rows = children.map((cs, ci) => `
+      <div class="child-stage-row ${cs.enabled ? '' : 'disabled'}" id="child_row_${si}_${ci}">
+        <div class="sr-head">
+          <div class="stage-order-btns">
+            <button onclick="moveChildStage(${si},${ci},-1)" ${ci===0?'disabled':''}>▲</button>
+            <button onclick="moveChildStage(${si},${ci}, 1)" ${ci===children.length-1?'disabled':''}>▼</button>
+          </div>
+          <input class="field-input" style="flex:1" placeholder="子階段名稱"
+                 value="${escapeH(cs.name||'')}" oninput="setChildStageProp(${si},${ci},'name',this.value)">
+          <label class="toggle-switch">
+            <input type="checkbox" ${cs.enabled ? 'checked' : ''}
+                   onchange="setChildStageProp(${si},${ci},'enabled',this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <button class="ci-del" onclick="deleteChildStage(${si},${ci})">✕</button>
+        </div>
+        <div class="child-stage-grid">
+          <div class="field-row" style="margin:0">
+            <label class="field-label">階段類型</label>
+            <select class="field-input" onchange="setChildStageProp(${si},${ci},'type',this.value)">
+              ${STAGE_TYPES.filter(t => t.value !== 'loop').map(t =>
+                `<option value="${t.value}" ${cs.type===t.value?'selected':''}>${t.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">使用牌組 (deckId)</label>
+            <select class="field-input" onchange="setChildStageProp(${si},${ci},'deckId',this.value||undefined)">
+              <option value="" ${!cs.deckId?'selected':''}>— 不使用 —</option>
+              ${deckOptsFor(cs.deckId)}
+            </select>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">子階段 ID</label>
+            <input class="field-input" value="${escapeH(cs.id||'')}" style="font-family:monospace;font-size:.78rem"
+                   oninput="setChildStageProp(${si},${ci},'id',this.value)">
+          </div>
+          ${cs.type === 'intermission' ? `
+          <div class="field-row" style="margin:0;grid-column:1/-1;">
+            <label class="field-label">暫停說明</label>
+            <input class="field-input" placeholder="例如：休息一下、準備下一階段等"
+                   value="${escapeH(cs.description||'')}"
+                   oninput="setChildStageProp(${si},${ci},'description',this.value)">
+          </div>
+          ` : ''}
+        </div>
+        ${cs.type === 'vote' ? renderVoteConfigBlock(cs, `${si},${ci}`, null) : ''}
+        ${renderChildAdvanceBlock(si, ci, cs)}
+      </div>`).join('');
+
+    return `<div class="child-stages-wrap">
+      <div class="child-stages-title">📋 子階段（每次循環依序執行）</div>
+      ${rows || '<div style="color:#665577;font-size:.78rem;margin-bottom:6px;">尚無子階段</div>'}
+      <button class="add-card-btn" style="margin-left:12px" onclick="addChildStage(${si})">+ 新增子階段</button>
+    </div>`;
+  }
+
+  function renderChildAdvanceBlock(si, ci, cs) {
+    const adv = cs.advance || {};
+    const showDuration = adv.trigger?.includes('timer') || adv.trigger === 'timer';
+    const stageType = cs.type || 'card_play';
+    let triggers = ADVANCE_TRIGGERS.filter(t => {
+      const typeMatch = t.types.includes('all') || t.types.includes(stageType);
+      return typeMatch && t.category === 'stage_advance';
+    });
+    const seen = new Set();
+    triggers = triggers.filter(t => { if (seen.has(t.value)) return false; seen.add(t.value); return true; });
+
+    return `<div style="background:#0a0a18;border:1px solid #1a1a3a;border-radius:6px;padding:8px 10px;margin-top:8px;">
+      <div style="font-size:.72rem;color:#8888bb;margin-bottom:6px;">階段結束時推進</div>
+      <div class="stage-grid-2">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">推進條件</label>
+          <select class="field-input" onchange="setChildAdvKey(${si},${ci},'trigger',this.value)">
+            ${triggers.map(t => `<option value="${t.value}" ${(adv.trigger||'host')===t.value?'selected':''}>${t.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row" style="margin:0;${showDuration?'':'visibility:hidden;'}">
+          <label class="field-label">秒數</label>
+          <input class="field-input" type="number" min="0" max="600"
+                 value="${adv.duration ?? ''}"
+                 oninput="setChildAdvKey(${si},${ci},'duration',this.value===''?null:Number(this.value))">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:.78rem;color:#aaaacc;margin-top:6px;">
+        <input type="checkbox" ${adv.fallback === 'host' ? 'checked' : ''}
+               onchange="setChildAdvKey(${si},${ci},'fallback',this.checked ? 'host' : null)">
+        Host 仍可強制推進（fallback）
+      </label>
+    </div>`;
+  }
+
+  function setChildVoteConfigProp(si, ci, key, val) {
+    pushHistory();
+    const cs = manifest.stages[si].stages[ci];
+    cs.voteConfig = cs.voteConfig || {};
+    cs.voteConfig[key] = val;
+    // Re-render to toggle teamName field visibility when optionSource or voterFilter changes
+    if (key === 'optionSource' || key === 'voterFilter') {
+      renderStagesTab();
+    }
+    afterChange(true);
+  }
+
+  function setLoopProp(si, key, val) {
+    pushHistory();
+    manifest.stages[si][key] = val;
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function setLoopCondProp(si, key, val) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    stage.exitCondition = stage.exitCondition || { type: 'alivePlayers', operator: 'lte', value: 1, checkAfter: 'each_iteration' };
+    stage.exitCondition[key] = val;
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function toggleLoopExitCondition(si, enabled) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    if (enabled) {
+      stage.exitCondition = { type: 'alivePlayers', operator: 'lte', value: 1, checkAfter: 'each_iteration' };
+    } else {
+      delete stage.exitCondition;
+    }
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function setChildStageProp(si, ci, key, val) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    stage.stages = stage.stages || [];
+    if (key === 'enabled') {
+      document.getElementById(`child_row_${si}_${ci}`)?.classList.toggle('disabled', !val);
+    }
+    stage.stages[ci][key] = val;
+    // 当子阶段类型改为 vote 时，初始化 voteConfig 和 advance
+    if (key === 'type' && val === 'vote') {
+      const cs = stage.stages[ci];
+      cs.voteConfig = cs.voteConfig || {
+        countdownSeconds: 30,
+        anonymous: false,
+        allowSelfVote: true,
+        endWhenAllVoted: true
+      };
+      // 设置默认推进条件：等待 host 手动推进
+      cs.advance = cs.advance || { trigger: 'host' };
+    }
+    if (key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+
+  function setChildAdvKey(si, ci, prop, val) {
+    pushHistory();
+    const cs = manifest.stages[si].stages[ci];
+    cs.advance = cs.advance || {};
+    if (val === null || val === '') delete cs.advance[prop];
+    else                            cs.advance[prop] = val;
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function addChildStage(si) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    stage.stages = stage.stages || [];
+    const newChildStage = {
+      id: uid('cs'), name: '新子階段', type: 'card_play',
+      enabled: true, advance: { trigger: 'host' }
+    };
+    // 如果是投票阶段，设置默认配置
+    if (newChildStage.type === 'vote') {
+      newChildStage.voteConfig = {
+        countdownSeconds: 30,
+        anonymous: false,
+        allowSelfVote: true,
+        endWhenAllVoted: true
+      };
+      newChildStage.advance = { trigger: 'host' };
+    }
+    stage.stages.push(newChildStage);
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function deleteChildStage(si, ci) {
+    if (!confirm(`刪除子階段「${manifest.stages[si].stages[ci].name}」？`)) return;
+    pushHistory();
+    manifest.stages[si].stages.splice(ci, 1);
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function moveChildStage(si, ci, dir) {
+    const arr = manifest.stages[si].stages;
+    const ni = ci + dir;
+    if (ni < 0 || ni >= arr.length) return;
+    pushHistory();
+    [arr[ci], arr[ni]] = [arr[ni], arr[ci]];
     renderStagesTab();
     afterChange(true);
   }
@@ -1280,28 +1711,41 @@
                           'auto','timer','identity_timer','play_timer','generic_timer',
                           'auto_restart','restart_timer',
                           'host_reveal','auto_next','round_timer'];
-    stages.forEach((s, si) => {
-      if (!s.id)   push(`stages[${si}]`, '階段需要 id');
-      if (!s.name) push(`stages[${si}]`, '階段需要名稱');
-      if (!s.type) push(`stages[${si}]`, '階段需要 type');
+
+    const validateStage = (s, si, pathPrefix) => {
+      if (!s.id)   push(`${pathPrefix}[${si}]`, '階段需要 id');
+      if (!s.name) push(`${pathPrefix}[${si}]`, '階段需要名稱');
+      if (!s.type) push(`${pathPrefix}[${si}]`, '階段需要 type');
+
+      if (s.type === 'loop') {
+        if (s.loopType === 'fixed' && (!s.maxIterations || s.maxIterations < 1))
+          push(`${pathPrefix}[${si}]`, '固定次數循環需要 maxIterations ≥ 1');
+        if (!s.stages || s.stages.length === 0)
+          push(`${pathPrefix}[${si}]`, `循環「${s.name}」至少需有一個子階段`);
+        (s.stages || []).forEach((cs, ci) => validateStage(cs, ci, `${pathPrefix}[${si}].stages`));
+        return;
+      }
+
       if (s.deckId && !deckIds.has(s.deckId))
-        push(`stages[${si}]`, `引用的牌組「${s.deckId}」不存在`);
+        push(`${pathPrefix}[${si}]`, `引用的牌組「${s.deckId}」不存在`);
       else if (s.enabled && s.deckId && !enabledDeckIds.has(s.deckId))
-        push(`stages[${si}]`, `階段「${s.name}」引用了已停用的牌組「${s.deckId}」`);
+        push(`${pathPrefix}[${si}]`, `階段「${s.name}」引用了已停用的牌組「${s.deckId}」`);
+
       const checkAdv = (adv, label) => {
         if (!adv || !adv.trigger) return;
         if (!validTriggers.includes(adv.trigger))
-          push(`stages[${si}].${label}`, `不支援的 trigger：${adv.trigger}`);
-        // Check duration requirement for timer-based triggers
+          push(`${pathPrefix}[${si}].${label}`, `不支援的 trigger：${adv.trigger}`);
         const timerTriggers = ['auto','timer','identity_timer','play_timer','generic_timer','restart_timer','round_timer'];
         if (timerTriggers.includes(adv.trigger) &&
             (!Number.isFinite(Number(adv.duration)) || Number(adv.duration) < 0))
-          push(`stages[${si}].${label}`, `${label} 使用 ${adv.trigger} 時需提供 duration（秒數）`);
+          push(`${pathPrefix}[${si}].${label}`, `${label} 使用 ${adv.trigger} 時需提供 duration（秒數）`);
       };
       checkAdv(s.advance, 'advance');
       checkAdv(s.revealTrigger, 'revealTrigger');
       checkAdv(s.nextRoundTrigger, 'nextRoundTrigger');
-    });
+    };
+
+    stages.forEach((s, si) => validateStage(s, si, 'stages'));
     return errs;
   }
 

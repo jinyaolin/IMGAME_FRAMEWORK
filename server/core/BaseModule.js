@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 /**
  * Base Game Module
  * 一個完整的遊戲模組引擎，支援卡牌遊戲、回合制、階段推進等功能
@@ -22,6 +25,11 @@ class BaseModule {
     this.stageIndex = 0;
     this.currentStageId = null;
 
+    // Stack-based stage traversal for loop support
+    // Each frame: { stages: Stage[], index: number, loopStage?: Stage }
+    this._stageStack = [];
+    this._loopIterations = new Map(); // loopId -> completed iteration count
+
     // Card game state
     this.playerHands = new Map(); // playerId -> array of cards
     this.playedCards = new Map();  // playerId -> played card (or null)
@@ -35,51 +43,327 @@ class BaseModule {
     this.roundNumber = 1;
     this._isRevealed = false; // Tracks if cards have been revealed this round
 
+    // Game ending state
+    this._manuallyEnded = false; // True if host manually ended the game (skip auto-restart)
+
+    // Players — assigned in onStart(); initialized here so helper methods are safe to call early
+    this.players = [];
+
+    // Vote state
+    this.votes = new Map(); // voterId -> { targetId, timestamp }
+    this.voteResults = new Map(); // targetId -> voteCount
+    this.isVotingActive = false;
+    this.voteSubmissions = new Set(); // Track which players have submitted votes
+    this._activeVotePayload = null;   // Full vote_started payload, kept for reconnect
+    this._voteCountdownRemaining = null; // Remaining seconds, updated each tick
+
     // Timers
     this._countdownTimer = null;
     this._autoAdvanceTimer = null;
 
+    // Concurrency guard — prevents _advanceStage from running twice simultaneously or in rapid succession
+    this._isAdvancing = false;
+    this._lastAdvanceTime = 0; // timestamp of last successful _advanceStage entry
+
     console.log('[BaseModule] Initialized with', this.enabledStages.length, 'stages');
   }
+
+  // ── Stack-Based Stage Traversal ─────────────────────────────────────────
+
+  _initStageStack() {
+    this._stageStack = [{ stages: this.enabledStages, index: 0 }];
+    this._loopIterations = new Map();
+  }
+
+  _currentFrame() {
+    return this._stageStack[this._stageStack.length - 1] || null;
+  }
+
+  _currentStage() {
+    const frame = this._currentFrame();
+    if (!frame) return null;
+    return frame.stages[frame.index] || null;
+  }
+
+  // Entry point for starting whatever is at the current stack position.
+  // Handles loop stages by pushing a new frame; otherwise calls _startCurrentStage.
+  async _enterStageOrLoop(session) {
+    const stage = this._currentStage();
+
+    if (!stage) {
+      console.log('[BaseModule] All stages completed');
+      session.broadcastAll('game_complete', {});
+      return;
+    }
+
+    if (stage.type === 'loop') {
+      const enabledChildren = (stage.stages || []).filter(s => s.enabled);
+
+      if (enabledChildren.length === 0) {
+        // Empty loop — skip it
+        await this._advanceStage(session);
+        return;
+      }
+
+      this._stageStack.push({ stages: enabledChildren, index: 0, loopStage: stage });
+
+      if (!this._loopIterations.has(stage.id)) {
+        this._loopIterations.set(stage.id, 0);
+      }
+
+      console.log(`[BaseModule] Entering loop: ${stage.id} (${stage.name})`);
+      session.broadcastAll('loop_started', {
+        loopId: stage.id,
+        loopName: stage.name,
+        iteration: 0,
+        maxIterations: stage.maxIterations || null
+      });
+
+      // Enter first child of the loop
+      await this._enterStageOrLoop(session);
+    } else {
+      await this._startCurrentStage(session);
+    }
+  }
+
+  // Called after a stage finishes. Moves to the next stage in the current frame,
+  // handles loop iteration end, and evaluates exit conditions.
+  async _advanceStage(session) {
+    // Prevent concurrent or rapid-sequential double-advance:
+    // _isAdvancing blocks same-tick concurrent calls;
+    // _lastAdvanceTime (500ms cooldown) blocks rapid sequential calls from separate event loop ticks.
+    const now = Date.now();
+    if (this._isAdvancing || now - this._lastAdvanceTime < 500) {
+      console.log('[BaseModule] _advanceStage: throttled (isAdvancing=%s, gap=%dms)',
+        this._isAdvancing, now - this._lastAdvanceTime);
+      return;
+    }
+    this._isAdvancing = true;
+    this._lastAdvanceTime = now;
+
+    try {
+      // Cancel any in-progress timers so stale callbacks don't fire into the next stage
+      if (this._countdownTimer) {
+        clearTimeout(this._countdownTimer);
+        this._countdownTimer = null;
+      }
+      if (this._autoAdvanceTimer && typeof this._autoAdvanceTimer === 'object') {
+        clearTimeout(this._autoAdvanceTimer);
+      }
+      this._autoAdvanceTimer = null;
+      this.isVotingActive = false;
+      this._activeVotePayload = null;
+      this._voteCountdownRemaining = null;
+
+      const frame = this._currentFrame();
+      if (!frame) {
+        session.broadcastAll('game_complete', {});
+        return;
+      }
+
+      // If inside a loop, check each_stage exit condition before moving on
+      if (frame.loopStage) {
+        if (this._shouldExitLoop(frame.loopStage, 'each_stage')) {
+          console.log(`[BaseModule] Loop "${frame.loopStage.id}" exit condition met after stage`);
+          await this._exitLoop(session);
+          return;
+        }
+      }
+
+      // Advance within the current frame
+      frame.index++;
+
+      if (frame.index < frame.stages.length) {
+        // More stages remain in this frame
+        await this._enterStageOrLoop(session);
+        return;
+      }
+
+      // Exhausted all stages in this frame
+      if (frame.loopStage) {
+        // Completed one full iteration of a loop
+        await this._handleIterationEnd(session);
+      } else {
+        // Top-level exhausted
+        console.log('[BaseModule] All top-level stages completed');
+        session.broadcastAll('game_complete', {});
+      }
+    } finally {
+      this._isAdvancing = false;
+    }
+  }
+
+  // Called when all stages in a loop frame have been visited once.
+  async _handleIterationEnd(session) {
+    const frame = this._currentFrame();
+    const loopStage = frame.loopStage;
+    const loopId = loopStage.id;
+
+    const iterations = (this._loopIterations.get(loopId) || 0) + 1;
+    this._loopIterations.set(loopId, iterations);
+
+    console.log(`[BaseModule] Loop "${loopId}" completed iteration ${iterations}`);
+
+    // Check each_iteration exit condition
+    if (this._shouldExitLoop(loopStage, 'each_iteration')) {
+      console.log(`[BaseModule] Loop "${loopId}" exit condition met after iteration`);
+      await this._exitLoop(session);
+      return;
+    }
+
+    // Check fixed maxIterations
+    const maxIterations = loopStage.maxIterations;
+    if (maxIterations && iterations >= maxIterations) {
+      console.log(`[BaseModule] Loop "${loopId}" reached max iterations (${maxIterations})`);
+      await this._exitLoop(session);
+      return;
+    }
+
+    // Continue looping — reset frame index and broadcast
+    frame.index = 0;
+
+    session.broadcastAll('loop_iteration', {
+      loopId: loopId,
+      loopName: loopStage.name,
+      iteration: iterations,
+      maxIterations: maxIterations || null
+    });
+
+    await this._enterStageOrLoop(session);
+  }
+
+  // Pops the current loop frame and advances the parent frame past the loop stage.
+  async _exitLoop(session) {
+    const exitedFrame = this._stageStack.pop();
+    console.log(`[BaseModule] Exiting loop: ${exitedFrame.loopStage?.id}`);
+
+    const frame = this._currentFrame();
+    if (!frame) {
+      session.broadcastAll('game_complete', {});
+      return;
+    }
+
+    frame.index++;
+
+    if (frame.index < frame.stages.length) {
+      await this._enterStageOrLoop(session);
+    } else if (frame.loopStage) {
+      // Parent frame is also a loop
+      await this._handleIterationEnd(session);
+    } else {
+      console.log('[BaseModule] All top-level stages completed after loop exit');
+      session.broadcastAll('game_complete', {});
+    }
+  }
+
+  // Returns true if the given loop's exit condition is satisfied at checkPoint.
+  // checkPoint is 'each_stage' or 'each_iteration'.
+  _shouldExitLoop(loopStage, checkPoint) {
+    const exitCondition = loopStage.exitCondition;
+    if (!exitCondition) return false;
+
+    const conditionCheck = exitCondition.checkAfter || 'each_iteration';
+    if (conditionCheck !== checkPoint) return false;
+
+    const { type, operator, value } = exitCondition;
+
+    let actualValue;
+    if (type === 'iterations') {
+      actualValue = this._loopIterations.get(loopStage.id) || 0;
+    } else if (type === 'alivePlayers') {
+      actualValue = (this.players || []).filter(p => p.isAlive !== false).length;
+    } else if (type === 'teamPlayers') {
+      const team = exitCondition.team;
+      actualValue = (this.players || []).filter(p => p.isAlive !== false && p.team === team).length;
+    } else {
+      return false;
+    }
+
+    switch (operator) {
+      case 'lt':  return actualValue < value;
+      case 'lte': return actualValue <= value;
+      case 'gt':  return actualValue > value;
+      case 'gte': return actualValue >= value;
+      case 'eq':  return actualValue === value;
+      case 'neq': return actualValue !== value;
+      default:    return false;
+    }
+  }
+
+  // ── Lifecycle ────────────────────────────────────────────────────────────
 
   async onStart(players, session) {
     console.log('[BaseModule] Game started with', players.length, 'players');
     this.players = players;
-    this.stageIndex = 0;
+
+    // Assign player numbers based on order and reset alive status
+    this.players.forEach((p, index) => {
+      p.playerNumber = index + 1;
+      p.isAlive = true; // Reset to alive when game starts
+      p.isEliminated = false; // Reset elimination status
+      console.log(`[BaseModule] Assigned playerNumber=${p.playerNumber} to ${p.name} (${p.id}), set isAlive=true`);
+    });
+    console.log('[BaseModule] Assigned player numbers:', this.players.map(p => `${p.name}=#${p.playerNumber}`).join(', '));
+
     this.roundNumber = 1;
     this.playerHands.clear();
     this.playedCards.clear();
     this.decks.clear();
     this.playerIdentities.clear();
     this.confirmedPlayers.clear();
+    this._manuallyEnded = false;
+    this.votes.clear();
+    this.voteResults.clear();
+    this.isVotingActive = false;
+
+    this._initStageStack();
 
     // Initialize decks from manifest
     if (this.manifest.decks) {
       for (const deck of this.manifest.decks) {
         if (deck.enabled) {
-          this.decks.set(deck.id, this._shuffleDeck([...deck.cards]));
+          const cards = this._loadDeckCards(deck);
+          this.decks.set(deck.id, this._shuffleDeck([...cards]));
         }
       }
     }
 
     // Send game_started event to notify clients
+    const playersData = this.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      playerNumber: p.playerNumber,
+      score: 0,
+      handCount: 0,
+      isReady: false,
+      status: p.status || 'waiting',
+      isConnected: p.isConnected,
+      isAlive: p.isAlive,
+      isEliminated: p.isEliminated,
+      attributes: p.attributes || {}
+    }));
+    console.log('[BaseModule] Broadcasting game_started with players:', JSON.stringify(playersData, null, 2));
     session.broadcastAll('game_started', {
       module: this.manifest.id,
+      players: playersData,
       sharedState: {}
     });
 
-    await this._startCurrentStage(session);
+    await this._enterStageOrLoop(session);
   }
 
   async _startCurrentStage(session) {
-    if (this.stageIndex >= this.enabledStages.length) {
+    const stage = this._currentStage();
+
+    if (!stage) {
       console.log('[BaseModule] All stages completed');
       session.broadcastAll('game_complete', {});
       return;
     }
 
-    const stage = this.enabledStages[this.stageIndex];
     this.currentStageId = stage.id;
+    // Keep stageIndex in sync with the top-level frame for getGameState() consumers
+    this.stageIndex = this._stageStack[0]?.index ?? 0;
 
     console.log('[BaseModule] Starting stage:', stage.id, '-', stage.name, '(' + stage.type + ')');
 
@@ -93,13 +377,22 @@ class BaseModule {
       this.roundNumber = 1;
     }
 
+    // Build loop context for broadcast
+    const innerFrame = this._stageStack.length > 1 ? this._stageStack[this._stageStack.length - 1] : null;
+    const loopContext = innerFrame?.loopStage ? {
+      loopId: innerFrame.loopStage.id,
+      iteration: this._loopIterations.get(innerFrame.loopStage.id) || 0
+    } : null;
+
     // Notify all clients that stage started
     session.broadcastAll('stage_started', {
       stageId: stage.id,
       stageName: stage.name,
       stageType: stage.type,
+      stageDescription: stage.description || '',
       stageIndex: this.stageIndex,
-      roundNumber: this.roundNumber
+      roundNumber: this.roundNumber,
+      loopContext
     });
 
     // Handle identity_draw stage - assign identities
@@ -112,8 +405,65 @@ class BaseModule {
       await this._dealCards(session, stage);
     }
 
+    // Handle vote stage
+    if (stage.type === 'vote') {
+      await this._startVoteStage(session, stage);
+    }
+
+    // Handle intermission stage (pause)
+    if (stage.type === 'intermission') {
+      console.log('[BaseModule] Entering intermission (pause) stage');
+      // Set all players to waiting status
+      const statusUpdates = [];
+      for (const player of this.players) {
+        player.status = 'waiting';
+        statusUpdates.push({ playerId: player.id, status: 'waiting' });
+      }
+      session.broadcastAll('all_players_status_updated', { players: statusUpdates });
+
+      // Handle advance configuration for intermission
+      const advanceConfig = stage.advance || {};
+      const trigger = advanceConfig.trigger;
+
+      if (trigger === 'host') {
+        console.log('[BaseModule] Intermission: waiting for host to advance');
+        session.broadcastAll('intermission_can_advance', {
+          canAdvance: true,
+          message: '暫停中，等待主持人推進到下一階段'
+        });
+      } else if (trigger === 'timer') {
+        const duration = advanceConfig.duration || 10;
+        console.log('[BaseModule] Intermission: auto-advancing in', duration, 'seconds');
+        this._startCountdown(session, duration, async () => {
+          this._autoAdvanceTimer = null;
+          await this.onHostNextStage(session);
+        });
+      } else if (trigger === 'auto') {
+        console.log('[BaseModule] Intermission: auto-advancing immediately');
+        await this.onHostNextStage(session);
+      } else {
+        // Default: wait for host to advance manually
+        console.log('[BaseModule] Intermission: waiting for host to advance (default)');
+        session.broadcastAll('intermission_can_advance', {
+          canAdvance: true,
+          message: '暫停中，等待主持人推進到下一階段'
+        });
+      }
+    }
+
+    // Send host game state after stage starts so host can render player states
+    session.sendHostGameState();
+
     // If it's a result stage, send game_ended event
     if (stage.type === 'result') {
+      // Set all players to 'completed' status
+      const statusUpdates = [];
+      for (const player of this.players) {
+        player.status = 'completed';
+        statusUpdates.push({ playerId: player.id, status: 'completed' });
+      }
+      session.broadcastAll('all_players_status_updated', { players: statusUpdates });
+
       // Calculate rankings
       const ranked = (this.players || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0));
       const maxScore = ranked.length > 0 ? (ranked[0].score || 0) : 0;
@@ -133,15 +483,20 @@ class BaseModule {
         displayHtml: this._formatResultsForDisplay(champions, ranked)
       });
 
-      // Handle restart_timer if present
+      // Handle restart_timer if present (skip if host manually ended the game)
       if (stage.advance && stage.advance.trigger === 'restart_timer') {
-        const duration = stage.advance.duration || 5;
-        console.log('[BaseModule] Starting restart timer:', duration, 'seconds');
+        if (this._manuallyEnded) {
+          console.log('[BaseModule] Game was manually ended by host - skipping auto-restart timer');
+          this._manuallyEnded = false;
+        } else {
+          const duration = stage.advance.duration || 5;
+          console.log('[BaseModule] Starting restart timer:', duration, 'seconds');
 
-        this._startCountdown(session, duration, async () => {
-          console.log('[BaseModule] Restart timer ended, restarting game');
-          await this._restartGame(session);
-        });
+          this._startCountdown(session, duration, async () => {
+            console.log('[BaseModule] Restart timer ended, restarting game');
+            await this._restartGame(session);
+          });
+        }
       }
     }
 
@@ -154,7 +509,7 @@ class BaseModule {
 
     // Handle identity confirmation for identity_draw stages
     if (action === 'confirm_identity' && this.currentStageId) {
-      const stage = this.enabledStages[this.stageIndex];
+      const stage = this._currentStage();
       if (stage && stage.type === 'identity_draw') {
         this._confirmIdentity(playerId, session);
       }
@@ -162,17 +517,139 @@ class BaseModule {
 
     // Handle card playing for card_play stages
     if (action === 'play_card' && this.currentStageId) {
-      const stage = this.enabledStages[this.stageIndex];
+      const stage = this._currentStage();
       if (stage && stage.type === 'card_play') {
         await this._handleCardPlay(playerId, data, session);
       }
     }
 
+    // Handle voting for vote stages
+    if (action === 'cast_vote' && this.isVotingActive) {
+      await this._handleCastVote(playerId, data, session);
+    }
+
     // Override this method to handle custom actions
   }
 
+  // Called by GameSession when a player reconnects mid-game.
+  // Re-sends module-specific private state so the client can restore its UI.
+  onReconnect(playerId, session) {
+    // 1. Identity — tell client whether it was already confirmed so it can skip the overlay
+    const identity = this.playerIdentities.get(playerId);
+    if (identity) {
+      session.sendToPlayer(playerId, 'identity_assigned', {
+        card: identity,
+        isReconnect: true,
+        alreadyConfirmed: this.confirmedPlayers.has(playerId)
+      });
+    }
+
+    // 2. Hand
+    const hand = this.playerHands.get(playerId);
+    if (hand && hand.length > 0) {
+      session.sendToPlayer(playerId, 'cards_drawn', { hand });
+    }
+
+    // 3. Current stage context — so client shows the right screen immediately
+    const stage = this._currentStage();
+    if (stage) {
+      const innerFrame = this._stageStack.length > 1
+        ? this._stageStack[this._stageStack.length - 1] : null;
+      const loopContext = innerFrame?.loopStage ? {
+        loopId: innerFrame.loopStage.id,
+        iteration: this._loopIterations.get(innerFrame.loopStage.id) || 0
+      } : null;
+
+      session.sendToPlayer(playerId, 'stage_started', {
+        stageId: stage.id,
+        stageName: stage.name,
+        stageType: stage.type,
+        stageDescription: stage.description || '',
+        stageIndex: this.stageIndex,
+        roundNumber: this.roundNumber,
+        loopContext,
+        isReconnect: true
+      });
+    }
+
+    // 4. If voting is active: re-send vote screen + current countdown
+    if (this.isVotingActive && this._activeVotePayload) {
+      session.sendToPlayer(playerId, 'vote_started', {
+        ...this._activeVotePayload,
+        isReconnect: true
+      });
+      if (this._voteCountdownRemaining != null) {
+        session.sendToPlayer(playerId, 'vote_countdown', {
+          remaining: this._voteCountdownRemaining,
+          total: this._activeVotePayload.voteConfig?.countdownSeconds || 30
+        });
+      }
+      // If player already voted, tell them so they see submitted state
+      if (this.voteSubmissions.has(playerId)) {
+        session.sendToPlayer(playerId, 'vote_cast', {
+          playerId,
+          totalVotes: this.votes.size,
+          totalPlayers: this.players.length,
+          submittedCount: this.voteSubmissions.size,
+          isReconnect: true
+        });
+      }
+    }
+
+    // 5. Elimination status
+    const player = this.players.find(p => p.id === playerId);
+    if (player?.isAlive === false) {
+      session.sendToPlayer(playerId, 'players_eliminated', {
+        eliminationType: player.eliminationType || 'exile',
+        players: [{ id: player.id, name: player.name }],
+        isReconnect: true
+      });
+    }
+  }
+
+  // ── Player Status Management ────────────────────────────────────────────
+  _updatePlayerStatus(playerId, status, session) {
+    const player = this.players.find(p => p.id === playerId);
+    if (player) {
+      player.status = status;
+      session.broadcastAll('player_status_updated', {
+        playerId: playerId,
+        status: status
+      });
+    }
+  }
+
+  _updateAllPlayersStatus(status, session) {
+    const updates = [];
+    for (const player of this.players) {
+      player.status = status;
+      updates.push({ playerId: player.id, status: status });
+    }
+    session.broadcastAll('all_players_status_updated', { players: updates });
+  }
+
+  // ── Sync Display Status with Business Logic Flags ─────────────
+  _syncPlayerDisplayStatus(playerId, session) {
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    if (!player.isConnected) {
+      player.status = 'disconnected';
+    } else if (!player.isAlive) {
+      player.status = 'eliminated';
+    } else if (!player.isReady && session.phase === 'lobby') {
+      player.status = 'waiting';
+    } else if (player.isReady && session.phase === 'lobby') {
+      player.status = 'ready';
+    }
+
+    session.broadcastAll('player_status_updated', {
+      playerId: playerId,
+      status: player.status
+    });
+  }
+
   _startCountdown(session, duration, onComplete) {
-    // Clear any existing countdown timer
     if (this._countdownTimer) {
       clearTimeout(this._countdownTimer);
       this._countdownTimer = null;
@@ -183,14 +660,12 @@ class BaseModule {
     const total = duration;
 
     const broadcast = () => {
-      // Always broadcast, including when remaining = 0 to clear the countdown display
       session.broadcastAll('countdown', { remaining, total });
 
       if (remaining > 0) {
         remaining--;
         this._countdownTimer = setTimeout(broadcast, 1000);
       } else {
-        // Countdown reached 0, execute completion callback
         if (onComplete) {
           onComplete();
         }
@@ -202,55 +677,66 @@ class BaseModule {
 
   async _restartGame(session) {
     console.log('[BaseModule] Restarting game with same module');
-    console.log('[BaseModule] Current state:', {
-      stageIndex: this.stageIndex,
-      roundNumber: this.roundNumber,
-      hasCountdown: !!this._countdownTimer,
-      hasAutoAdvance: !!this._autoAdvanceTimer
-    });
 
-    // Clear any pending timers
     if (this._countdownTimer) {
       clearTimeout(this._countdownTimer);
       this._countdownTimer = null;
-      console.log('[BaseModule] Cleared countdown timer');
     }
     if (this._autoAdvanceTimer) {
-      // If it's a timeout, clear it
       if (typeof this._autoAdvanceTimer === 'object') {
         clearTimeout(this._autoAdvanceTimer);
       }
       this._autoAdvanceTimer = null;
-      console.log('[BaseModule] Cleared auto-advance timer');
     }
 
     // Reset all game state
-    this.stageIndex = 0;
     this.roundNumber = 1;
     this.playerHands.clear();
     this.playedCards.clear();
     this.playerIdentities.clear();
     this.confirmedPlayers.clear();
 
-    // Reset player scores
+    this._initStageStack();
+
+    // Re-assign player numbers based on current order
+    this.players.forEach((p, index) => {
+      p.playerNumber = index + 1;
+    });
+
     for (const p of this.players) {
       p.score = 0;
+      p.isAlive = true;
+      p.isEliminated = false;
+      p.status = p.isConnected ? 'ready' : 'disconnected';
+      p.eliminationType = null;
+      delete p.isSheriff;
+      delete p.sheriffElectedAt;
+      delete p.sheriffVoteCount;
     }
 
     console.log('[BaseModule] Game state reset, starting from stage 0');
 
-    // Broadcast game_started to notify clients (especially Host to switch panels)
     session.broadcastAll('game_started', {
       module: this.manifest.id,
+      players: this.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        score: 0,
+        handCount: 0,
+        isReady: false,
+        isConnected: p.isConnected,
+        isAlive: true,
+        isEliminated: false,
+        attributes: p.attributes || {}
+      })),
       sharedState: {}
     });
 
-    // Start first stage
-    await this._startCurrentStage(session);
+    await this._enterStageOrLoop(session);
   }
 
   async _nextRound(session) {
-    const stage = this.enabledStages[this.stageIndex];
+    const stage = this._currentStage();
     if (!stage) return;
 
     const roundConfig = {
@@ -259,16 +745,13 @@ class BaseModule {
 
     console.log('[BaseModule] Starting next round');
 
-    // Reset revealed flag to allow card plays in new round
     this._isRevealed = false;
 
-    // Clear countdown timer
     if (this._countdownTimer) {
       clearTimeout(this._countdownTimer);
       this._countdownTimer = null;
     }
 
-    // Clear auto-advance flag
     if (this._autoAdvanceTimer) {
       if (typeof this._autoAdvanceTimer === 'object') {
         clearTimeout(this._autoAdvanceTimer);
@@ -276,23 +759,28 @@ class BaseModule {
       this._autoAdvanceTimer = null;
     }
 
-    // Clear played cards
     for (const p of this.players) {
       this.playedCards.set(p.id, null);
     }
 
     this.roundNumber++;
 
-    // Check if game should end
     if (this.roundNumber > roundConfig.maxRounds) {
       console.log('[BaseModule] Max rounds reached, ending stage');
       await this.onHostNextStage(session);
       return;
     }
 
-    // TODO: Implement refillHands if needed (refillMode)
+    const statusUpdates = [];
+    for (const player of this.players) {
+      if (player.isAlive !== false) {
+        player.status = 'thinking';
+        statusUpdates.push({ playerId: player.id, status: 'thinking' });
+      }
+    }
 
-    // Notify players
+    session.broadcastAll('all_players_status_updated', { players: statusUpdates });
+
     session.broadcastAll('round_started', {
       roundNumber: this.roundNumber,
       totalRounds: roundConfig.maxRounds
@@ -300,27 +788,18 @@ class BaseModule {
 
     console.log('[BaseModule] Started round', this.roundNumber, 'of', roundConfig.maxRounds);
 
-    // Update host
     session.sendHostGameState();
   }
 
   async onHostNextStage(session) {
     console.log('[BaseModule] Host requested next stage');
-
-    // Check if current stage can be advanced
-    const currentStage = this.enabledStages[this.stageIndex];
-    if (!currentStage) return;
-
-    // Move to next stage
-    this.stageIndex++;
-
-    if (this.stageIndex >= this.enabledStages.length) {
-      console.log('[BaseModule] Game complete');
-      session.broadcastAll('game_complete', {});
-      return;
+    if (!this._currentStage()) return;
+    // Cancel any pending auto-advance timer to prevent double-advance
+    if (this._autoAdvanceTimer && typeof this._autoAdvanceTimer === 'object') {
+      clearTimeout(this._autoAdvanceTimer);
+      this._autoAdvanceTimer = null;
     }
-
-    await this._startCurrentStage(session);
+    await this._advanceStage(session);
   }
 
   onPlayerDisconnected(playerId, session) {
@@ -330,7 +809,7 @@ class BaseModule {
 
   getGameState() {
     return {
-      stageIndex: this.stageIndex,
+      stageIndex: this._stageStack[0]?.index ?? this.stageIndex,
       currentStageId: this.currentStageId,
       roundNumber: this.roundNumber,
       totalStages: this.enabledStages.length
@@ -338,8 +817,12 @@ class BaseModule {
   }
 
   getHostState() {
-    const stage = this.enabledStages[this.stageIndex];
+    const stage = this._currentStage();
     const players = this.players || [];
+
+    console.log('[BaseModule] getHostState - stage type:', stage?.type, 'stageIndex:', this.stageIndex);
+    console.log('[BaseModule] playerIdentities.size:', this.playerIdentities.size);
+    console.log('[BaseModule] confirmedPlayers.size:', this.confirmedPlayers.size);
 
     return {
       module: this.manifest.id,
@@ -347,48 +830,149 @@ class BaseModule {
       phaseLabel: stage?.name || 'Unknown',
       round: this.roundNumber,
       maxRounds: stage?.maxRounds || 1,
-      playerStates: players.map(p => ({
-        id: p.id,
-        name: p.name,
-        isConnected: p.isConnected !== false,
-        score: p.score || 0,
-        handCount: this.playerHands.get(p.id)?.length || 0,
-        hasPlayed: this.playedCards.get(p.id) !== null
-      })),
-      availableActions: ['end_game', 'restart']
+      playerStates: players.map(p => {
+        const playerState = {
+          id: p.id,
+          name: p.name,
+          isConnected: p.isConnected !== false,
+          score: p.score || 0,
+          handCount: this.playerHands.get(p.id)?.length || 0,
+          hasPlayed: this.playedCards.get(p.id) !== null
+        };
+
+        if (this.playerIdentities.has(p.id)) {
+          const identity = this.playerIdentities.get(p.id);
+          playerState.identity = {
+            name: identity.name,
+            team: identity.team,
+            description: identity.description
+          };
+          playerState.confirmed = this.confirmedPlayers.has(p.id);
+        }
+
+        return playerState;
+      }),
+      availableActions: this._getAvailableActions(),
+      identityProgress: (stage?.type === 'identity_draw') ? {
+        confirmed: this.confirmedPlayers.size,
+        total: this.players.length
+      } : undefined
     };
+  }
+
+  _getAvailableActions() {
+    const stage = this._currentStage();
+    const actions = ['end_game'];
+
+    if (stage?.type === 'identity_draw') {
+      actions.unshift('advance_identity');
+    } else if (stage?.type === 'card_play') {
+      actions.unshift('next_round', 'force_reveal');
+    } else if (stage?.type === 'intermission') {
+      actions.unshift('next_stage');
+    } else if (stage?.type === 'result') {
+      // Only show restart button in result stage
+      actions.push('restart');
+    }
+
+    return actions;
   }
 
   async onHostNextPhase(data, session) {
     const action = data?.action;
     console.log('[BaseModule] Host action:', action);
 
-    if (action === 'end_game') {
-      // Jump to result stage
+    if (action === 'advance_identity') {
+      console.log('[BaseModule] Advancing from identity_draw');
+      await this.onHostNextStage(session);
+    } else if (action === 'next_round') {
+      console.log('[BaseModule] Advancing to next round');
+      await this._nextRound(session);
+    } else if (action === 'force_reveal') {
+      await this._revealCards(session);
+    } else if (action === 'end_game') {
+      // Jump to result stage and mark as manually ended (skip auto-restart)
+      console.log('[BaseModule] Host manually ended game - auto-restart will be skipped');
+      this._manuallyEnded = true;
       const resultIndex = this.enabledStages.findIndex(s => s.type === 'result');
       if (resultIndex >= 0) {
-        this.stageIndex = resultIndex;
+        // Reset to single top-level frame pointing at result stage
+        this._stageStack = [{ stages: this.enabledStages, index: resultIndex }];
         await this._startCurrentStage(session);
       }
     } else if (action === 'restart') {
-      // Restart game from the beginning
       console.log('[BaseModule] Restarting game');
-      this.stageIndex = 0;
       this.roundNumber = 1;
       this.playerHands.clear();
       this.playedCards.clear();
-      // Broadcast game_started to notify clients
+      this.decks.clear();
+      this.playerIdentities.clear();
+      this.confirmedPlayers.clear();
+      this._isRevealed = false;
+      this._manuallyEnded = false;
+
+      this._initStageStack();
+
+      // Re-assign player numbers based on current order
+      this.players.forEach((p, index) => {
+        p.playerNumber = index + 1;
+      });
+
+      // Reset all player states
+      for (const p of this.players) {
+        p.score = 0;
+        p.isAlive = true;
+        p.isEliminated = false;
+        p.status = p.isConnected ? 'ready' : 'disconnected';
+        p.eliminationType = null;
+        delete p.isSheriff;
+        delete p.sheriffElectedAt;
+        delete p.sheriffVoteCount;
+
+        // Broadcast individual player status update
+        session.broadcastAll('player_status_updated', {
+          playerId: p.id,
+          status: p.status,
+          isAlive: p.isAlive,
+          isEliminated: p.isEliminated
+        });
+      }
+
+      if (this.manifest.decks) {
+        for (const deck of this.manifest.decks) {
+          if (deck.enabled) {
+            const cards = this._loadDeckCards(deck);
+            this.decks.set(deck.id, this._shuffleDeck([...cards]));
+          }
+        }
+      }
+
       session.broadcastAll('game_started', {
         module: this.manifest.id,
+        players: this.players.map(p => ({
+          id: p.id,
+          name: p.name,
+          playerNumber: p.playerNumber,
+          score: p.score,
+          handCount: (this.playerHands.get(p.id) || []).length,
+          isReady: false,
+          isConnected: p.isConnected,
+          isAlive: p.isAlive,
+          isEliminated: p.isEliminated,
+          attributes: p.attributes || {}
+        })),
         sharedState: {}
       });
-      await this._startCurrentStage(session);
+      await this._enterStageOrLoop(session);
     } else if (action === 'back_to_lobby') {
       session.resetToLobby();
+    } else {
+      console.log('[BaseModule] Unknown action, advancing to next stage');
+      await this.onHostNextStage(session);
     }
   }
 
-  // ── Card Game Helper Methods ────────────────────────────────────────
+  // ── Card Game Helper Methods ────────────────────────────────────────────
 
   async _assignIdentities(session, stage) {
     const deckId = stage.deckId;
@@ -399,21 +983,20 @@ class BaseModule {
       return;
     }
 
-    const originalCards = deckConfig.cards || [];
+    this.confirmedPlayers.clear();
+
+    const originalCards = this._loadDeckCards(deckConfig);
     const allowDuplicate = deckConfig.allowDuplicate !== false;
 
-    console.log('[BaseModule] Assigning identities from deck:', deckId);
+    console.log('[BaseModule] Assigning identities from deck:', deckId, 'cards:', originalCards.length);
 
-    // Assign identity to each player
     for (const player of this.players) {
       let identity;
 
       if (allowDuplicate) {
-        // With duplicates: randomly pick from original cards
         const randomIndex = Math.floor(Math.random() * originalCards.length);
-        identity = { ...originalCards[randomIndex] }; // Clone to avoid mutation
+        identity = { ...originalCards[randomIndex] };
       } else {
-        // Without duplicates: use deck from storage
         let deck = this.decks.get(deckId);
         if (!deck || deck.length === 0) {
           console.error('[BaseModule] No cards left in deck for identities');
@@ -423,42 +1006,81 @@ class BaseModule {
         this.decks.set(deckId, deck);
       }
 
-      // Add unique instance ID
       identity._instanceId = player.id + '-identity-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
-      // Map image field to imagePath for mobile compatibility
       if (identity.image && !identity.imagePath) {
         identity.imagePath = identity.image;
       }
 
       this.playerIdentities.set(player.id, identity);
+      // Also set team attribute on player for filtering in votes
+      if (identity.team) {
+        player.team = identity.team;
+        console.log(`[BaseModule] ✅ Set player ${player.name} team to "${identity.team}" (identity: ${identity.name})`);
+      } else {
+        console.log(`[BaseModule] ⚠️ Identity ${identity.name} has no team attribute`);
+      }
+      player.status = 'viewing';
 
-      // Send identity to player
       session.sendToPlayer(player.id, 'identity_assigned', {
         card: identity
       });
     }
 
     console.log('[BaseModule] Identities assigned to', this.players.length, 'players');
+
+    const statusUpdates = this.players.map(p => ({
+      playerId: p.id,
+      status: p.status
+    }));
+    session.broadcastAll('all_players_status_updated', { players: statusUpdates });
+
+    session.sendHostGameState();
   }
 
   _confirmIdentity(playerId, session) {
     console.log('[BaseModule] Player confirmed identity:', playerId);
     this.confirmedPlayers.add(playerId);
 
-    // Check if all players have confirmed
-    const stage = this.enabledStages[this.stageIndex];
+    const player = this.players.find(p => p.id === playerId);
+    if (player) {
+      player.status = 'confirmed';
+    }
+
+    session.broadcastAll('identity_progress', {
+      confirmed: this.confirmedPlayers.size,
+      total:     this.players.length,
+    });
+
+    session.broadcastAll('player_status_updated', {
+      playerId: playerId,
+      status: 'confirmed'
+    });
+
+    const stage = this._currentStage();
     if (stage?.advance?.trigger === 'all_confirmed') {
-      const allConfirmed = this.players.every(p => this.confirmedPlayers.has(p.id));
-      if (allConfirmed) {
-        console.log('[BaseModule] All players confirmed identity, auto-advancing');
-        setTimeout(() => {
-          this.onHostNextStage(session);
-        }, 1000);
+      const allConfirmed = this.players.every(p => p.isAlive !== false ? this.confirmedPlayers.has(p.id) : true);
+      if (allConfirmed && !this._autoAdvanceTimer) {
+        const duration = Math.max(0, Number(stage.advance.duration) || 0);
+        if (duration > 0) {
+          console.log(`[BaseModule] All confirmed → starting ${duration}s countdown`);
+          // Use a sentinel so the guard !this._autoAdvanceTimer fires; actual handle is
+          // owned by _startCountdown internally via _countdownTimer.
+          this._autoAdvanceTimer = 'countdown';
+          this._startCountdown(session, duration, async () => {
+            this._autoAdvanceTimer = null;
+            await this.onHostNextStage(session);
+          });
+        } else {
+          console.log('[BaseModule] All confirmed → advancing immediately');
+          this._autoAdvanceTimer = setTimeout(() => {
+            this._autoAdvanceTimer = null;
+            this.onHostNextStage(session);
+          }, 600);
+        }
       }
     }
 
-    // Update host state
     session.sendHostGameState();
   }
 
@@ -470,8 +1092,27 @@ class BaseModule {
     return deck;
   }
 
+  _loadDeckCards(deckConfig) {
+    if (deckConfig.cards && deckConfig.cards.length > 0) {
+      return deckConfig.cards;
+    }
+
+    if (deckConfig.ref) {
+      try {
+        const deckPath = path.join(__dirname, '../../decks', `${deckConfig.ref}.json`);
+        console.log('[BaseModule] Loading external deck from:', deckPath);
+        const deckData = JSON.parse(fs.readFileSync(deckPath, 'utf8'));
+        return deckData.cards || [];
+      } catch (err) {
+        console.error('[BaseModule] Failed to load external deck:', deckConfig.ref, err);
+        return [];
+      }
+    }
+
+    return [];
+  }
+
   async _dealCards(session, stage) {
-    // Reset revealed flag when dealing new cards
     this._isRevealed = false;
 
     const deckId = stage.deckId;
@@ -482,38 +1123,32 @@ class BaseModule {
       return;
     }
 
-    const originalCards = deckConfig.cards || [];
+    const originalCards = this._loadDeckCards(deckConfig);
     const allowDuplicate = deckConfig.allowDuplicate !== false;
     const drawCount = deckConfig.drawCount || 1;
 
-    console.log('[BaseModule] Dealing cards from deck:', deckId, 'count:', drawCount);
+    console.log('[BaseModule] Dealing cards from deck:', deckId, 'count:', drawCount, 'cards:', originalCards.length);
 
-    // Build a deck pool large enough for all players
     const totalCardsNeeded = this.players.length * drawCount;
     let deckCards = [];
 
     if (allowDuplicate || originalCards.length >= totalCardsNeeded) {
-      // Create a large enough pool by duplicating the deck if needed
       const copiesNeeded = Math.ceil(totalCardsNeeded / originalCards.length);
       for (let i = 0; i < copiesNeeded; i++) {
         deckCards = deckCards.concat(originalCards.map(c => ({...c})));
       }
       deckCards = this._shuffleDeck(deckCards);
     } else {
-      // No duplicates allowed and not enough cards - use what we have
       deckCards = this._shuffleDeck([...originalCards]);
     }
 
-    // Deal cards to each player
     for (const player of this.players) {
       const hand = [];
 
       for (let i = 0; i < drawCount; i++) {
         if (deckCards.length > 0) {
           const card = deckCards.pop();
-          // Add unique instance ID
           card._instanceId = `${player.id}-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          // Map image field to imagePath for mobile compatibility
           if (card.image && !card.imagePath) {
             card.imagePath = card.image;
           }
@@ -523,8 +1158,8 @@ class BaseModule {
 
       this.playerHands.set(player.id, hand);
       this.playedCards.set(player.id, null);
+      player.status = 'thinking';
 
-      // Send cards to player
       session.sendToPlayer(player.id, 'cards_drawn', {
         hand: hand
       });
@@ -532,12 +1167,17 @@ class BaseModule {
       console.log('[BaseModule] Dealt', hand.length, 'cards to', player.id);
     }
 
-    // Notify host
+    const handUpdates = this.players.map(p => ({
+      playerId: p.id,
+      handCount: this.playerHands.get(p.id)?.length || 0,
+      status: p.status
+    }));
+    session.broadcastAll('all_hands_updated', { players: handUpdates });
+
     session.sendHostGameState();
   }
 
   async _handleCardPlay(playerId, data, session) {
-    // Prevent playing cards after reveal (during countdown)
     if (this._isRevealed) {
       console.log('[BaseModule] Rejecting card play - cards already revealed');
       session.sendToPlayer(playerId, 'card_rejected', {
@@ -547,7 +1187,6 @@ class BaseModule {
       return;
     }
 
-    // Prevent playing more than one card per round
     const alreadyPlayed = this.playedCards.get(playerId);
     if (alreadyPlayed !== null && alreadyPlayed !== undefined) {
       console.log('[BaseModule] Rejecting card play - player already played this round');
@@ -558,7 +1197,6 @@ class BaseModule {
       return;
     }
 
-    // Support both cardId and instanceId
     const instanceId = data?.cardId || data?.instanceId;
 
     if (!instanceId) {
@@ -572,7 +1210,6 @@ class BaseModule {
       return;
     }
 
-    // Find card in hand
     const cardIndex = hand.findIndex(c => c._instanceId === instanceId);
     if (cardIndex === -1) {
       console.error('[BaseModule] Card not found in hand:', instanceId);
@@ -580,75 +1217,72 @@ class BaseModule {
     }
 
     const card = hand[cardIndex];
-
-    // Remove from hand
     hand.splice(cardIndex, 1);
     this.playerHands.set(playerId, hand);
-
-    // Record played card
     this.playedCards.set(playerId, card);
 
-    // Send acceptance to player
+    const player = this.players.find(p => p.id === playerId);
+    if (player) {
+      player.status = 'played';
+    }
+
     session.sendToPlayer(playerId, 'card_accepted', {
       instanceId: instanceId
     });
 
-    // Broadcast card played (without revealing card content)
     session.broadcastAll('card_played', {
       playerId: playerId,
       cardIndex: cardIndex
     });
 
+    session.broadcastAll('player_hand_updated', {
+      playerId: playerId,
+      handCount: hand.length,
+      status: 'played'
+    });
+
     console.log('[BaseModule] Player', playerId, 'played card', card.name);
 
-    // Get current stage configuration
-    const stage = this.enabledStages[this.stageIndex];
+    const stage = this._currentStage();
 
-    // Check revealTrigger for automatic reveal
     const revealTrigger = stage?.revealTrigger;
     const trigger = revealTrigger?.trigger;
 
     if (trigger === 'all_played') {
-      // Auto-reveal when all players have played
-      const allPlayed = this.players.every(p => this.playedCards.get(p.id) !== null);
+      const allPlayed = this.players.every(p => p.isAlive !== false ? this.playedCards.get(p.id) !== null : true);
       if (allPlayed) {
-        console.log('[BaseModule] All players played, auto-revealing');
-        setTimeout(() => {
+        console.log('[BaseModule] All alive players played, auto-revealing');
+        this._autoAdvanceTimer = setTimeout(() => {
+          this._autoAdvanceTimer = null;
           this._revealCards(session);
-        }, 1000); // Small delay for visual effect
+        }, 1000);
       }
     } else if (trigger === 'host') {
-      // Notify host to trigger reveal
-      const allPlayed = this.players.every(p => this.playedCards.get(p.id) !== null);
+      const allPlayed = this.players.every(p => p.isAlive !== false ? this.playedCards.get(p.id) !== null : true);
       if (allPlayed) {
-        console.log('[BaseModule] All played, waiting for host to reveal');
+        console.log('[BaseModule] All alive players played, waiting for host to reveal');
         session.broadcastDisplay('all_played', {
           canReveal: true
         });
       }
     }
 
-    // Check if all players have played (for auto-advance)
     if (stage?.advance?.trigger === 'all_played') {
-      const allPlayed = this.players.every(p => this.playedCards.get(p.id) !== null);
+      const allPlayed = this.players.every(p => p.isAlive !== false ? this.playedCards.get(p.id) !== null : true);
       if (allPlayed) {
-        console.log('[BaseModule] All players played, scheduling auto-advance');
-        // Auto-advance will be handled after reveal
+        console.log('[BaseModule] All alive players played, scheduling auto-advance');
       }
     }
 
-    // Update host state
     session.sendHostGameState();
   }
 
   async _revealCards(session) {
-    // Mark as revealed to prevent further card plays during countdown
     this._isRevealed = true;
 
     const cards = [];
     for (const [playerId, card] of this.playedCards) {
       if (card) {
-        // Ensure imagePath is set for mobile compatibility
         if (card.image && !card.imagePath) {
           card.imagePath = card.image;
         }
@@ -659,57 +1293,60 @@ class BaseModule {
       }
     }
 
-    // Calculate scores if cards have value
     const cardsWithValue = cards.filter(c => c.card.value !== undefined);
     if (cardsWithValue.length > 0) {
       const maxValue = Math.max(...cardsWithValue.map(c => c.card.value));
       console.log('[BaseModule] Scoring: maxValue =', maxValue, 'from', cardsWithValue.length, 'cards');
-      // Award points to winners
       for (const item of cardsWithValue) {
         if (item.card.value === maxValue) {
           const player = this.players.find(p => p.id === item.playerId);
           if (player) {
             player.score = (player.score || 0) + 1;
             console.log('[BaseModule]', player.name, 'wins point, score:', player.score);
+
+            const pmPlayer = session.players.get(player.id);
+            if (pmPlayer) {
+              pmPlayer.score = player.score;
+            }
           }
         }
       }
     }
 
+    session.broadcastAll('scores_updated', {
+      players: this.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        score: p.score || 0,
+        handCount: this.playerHands.get(p.id)?.length || 0
+      }))
+    });
+
     session.broadcastAll('cards_revealed', {
       cards: cards
     });
 
-    // Send to display with formatted HTML
     session.broadcastDisplay('cards_revealed', {
       displayHtml: this._formatCardsForDisplay(cards)
     });
 
     console.log('[BaseModule] Revealed', cards.length, 'cards');
 
-    // Get current stage configuration
-    const stage = this.enabledStages[this.stageIndex];
+    const stage = this._currentStage();
 
-    // Check nextRoundTrigger for auto-advance to next round
     if (stage?.nextRoundTrigger && !this._autoAdvanceTimer) {
       const trigger = stage.nextRoundTrigger.trigger;
       const duration = stage.nextRoundTrigger.duration || 3;
 
       if (trigger === 'round_timer') {
-        // Auto-advance after timer
         console.log('[BaseModule] Will auto-advance to next round in', duration, 'seconds');
-
-        // Set flag to prevent multiple countdowns
-        this._autoAdvanceTimer = true;
-
-        // Start countdown and auto-advance when done
+        this._autoAdvanceTimer = 'countdown';
         this._startCountdown(session, duration, async () => {
           console.log('[BaseModule] Countdown ended, auto-advancing to next round');
           this._autoAdvanceTimer = null;
           await this._nextRound(session);
         });
       } else if (trigger === 'host') {
-        // Wait for host to advance
         console.log('[BaseModule] Waiting for host to advance to next round');
         session.broadcastDisplay('round_end', {
           roundNumber: this.roundNumber,
@@ -718,7 +1355,6 @@ class BaseModule {
       }
     }
 
-    // Check if should auto-advance to next stage (fallback)
     if (stage?.advance?.trigger === 'all_played') {
       const autoAdvance = stage.advance.autoAdvance !== false;
       const delay = stage.advance.delay || 2000;
@@ -750,7 +1386,6 @@ class BaseModule {
       const playerName = playerNames[item.playerId] || item.playerId;
       const card = item.card;
 
-      // Check if card has an image (support both image and imagePath fields)
       const cardImage = (card.imagePath || card.image) ?
         `<img src="${card.imagePath || card.image}" alt="${card.name}" style="width:100%;height:180px;object-fit:cover;border-radius:8px;margin-bottom:12px;">` :
         `<div style="font-size:3rem;margin-bottom:16px;">🎴</div>`;
@@ -777,7 +1412,6 @@ class BaseModule {
 
     let html = '<div style="padding:40px;text-align:center;">';
 
-    // Champions
     if (champions && champions.length > 0) {
       html += '<div style="margin-bottom:32px;">';
       html += '<div style="font-size:1rem;color:#8888bb;margin-bottom:12px;">🏆 冠軍</div>';
@@ -785,7 +1419,6 @@ class BaseModule {
       html += '</div>';
     }
 
-    // Rankings
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;max-width:800px;margin:0 auto;">';
 
     for (let i = 0; i < ranked.length; i++) {
@@ -804,6 +1437,509 @@ class BaseModule {
 
     html += '</div></div>';
     return html;
+  }
+
+  // ── Vote System Methods ────────────────────────────────────────────────
+
+  async _startVoteStage(session, stage) {
+    console.log('[BaseModule] Starting vote stage:', stage.name);
+    this.isVotingActive = true;
+    this.votes.clear();
+    this.voteResults.clear();
+    this.voteSubmissions.clear();
+
+    const voteConfig = stage.voteConfig || {};
+    if (stage.advance && !voteConfig.advance) {
+      voteConfig.advance = stage.advance;
+    }
+
+    const optionSource = voteConfig.optionSource || 'all';
+
+    let voteOptions = [];
+
+    if (optionSource === 'all' || optionSource === 'players') {
+      const playerFilter = voteConfig.playerFilter || {};
+      voteOptions = this.players
+        .filter(p => {
+          if (playerFilter.excludeSelf && p.id === this.currentPlayerId) return false;
+          return p.isAlive !== false;
+        })
+        .map(p => ({
+          id: p.id,
+          name: p.name,
+          type: 'player'
+        }));
+
+      if (playerFilter.shuffleOrder) {
+        voteOptions = this._shuffleDeck(voteOptions);
+      }
+    } else if (optionSource === 'team') {
+      // 特定陣營玩家作為投票選項
+      const teamName = voteConfig.teamName;
+      console.log('[BaseModule] optionSource=team, teamName=', teamName);
+      if (!teamName) {
+        console.warn('[BaseModule] optionSource is "team" but teamName is not specified, using all players');
+        voteOptions = this.players
+          .filter(p => p.isAlive !== false)
+          .map(p => ({
+            id: p.id,
+            name: p.name,
+            type: 'player'
+          }));
+      } else {
+        console.log('[BaseModule] ========== VOTE TEAM FILTERING ==========');
+        console.log('[BaseModule] Filter by team:', teamName);
+        console.log('[BaseModule] All players with teams:');
+        this.players.forEach(p => {
+          const identity = this.playerIdentities.get(p.id);
+          console.log(`  - ${p.name}: player.team="${p.team}", identity.team="${identity?.team}", isAlive=${p.isAlive}`);
+        });
+        voteOptions = this.players
+          .filter(p => {
+            if (p.isAlive === false) return false;
+            // 根據玩家的陣營屬性過濾
+            const playerTeam = p.team || p.attributes?.team;
+            const match = playerTeam === teamName;
+            console.log(`[BaseModule] Player ${p.name}: team="${playerTeam}" vs "${teamName}" -> ${match ? '✅ INCLUDE' : '❌ EXCLUDE'}`);
+            return match;
+          })
+          .map(p => ({
+            id: p.id,
+            name: p.name,
+            type: 'player'
+          }));
+        console.log('[BaseModule] Filtered vote options:', voteOptions);
+      }
+    } else if (optionSource === 'static') {
+      voteOptions = voteConfig.options || [];
+    }
+
+    console.log('[BaseModule] Generated', voteOptions.length, 'vote options');
+
+    // Determine who can vote (voter eligibility)
+    const voterFilter = voteConfig.voterFilter || 'all';
+    const eligibleVoters = [];
+
+    if (voterFilter === 'all') {
+      eligibleVoters.push(...this.players.filter(p => p.isAlive !== false && p.isConnected !== false));
+    } else if (voterFilter === 'team') {
+      const voterTeamName = voteConfig.voterTeamName;
+      if (!voterTeamName) {
+        console.warn('[BaseModule] voterFilter is "team" but voterTeamName is not specified, allowing all players to vote');
+        eligibleVoters.push(...this.players.filter(p => p.isAlive !== false && p.isConnected !== false));
+      } else {
+        console.log('[BaseModule] Filtering voters by team:', voterTeamName);
+        eligibleVoters.push(...this.players.filter(p => {
+          if (p.isAlive === false || p.isConnected === false) return false;
+          const playerTeam = p.team || p.attributes?.team;
+          const match = playerTeam === voterTeamName;
+          console.log(`[BaseModule] Voter ${p.name}: team="${playerTeam}" vs "${voterTeamName}" -> ${match ? '✅ CAN VOTE' : '❌ CANNOT VOTE'}`);
+          return match;
+        }));
+      }
+    } else {
+      // Default: all alive players can vote
+      eligibleVoters.push(...this.players.filter(p => p.isAlive !== false && p.isConnected !== false));
+    }
+
+    console.log('[BaseModule] Eligible voters:', eligibleVoters.map(v => v.name).join(', '));
+
+    // Set voting status only for eligible voters
+    for (const player of this.players) {
+      const canVote = eligibleVoters.some(v => v.id === player.id);
+      if (canVote) {
+        player.status = 'voting';
+      } else if (player.isAlive !== false && player.isConnected !== false) {
+        player.status = 'waiting'; // Can't vote in this round
+      }
+    }
+
+    this._activeVotePayload = {
+      voteId: voteConfig.voteId || `vote-${stage.id}`,
+      stageId: stage.id,
+      stageName: stage.name,
+      voteTitle: voteConfig.voteTitle || stage.name,
+      voteDescription: voteConfig.voteDescription || '',
+      voteConfig: voteConfig,
+      options: voteOptions,
+      anonymous: voteConfig.anonymous !== false,
+      canChangeVote: false,
+      multiSelect: voteConfig.multiSelect || false,
+      eligibleVoters: eligibleVoters.map(p => p.id)
+    };
+
+    session.broadcastAll('vote_started', this._activeVotePayload);
+
+    session.sendHostGameState();
+
+    const countdownSeconds = voteConfig.countdownSeconds || 30;
+    console.log('[BaseModule] Starting vote countdown:', countdownSeconds, 'seconds');
+    this._startVoteCountdown(session, countdownSeconds);
+  }
+
+  async _handleCastVote(playerId, data, session) {
+    if (!this.isVotingActive) {
+      console.warn('[BaseModule] Received vote but voting is not active');
+      return;
+    }
+
+    const stage = this._currentStage();
+    const voteConfig = stage.voteConfig || {};
+
+    // Check if player is eligible to vote
+    const voterFilter = voteConfig.voterFilter || 'all';
+    let canVote = false;
+
+    if (voterFilter === 'all') {
+      canVote = true;
+    } else if (voterFilter === 'team') {
+      const voterTeamName = voteConfig.voterTeamName;
+      const player = this.players.find(p => p.id === playerId);
+      if (player && player.isAlive !== false && player.isConnected !== false) {
+        const playerTeam = player.team || player.attributes?.team;
+        canVote = playerTeam === voterTeamName;
+      }
+    }
+
+    if (!canVote) {
+      console.warn('[BaseModule] Player', playerId, 'is not eligible to vote');
+      session.sendToPlayer(playerId, 'vote_rejected', { reason: 'not_eligible' });
+      return;
+    }
+
+    const player = this.players.find(p => p.id === playerId);
+    if (!player || player.isAlive === false || player.isConnected === false) {
+      console.warn('[BaseModule] Player cannot vote:', playerId);
+      session.sendToPlayer(playerId, 'vote_rejected', { reason: 'ineligible' });
+      return;
+    }
+
+    if (this.voteSubmissions.has(playerId)) {
+      console.warn('[BaseModule] Player already voted:', player.name);
+      return;
+    }
+
+    const targetId = data.targetId;
+    const validOptions = this._activeVotePayload?.options;
+    if (validOptions && !validOptions.find(o => o.id === targetId)) {
+      console.warn('[BaseModule] Vote rejected: invalid targetId', targetId);
+      session.sendToPlayer(playerId, 'vote_rejected', { reason: 'invalid_target' });
+      return;
+    }
+    console.log('[BaseModule] Player', player.name, 'voted for', targetId);
+
+    this.votes.set(playerId, {
+      targetId: targetId,
+      timestamp: Date.now()
+    });
+
+    this.voteSubmissions.add(playerId);
+    player.status = 'voted';
+
+    session.broadcastAll('vote_cast', {
+      playerId: voteConfig.anonymous !== false ? null : playerId,
+      targetId: voteConfig.hideVotesUntilEnd ? null : targetId,
+      totalVotes: this.votes.size,
+      totalPlayers: this.players.length,
+      submittedCount: this.voteSubmissions.size
+    });
+
+    session.broadcastAll('player_status_updated', {
+      playerId: playerId,
+      status: 'voted'
+    });
+
+    console.log('[BaseModule] Vote progress:', this.votes.size, '/', this.players.length);
+
+    // Check if all eligible players have voted (if enabled)
+    if (voteConfig.endWhenAllVoted !== false) {  // default is true
+      const eligiblePlayers = this.players.filter(p =>
+        p.isAlive !== false && p.isConnected !== false
+      );
+      const allVoted = eligiblePlayers.every(p => this.voteSubmissions.has(p.id));
+
+      if (allVoted && this.isVotingActive) {
+        console.log('[BaseModule] All eligible players voted, ending vote immediately');
+        // Cancel the countdown timer
+        if (this._countdownTimer) {
+          clearTimeout(this._countdownTimer);
+          this._countdownTimer = null;
+        }
+        // End vote immediately
+        await this._endVoteStage(session);
+        return;
+      }
+    }
+
+    session.sendHostGameState();
+  }
+
+  async _endVoteStage(session) {
+    // Guard: if voting was already cancelled (stage advanced before countdown ended), bail out
+    if (!this.isVotingActive) {
+      console.log('[BaseModule] _endVoteStage: voting already inactive, ignoring stale timer');
+      return;
+    }
+    console.log('[BaseModule] Ending vote stage');
+    this.isVotingActive = false;
+    this._activeVotePayload = null;
+    this._voteCountdownRemaining = null;
+
+    const stage = this._currentStage();
+    if (!stage) {
+      console.log('[BaseModule] _endVoteStage: no current stage, ignoring');
+      return;
+    }
+    const voteConfig = stage.voteConfig || {};
+
+    const results = this._calculateVoteResults(voteConfig);
+
+    session.broadcastAll('vote_ended', {
+      results: results,
+      anonymous: voteConfig.anonymous !== false
+    });
+
+    if (voteConfig.resultAction === 'eliminate') {
+      await this._executeVoteElimination(results, voteConfig, session, 'exile');
+    } else if (voteConfig.resultAction === 'wolf_kill') {
+      await this._executeVoteElimination(results, voteConfig, session, 'wolf_kill');
+    } else if (voteConfig.resultAction === 'poison') {
+      await this._executeVoteElimination(results, voteConfig, session, 'poison');
+    } else if (voteConfig.resultAction === 'shoot') {
+      await this._executeVoteElimination(results, voteConfig, session, 'shoot');
+    } else if (voteConfig.resultAction === 'sheriff') {
+      await this._executeVoteSheriff(results, voteConfig, session);
+    } else if (voteConfig.resultAction === 'award') {
+      await this._executeVoteAward(results, voteConfig, session);
+    }
+
+    if (this._countdownTimer) {
+      clearTimeout(this._countdownTimer);
+      this._countdownTimer = null;
+    }
+
+    session.sendHostGameState();
+
+    // Determine advance behavior: properly merge voteConfig.advance and stage.advance
+    // voteConfig.advance can override specific settings, but stage.advance provides defaults
+    const stageAdvance = stage.advance || {};
+    const voteAdvance = voteConfig.advance || {};
+
+    // Merge: voteConfig takes priority for explicit settings, stage.advance fills in the rest
+    const advanceConfig = {
+      trigger: voteAdvance.trigger || stageAdvance.trigger,
+      duration: voteAdvance.duration !== undefined ? voteAdvance.duration : stageAdvance.duration,
+      fallback: voteAdvance.fallback || stageAdvance.fallback
+    };
+
+    const trigger = advanceConfig.trigger;
+    const fallback = advanceConfig.fallback;
+
+    if (trigger === 'host') {
+      console.log('[BaseModule] Vote ended, waiting for host to advance to next stage');
+      session.broadcastAll('vote_can_advance', {
+        canAdvance: true,
+        message: '投票結束，等待主持人推進到下一階段'
+      });
+    } else if (trigger === 'auto') {
+      console.log('[BaseModule] Auto-advancing immediately');
+      await this.onHostNextStage(session);
+    } else if (trigger === 'timer') {
+      // Wait for duration seconds, then auto-advance
+      const duration = advanceConfig.duration || 3;
+      console.log('[BaseModule] Auto-advancing to next stage in', duration, 'seconds');
+      this._startCountdown(session, duration, async () => {
+        this._autoAdvanceTimer = null;
+        await this.onHostNextStage(session);
+      });
+    } else {
+      // No explicit trigger: check fallback
+      if (fallback === 'host') {
+        console.log('[BaseModule] Vote ended, waiting for host to advance to next stage (fallback)');
+        session.broadcastAll('vote_can_advance', {
+          canAdvance: true,
+          message: '投票結束，等待主持人推進到下一階段'
+        });
+      } else {
+        // Default: wait a few seconds then auto-advance
+        const duration = advanceConfig.duration || 3;
+        console.log('[BaseModule] Auto-advancing to next stage in', duration, 'seconds (default)');
+        this._startCountdown(session, duration, async () => {
+          this._autoAdvanceTimer = null;
+          await this.onHostNextStage(session);
+        });
+      }
+    }
+  }
+
+  _calculateVoteResults(voteConfig) {
+    const results = new Map();
+    const votersByTarget = new Map();
+
+    for (const [voterId, vote] of this.votes) {
+      const targetId = vote.targetId;
+      results.set(targetId, (results.get(targetId) || 0) + 1);
+
+      if (voteConfig.anonymous !== false) {
+        // Skip recording voters for anonymous votes
+      } else {
+        // Record voter names for non-anonymous votes
+        if (!votersByTarget.has(targetId)) {
+          votersByTarget.set(targetId, []);
+        }
+        votersByTarget.get(targetId).push(voterId);
+      }
+    }
+
+    const sortedResults = Array.from(results.entries())
+      .map(([targetId, count]) => {
+        const targetPlayer = this.players.find(p => p.id === targetId);
+
+        let voterNames = null;
+        let voterNumbers = null;
+        if (voteConfig.anonymous === false && votersByTarget.has(targetId)) {
+          voterNames = votersByTarget.get(targetId).map(voterId => {
+            const voter = this.players.find(p => p.id === voterId);
+            return voter ? voter.name : voterId;
+          });
+          voterNumbers = votersByTarget.get(targetId).map(voterId => {
+            const voter = this.players.find(p => p.id === voterId);
+            return voter ? voter.playerNumber : null;
+          });
+        }
+
+        return {
+          targetId: targetId,
+          targetName: targetPlayer ? targetPlayer.name : targetId,
+          targetNumber: targetPlayer ? targetPlayer.playerNumber : null,
+          count: count,
+          voters: voterNames,
+          voterNumbers: voterNumbers
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    console.log('[BaseModule] Vote results:', sortedResults);
+    return sortedResults;
+  }
+
+  async _executeVoteElimination(results, voteConfig, session, eliminationType = 'exile') {
+    const eliminateCount = voteConfig.eliminateCount || 1;
+    const resolveTie = voteConfig.resolveTie || 'random';
+
+    const maxCount = results.length > 0 ? results[0].count : 0;
+    const topCandidates = results.filter(r => r.count === maxCount);
+
+    let eliminatedIds = [];
+
+    if (topCandidates.length > 1 && resolveTie === 'random') {
+      const selected = topCandidates[Math.floor(Math.random() * topCandidates.length)];
+      eliminatedIds = [selected.targetId];
+    } else {
+      eliminatedIds = topCandidates
+        .slice(0, eliminateCount)
+        .map(r => r.targetId);
+    }
+
+    console.log('[BaseModule] Eliminating players:', eliminatedIds, 'type:', eliminationType);
+
+    for (const playerId of eliminatedIds) {
+      const player = this.players.find(p => p.id === playerId);
+      if (player) {
+        player.isAlive = false;
+        player.isEliminated = true;
+        player.eliminationType = eliminationType; // Store the elimination type
+        player.status = 'eliminated';
+      }
+    }
+
+    session.broadcastAll('players_eliminated', {
+      eliminationType: eliminationType,
+      players: eliminatedIds.map(id => {
+        const player = this.players.find(p => p.id === id);
+        return {
+          id: id,
+          name: player ? player.name : id
+        };
+      })
+    });
+
+    eliminatedIds.forEach(playerId => {
+      session.broadcastAll('player_status_updated', {
+        playerId: playerId,
+        isAlive: false,
+        status: 'eliminated'
+      });
+    });
+  }
+
+  async _executeVoteAward(results, voteConfig, session) {
+    console.log('[BaseModule] Vote award results:', results);
+  }
+
+  async _executeVoteSheriff(results, voteConfig, session) {
+    if (results.length === 0) {
+      console.log('[BaseModule] No vote results for sheriff election');
+      return;
+    }
+
+    const maxCount = results[0].count;
+    const topCandidates = results.filter(r => r.count === maxCount);
+
+    let sheriffId = null;
+
+    if (topCandidates.length > 1) {
+      // 平局隨機選一個
+      const selected = topCandidates[Math.floor(Math.random() * topCandidates.length)];
+      sheriffId = selected.targetId;
+      console.log('[BaseModule] Sheriff election tie, randomly selected:', sheriffId);
+    } else {
+      sheriffId = results[0].targetId;
+      console.log('[BaseModule] Elected sheriff:', sheriffId);
+    }
+
+    // 設置警長屬性
+    const player = this.players.find(p => p.id === sheriffId);
+    if (player) {
+      player.isSheriff = true;
+      player.sheriffElectedAt = Date.now();
+      player.sheriffVoteCount = maxCount;
+
+      session.broadcastAll('sheriff_elected', {
+        playerId: sheriffId,
+        playerName: player.name,
+        voteCount: maxCount,
+        wasTie: topCandidates.length > 1
+      });
+
+      session.broadcastAll('player_attribute_updated', {
+        playerId: sheriffId,
+        attribute: 'isSheriff',
+        value: true
+      });
+    }
+  }
+
+  _startVoteCountdown(session, duration) {
+    console.log('[BaseModule] Starting vote countdown:', duration, 'seconds');
+
+    let remaining = duration;
+    const total = duration;
+
+    const broadcast = () => {
+      this._voteCountdownRemaining = remaining;
+      session.broadcastAll('vote_countdown', { remaining, total });
+
+      if (remaining > 0) {
+        remaining--;
+        this._countdownTimer = setTimeout(broadcast, 1000);
+      } else {
+        this._countdownTimer = null;
+        this._endVoteStage(session);
+      }
+    };
+
+    broadcast();
   }
 }
 

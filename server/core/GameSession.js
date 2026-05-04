@@ -11,6 +11,7 @@ class GameSession {
     this.hostSocketId = null;
     this.currentModule = null;
     this.moduleName = null;
+    this.manifest = null;     // set at room creation when moduleId is provided
     this.phase = 'lobby';           // lobby | playing | result
     this.sharedState = {};
     this.createdAt = Date.now();
@@ -31,6 +32,14 @@ class GameSession {
     }
 
     const player = this.players.add(playerId, name, socketId);
+    // Initialize player attributes from manifest definition (first option as default)
+    if (this.manifest?.playerAttributes) {
+      for (const def of this.manifest.playerAttributes) {
+        if (!(def.id in player.attributes)) {
+          player.attributes[def.id] = def.options?.[0]?.value ?? '';
+        }
+      }
+    }
     this.io.to(this.roomId).emit('player_joined', { player: player.toPublic(), players: this.players.publicList() });
     return player;
   }
@@ -40,12 +49,15 @@ class GameSession {
     if (timer) { clearTimeout(timer); this._disconnectTimers.delete(playerId); }
     const player = this.players.reconnect(playerId, newSocketId);
     if (player && this.currentModule) {
-      // Re-send their private state
       this.sendToPlayer(playerId, 'reconnected', {
         phase: this.phase,
         sharedState: this.sharedState,
         playerState: player.toPrivate(),
       });
+      // Re-send module private state (hand, identity) held in BaseModule maps
+      if (typeof this.currentModule.onReconnect === 'function') {
+        this.currentModule.onReconnect(playerId, this);
+      }
     }
     this.broadcastAll('player_reconnected', { playerId });
     return player;
@@ -79,33 +91,46 @@ class GameSession {
     this.moduleName = moduleName;
     this.phase = 'playing';
 
-    // Broadcast game_started FIRST so clients reset UI to a clean state
-    // before stage-specific events (identity_assigned / cards_drawn) arrive.
-    // This matches the restart flow in card-battle's onHostNextPhase.
-    this.broadcastAll('game_started', {
-      module: moduleName,
-      sharedState: this.sharedState,
-    });
     this.broadcastDisplay('module_loaded', { module: moduleName });
 
-    await this.currentModule.onStart(this.players.all(), this);
+    try {
+      await this.currentModule.onStart(this.players.all(), this);
+    } catch (e) {
+      console.error('[GameSession] onStart error:', e);
+      this.broadcastAll('module_error', { message: e.message });
+      this.currentModule = null;
+      this.phase = 'lobby';
+      return;
+    }
 
     this.sendHostGameState();
   }
 
   async handlePlayerAction(playerId, action, data) {
     if (!this.currentModule) return;
-    await this.currentModule.onPlayerAction(playerId, action, data, this);
+    try {
+      await this.currentModule.onPlayerAction(playerId, action, data, this);
+    } catch (e) {
+      console.error('[GameSession] handlePlayerAction error:', e);
+    }
   }
 
   async handlePlayerSubmit(playerId, data) {
     if (!this.currentModule) return;
-    await this.currentModule.onPlayerSubmit(playerId, data, this);
+    try {
+      await this.currentModule.onPlayerSubmit(playerId, data, this);
+    } catch (e) {
+      console.error('[GameSession] handlePlayerSubmit error:', e);
+    }
   }
 
   async handleHostNextPhase(data) {
     if (!this.currentModule) return;
-    await this.currentModule.onHostNextPhase(data, this);
+    try {
+      await this.currentModule.onHostNextPhase(data, this);
+    } catch (e) {
+      console.error('[GameSession] handleHostNextPhase error:', e);
+    }
   }
 
   // ── State updates ─────────────────────────────────────────────

@@ -730,6 +730,7 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/shared/socket.js"></script>
+<script src="/shared/config.js"></script>
 <script>
   let roomId          = null;
   let selectedModule  = null;
@@ -2025,10 +2026,11 @@
   }
 
   function setQR(rid) {
-    const origin = window.location.origin;
-    document.getElementById('qrImg').src = `/api/rooms/${rid}/qr`;
-    document.getElementById('joinUrlText').textContent = `${origin}/mobile?room=${rid}`;
+    document.getElementById('qrImg').src = Config.qrSrc(rid);
+    document.getElementById('joinUrlText').textContent = Config.mobileUrl(rid);
   }
+
+  function onIpChange() { if (roomId) setQR(roomId); }
 
   function addLog(msg, isErr = false) {
     const list = document.getElementById('logList');

@@ -256,8 +256,8 @@
 <div class="editor-shell">
   <aside class="sidebar">
     <div class="side-head">
-      <input id="filterInput" placeholder="🔍 搜尋模組…" oninput="renderModuleList()">
-      <button class="btn-add-mod" onclick="promptCreateModule()" title="建立新模組">➕ 新增模組</button>
+      <input id="filterInput" placeholder="🔍 搜尋模組…" data-i18n-ph="editor.search_placeholder" oninput="renderModuleList()">
+      <button class="btn-add-mod" onclick="promptCreateModule()" title="建立新模組" data-i18n="btn.new_module">➕ 新增模組</button>
     </div>
     <div class="side-list" id="modList"><div style="color:#555;font-size:.8rem;">載入中…</div></div>
   </aside>
@@ -318,10 +318,10 @@
       <!-- Tabs -->
       <div id="configEditor">
         <div class="cfg-tabs">
-          <button class="cfg-tab active" onclick="switchCfgTab('basic')">基本參數</button>
-          <button class="cfg-tab"        onclick="switchCfgTab('decks')">牌組</button>
-          <button class="cfg-tab"        onclick="switchCfgTab('stages')">階段</button>
-          <button class="cfg-tab"        onclick="switchCfgTab('advanced')">進階</button>
+          <button class="cfg-tab active" onclick="switchCfgTab('basic')"    data-i18n="tab.basic">基本參數</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('decks')"    data-i18n="tab.decks">牌組</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('stages')"   data-i18n="tab.stages">階段</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('advanced')" data-i18n="tab.advanced">進階</button>
         </div>
         <div id="cfgBasic"    class="cfg-tab-content active"></div>
         <div id="cfgDecks"    class="cfg-tab-content"></div>
@@ -351,15 +351,10 @@
   let originalServerCode = '';      // original server.js code for dirty check
 
   const HIST_LIMIT = 30;
-  const STAGE_TYPES = [
-    { value: 'identity_draw', label: '身份抽取' },
-    { value: 'card_play',     label: '出牌回合' },
-    { value: 'vote',          label: '投票' },
-    { value: 'result',        label: '結算' },
-    { value: 'input',         label: '🎮 控制器' },
-    { value: 'intermission',  label: '暫停' },
-    { value: 'loop',          label: '🔁 循環' },
-  ];
+  const STAGE_TYPE_VALUES = ['identity_draw','card_play','vote','result','input','intermission','loop'];
+  function getStageTypes() {
+    return STAGE_TYPE_VALUES.map(v => ({ value: v, label: (typeof t === 'function' ? t('stage.'+v) : v) }));
+  }
 
   const LOOP_EXIT_TYPES = [
     { value: 'alivePlayers', label: '存活玩家數' },
@@ -378,40 +373,43 @@
   // 推進選項根據階段類型和用途過濾，實現兩階段設定
   const ADVANCE_TRIGGERS = [
     // === 階段結束時推進（適用所有階段類型）===
-    { value: 'host',              label: '🎮 Host 手動推進', types: ['all'], category: 'stage_advance' },
-    { value: 'auto_restart',      label: '🔄 立即重啟遊戲', types: ['result'], category: 'stage_advance' },
-    { value: 'restart_timer',     label: '🔄 倒數後重啟遊戲', types: ['result'], category: 'stage_advance' },
+    { value: 'host',              types: ['all'], category: 'stage_advance' },
+    { value: 'auto_restart',      types: ['result'], category: 'stage_advance' },
+    { value: 'restart_timer',     types: ['result'], category: 'stage_advance' },
 
     // === 身份抽取階段 ===
-    { value: 'all_confirmed',     label: '✅ 全員身份確認後立即推進', types: ['identity_draw'], category: 'stage_advance' },
-    { value: 'identity_timer',    label: '⏱️ 全員身份確認後倒數推進', types: ['identity_draw'], category: 'stage_advance' },
+    { value: 'all_confirmed',     types: ['identity_draw'], category: 'stage_advance' },
+    { value: 'identity_timer',    types: ['identity_draw'], category: 'stage_advance' },
 
     // === 出牌階段：階段結束時推進（最後一回合結束後）===
-    { value: 'host',              label: '🎮 Host 手動推進', types: ['card_play'], category: 'stage_advance' },
-    { value: 'auto_next',         label: '⏭️ 翻牌後立即進下一階段', types: ['card_play'], category: 'stage_advance' },
-    { value: 'round_timer',       label: '⏱️ 翻牌後倒數進下一階段', types: ['card_play'], category: 'stage_advance' },
+    { value: 'host',              types: ['card_play'], category: 'stage_advance' },
+    { value: 'auto_next',         types: ['card_play'], category: 'stage_advance' },
+    { value: 'round_timer',       types: ['card_play'], category: 'stage_advance' },
 
     // === 出牌階段：何時翻牌（全員出牌後）===
-    { value: 'host_reveal',       label: '🎮 Host 手動翻牌', types: ['card_play'], category: 'reveal' },
-    { value: 'all_played',        label: '🃏 全員出牌後立即翻牌', types: ['card_play'], category: 'reveal' },
-    { value: 'play_timer',        label: '⏱️ 全員出牌後倒數翻牌', types: ['card_play'], category: 'reveal' },
+    { value: 'host_reveal',       types: ['card_play'], category: 'reveal' },
+    { value: 'all_played',        types: ['card_play'], category: 'reveal' },
+    { value: 'play_timer',        types: ['card_play'], category: 'reveal' },
 
     // === 出牌階段：翻牌後何時進下一回合 ===
-    { value: 'host',              label: '🎮 Host 手動推進', types: ['card_play'], category: 'next_round' },
-    { value: 'auto_next',         label: '⏭️ 看完結果立即進下一回合', types: ['card_play'], category: 'next_round' },
-    { value: 'round_timer',       label: '⏱️ 翻牌後倒數進下一回合', types: ['card_play'], category: 'next_round' },
+    { value: 'host',              types: ['card_play'], category: 'next_round' },
+    { value: 'auto_next',         types: ['card_play'], category: 'next_round' },
+    { value: 'round_timer',       types: ['card_play'], category: 'next_round' },
 
     // === 投票階段 ===
-    { value: 'host',              label: '🎮 Host 手動推進', types: ['vote'], category: 'stage_advance' },
-    { value: 'auto',              label: '⏭️ 開票後立即進下一階段', types: ['vote'], category: 'stage_advance' },
-    { value: 'timer',             label: '⏱️ 開票後倒數進下一階段', types: ['vote'], category: 'stage_advance' },
+    { value: 'host',              types: ['vote'], category: 'stage_advance' },
+    { value: 'auto',              types: ['vote'], category: 'stage_advance' },
+    { value: 'timer',             types: ['vote'], category: 'stage_advance' },
 
     // === 其他階段類型 ===
-    { value: 'all_submitted',     label: '📝 全員提交後立即處理', types: ['input'], category: 'stage_advance' },
-    { value: 'host',              label: '🎮 Host 手動推進', types: ['intermission'], category: 'stage_advance' },
-    { value: 'timer',             label: '⏱️ 固定時間倒數後推進', types: ['intermission'], category: 'stage_advance' },
-    { value: 'auto',              label: '⏭️ 立即自動推進（不顯示倒數）', types: ['intermission'], category: 'stage_advance' },
+    { value: 'all_submitted',     types: ['input'], category: 'stage_advance' },
+    { value: 'host',              types: ['intermission'], category: 'stage_advance' },
+    { value: 'timer',             types: ['intermission'], category: 'stage_advance' },
+    { value: 'auto',              types: ['intermission'], category: 'stage_advance' },
   ];
+  function getTriggerLabel(value) {
+    return (typeof t === 'function') ? t('trigger.' + value) : value;
+  }
   const DECK_TYPES = [
     { value: 'role',   label: '身份' },
     { value: 'action', label: '行動' },
@@ -1017,7 +1015,7 @@
           <div class="field-row" style="margin:0">
             <label class="field-label">階段類型</label>
             <select class="field-input" onchange="setStageProp(${si},'type',this.value)">
-              ${STAGE_TYPES.map(t => `<option value="${t.value}" ${s.type===t.value?'selected':''}>${t.label}</option>`).join('')}
+              ${getStageTypes().map(st => `<option value="${st.value}" ${s.type===st.value?'selected':''}>${st.label}</option>`).join('')}
             </select>
           </div>
           ${s.type !== 'loop' ? `
@@ -1332,13 +1330,13 @@
       ${helpText ? `<div class="help-text" style="margin-bottom:8px">${escapeH(helpText)}</div>` : ''}
       <div class="stage-grid-2">
         <div class="field-row" style="margin:0">
-          <label class="field-label">推進條件</label>
+          <label class="field-label">${typeof t==='function'?t('advance.label'):'推進條件'}</label>
           <select class="field-input" onchange="setAdvKey(${si},'${key}','trigger',this.value)">
-            ${availableTriggers.map(t => `<option value="${t.value}" ${(adv.trigger||'host')===t.value?'selected':''}>${t.label}</option>`).join('')}
+            ${availableTriggers.map(tr => `<option value="${tr.value}" ${(adv.trigger||'host')===tr.value?'selected':''}>${getTriggerLabel(tr.value)}</option>`).join('')}
           </select>
         </div>
         <div class="field-row" style="margin:0;${showDuration?'':'visibility:hidden;'}">
-          <label class="field-label">秒數</label>
+          <label class="field-label">${typeof t==='function'?t('advance.duration'):'秒數'}</label>
           <input class="field-input" type="number" min="0" max="600"
                  value="${adv.duration ?? ''}"
                  oninput="setAdvKey(${si},'${key}','duration',this.value===''?null:Number(this.value))">
@@ -1347,7 +1345,7 @@
       <label style="display:flex;align-items:center;gap:8px;font-size:.78rem;color:#aaaacc;margin-top:6px;">
         <input type="checkbox" ${adv.fallback ? 'checked' : ''}
                onchange="setAdvKey(${si},'${key}','fallback',this.checked ? 'host' : null)">
-        Host 仍可強制推進（fallback）
+        ${typeof t==='function'?t('advance.fallback'):'Host 仍可強制推進（fallback）'}
       </label>
     </div>`;
   }
@@ -1549,8 +1547,8 @@
           <div class="field-row" style="margin:0">
             <label class="field-label">階段類型</label>
             <select class="field-input" onchange="setChildStageProp(${si},${ci},'type',this.value)">
-              ${STAGE_TYPES.filter(t => t.value !== 'loop').map(t =>
-                `<option value="${t.value}" ${cs.type===t.value?'selected':''}>${t.label}</option>`).join('')}
+              ${getStageTypes().filter(st => st.value !== 'loop').map(st =>
+                `<option value="${st.value}" ${cs.type===st.value?'selected':''}>${st.label}</option>`).join('')}
             </select>
           </div>
           <div class="field-row" style="margin:0">
@@ -1597,16 +1595,16 @@
     triggers = triggers.filter(t => { if (seen.has(t.value)) return false; seen.add(t.value); return true; });
 
     return `<div style="background:#0a0a18;border:1px solid #1a1a3a;border-radius:6px;padding:8px 10px;margin-top:8px;">
-      <div style="font-size:.72rem;color:#8888bb;margin-bottom:6px;">階段結束時推進</div>
+      <div style="font-size:.72rem;color:#8888bb;margin-bottom:6px;">${typeof t==='function'?t('advance.label'):'階段結束時推進'}</div>
       <div class="stage-grid-2">
         <div class="field-row" style="margin:0">
-          <label class="field-label">推進條件</label>
+          <label class="field-label">${typeof t==='function'?t('advance.label'):'推進條件'}</label>
           <select class="field-input" onchange="setChildAdvKey(${si},${ci},'trigger',this.value)">
-            ${triggers.map(t => `<option value="${t.value}" ${(adv.trigger||'host')===t.value?'selected':''}>${t.label}</option>`).join('')}
+            ${triggers.map(tr => `<option value="${tr.value}" ${(adv.trigger||'host')===tr.value?'selected':''}>${getTriggerLabel(tr.value)}</option>`).join('')}
           </select>
         </div>
         <div class="field-row" style="margin:0;${showDuration?'':'visibility:hidden;'}">
-          <label class="field-label">秒數</label>
+          <label class="field-label">${typeof t==='function'?t('advance.duration'):'秒數'}</label>
           <input class="field-input" type="number" min="0" max="600"
                  value="${adv.duration ?? ''}"
                  oninput="setChildAdvKey(${si},${ci},'duration',this.value===''?null:Number(this.value))">
@@ -1615,7 +1613,7 @@
       <label style="display:flex;align-items:center;gap:8px;font-size:.78rem;color:#aaaacc;margin-top:6px;">
         <input type="checkbox" ${adv.fallback === 'host' ? 'checked' : ''}
                onchange="setChildAdvKey(${si},${ci},'fallback',this.checked ? 'host' : null)">
-        Host 仍可強制推進（fallback）
+        ${typeof t==='function'?t('advance.fallback'):'Host 仍可強制推進（fallback）'}
       </label>
     </div>`;
   }
@@ -2408,6 +2406,9 @@ module.exports = MyModule;">${escapeH(serverCode)}</textarea>
     if (wantId && modules.find(m => m.id === wantId)) selectModule(wantId);
     else if (modules.length) selectModule(modules[0].id);
   })();
+
+  function onLangChange() { renderModuleEditor(); }
 </script>
+<script src="/shared/config.js"></script>
 </body>
 </html>

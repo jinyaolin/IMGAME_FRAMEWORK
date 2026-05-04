@@ -519,10 +519,9 @@
 
   <!-- ════════ LOBBY ════════ -->
   <div id="lobbyScreen">
-    <h2>等待室</h2>
-    <p>等待主持人開始遊戲…</p>
+    <h2 data-i18n="mobile.waiting">等待遊戲…</h2>
     <div id="playerList"></div>
-    <button id="readyBtn" onclick="toggleReady()">我準備好了</button>
+    <button id="readyBtn" onclick="toggleReady()" data-i18n="mobile.ready">我準備好了</button>
   </div>
 
   <!-- ════════ GAME (5 fixed zones) ════════ -->
@@ -595,12 +594,12 @@
   <div id="identityOverlay" onclick="onOverlayBgClick(event)">
     <div class="id-card" id="idCardBox">
       <div class="id-icon">🎭</div>
-      <div class="id-label">你的身份</div>
+      <div class="id-label" data-i18n="mobile.identity_label">你的身份</div>
       <div class="id-name" id="idOName">—</div>
       <div class="id-team" id="idOTeam"></div>
       <div class="id-desc" id="idODesc"></div>
       <div class="id-actions" id="idOActions">
-        <button class="id-confirm" id="idOConfirmBtn" onclick="confirmIdentity()">確認身份</button>
+        <button class="id-confirm" id="idOConfirmBtn" onclick="confirmIdentity()" data-i18n="mobile.confirm_identity">確認身份</button>
         <button class="id-close"   id="idOCloseBtn"   onclick="closeIdentityOverlay()" style="display:none">關閉</button>
       </div>
       <div class="id-confirmed-msg hidden" id="idOConfirmedMsg">✓ 已確認，等待主持人推進</div>
@@ -610,9 +609,9 @@
   <!-- ════════ ELIMINATED SCREEN ════════ -->
   <div id="eliminatedScreen">
     <div class="elim-icon">💀</div>
-    <div class="elim-title">你已被淘汰</div>
-    <div class="elim-sub" id="elimSubText">遊戲繼續進行中，你可以繼續觀看。</div>
-    <div class="elim-watch-label">觀戰模式</div>
+    <div class="elim-title" data-i18n="mobile.eliminated_title">你已被淘汰</div>
+    <div class="elim-sub" id="elimSubText" data-i18n="mobile.eliminated_sub">遊戲繼續進行中，你可以繼續觀看。</div>
+    <div class="elim-watch-label" data-i18n="mobile.eliminated_watch">觀戰模式</div>
     <div class="vote-results" id="elimVoteResults"></div>
   </div>
 
@@ -620,7 +619,7 @@
   <div id="voteOverlay" class="overlay hidden">
     <div class="vote-box">
       <div class="vote-header">
-        <div class="vote-title">🗳️ 投票階段</div>
+        <div class="vote-title" data-i18n="mobile.vote_title">🗳️ 投票階段</div>
         <div class="vote-subtitle" id="voteSubtitle">請選擇要投票的玩家</div>
       </div>
 
@@ -649,6 +648,7 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/socket.js"></script>
+  <script src="/shared/config.js"></script>
   <script>
     // ════════════════════════════════════════════════════════════════
     //   STATE
@@ -875,7 +875,7 @@
       document.getElementById('lobbyScreen').style.display = 'flex';
       isReady = false;
       const btn = document.getElementById('readyBtn');
-      btn.textContent = '我準備好了';
+      btn.textContent = t('mobile.ready');
       btn.classList.remove('is-ready');
     });
 
@@ -1441,7 +1441,7 @@
       isReady = !isReady;
       client.setReady(isReady);
       const btn = document.getElementById('readyBtn');
-      btn.textContent = isReady ? '✓ 已準備' : '我準備好了';
+      btn.textContent = isReady ? t('mobile.ready_done') : t('mobile.ready');
       btn.classList.toggle('is-ready', isReady);
     }
     function updateMyState(state) {

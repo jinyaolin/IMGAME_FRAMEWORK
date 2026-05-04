@@ -581,7 +581,8 @@ app.post('/api/modules/:sourceId/clone', (req, res) => {
 // QR code for a room (returns PNG)
 app.get('/api/rooms/:roomId/qr', async (req, res) => {
   const roomId = req.params.roomId.toUpperCase();
-  const host = PUBLIC_HOST ? `${PUBLIC_HOST}:${PORT}` : req.headers.host;
+  const overrideHost = req.query.host;
+  const host = overrideHost ? `${overrideHost}:${PORT}` : (PUBLIC_HOST ? `${PUBLIC_HOST}:${PORT}` : req.headers.host);
   const url = `http://${host}/mobile?room=${roomId}`;
   const png = await QRCode.toBuffer(url);
   res.set('Content-Type', 'image/png').send(png);

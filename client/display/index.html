@@ -328,6 +328,7 @@
   <!-- Socket.io -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/socket.js"></script>
+  <script src="/shared/config.js"></script>
   <script>
     const roomId = getRoomFromUrl();
 
@@ -448,7 +449,7 @@
             <div style="font-size:6rem;margin-bottom:30px;">⏸️</div>
             <h1 style="font-size:3rem;color:#aaaaff;margin-bottom:20px;letter-spacing:.2em;">${data.stageName}</h1>
             ${data.stageDescription ? `<div style="font-size:1.5rem;color:#8888cc;margin-bottom:40px;">${data.stageDescription}</div>` : ''}
-            <div style="font-size:1.2rem;color:#6666aa;">遊戲暫停中</div>
+            <div style="font-size:1.2rem;color:#6666aa;">${t('display.paused')}</div>
           </div>
         `;
       } else if (data.stageType === 'input') {

@@ -118,6 +118,7 @@ npm run dev                               # nodemon
 | `card_play` | 多回合出牌 → 翻牌 → 結算 → 下一回合 |
 | `vote` | 公開或匿名投票，支援倒數計時、單選／多選、換票 |
 | `intermission` | 暫停等待，僅顯示說明文字，不觸發任何遊戲邏輯 |
+| `input` | 將 mobile 變成即時遊戲控制器，按鍵訊號即時傳送到 display canvas |
 | `loop` | 循環執行一組子階段 N 次（可用於多輪投票、多輪劇情等） |
 | `result` | 計算最終排名、廣播 `game_ended` |
 
@@ -163,6 +164,63 @@ npm run dev                               # nodemon
   "advance": { "trigger": "vote_ended", "fallback": "host" }
 }
 ```
+
+#### input 階段設定
+
+```jsonc
+{
+  "type": "input",
+  "name": "多人控制器",
+  "inputConfig": {
+    "layout": "dpad-2btn",     // 見下表
+    "buttonLabels": {          // 各按鍵自訂標籤（選填）
+      "btn1": "A",
+      "btn2": "B"
+    },
+    "gameCode": "..."          // display canvas 遊戲邏輯 JS（選填）
+  },
+  "advance": { "trigger": "host" }
+}
+```
+
+**控制器樣式 (`layout`)**：
+
+| 值 | 外觀 |
+|----|------|
+| `pad-8` | 2×4 八按鈕格狀（btn1–btn8） |
+| `pad-4` | 2×2 四按鈕格狀（btn1–btn4） |
+| `pad-2` | 左右兩個大按鈕（btn1, btn2） |
+| `dpad-2btn` | 左側十字鍵（up/down/left/right）＋右側 A/B 兩鍵 |
+| `dpad-dpad` | 雙十字鍵（左 up/down/left/right，右 up2/down2/left2/right2） |
+
+每次玩家按下或放開按鍵，server 都會以 `player_input` 事件即時廣播到 display：
+
+```json
+{ "playerId": "p1", "playerName": "Alice", "key": "btn1", "state": "down" }
+```
+
+**`gameCode` — 自訂 display 遊戲**
+
+`gameCode` 是一段 JavaScript，在 display 端執行，可透過 `GameAPI` 物件接收玩家輸入並自訂畫面：
+
+```js
+// GameAPI 提供：
+// GameAPI.canvas   — HTMLCanvasElement（全畫面）
+// GameAPI.ctx      — CanvasRenderingContext2D
+// GameAPI.players  — Map<playerId, { name, color, inputs: Set<key> }>
+// GameAPI.onInput(fn)  — 每次有按鍵事件時呼叫 fn(playerId, key, state, player)
+// GameAPI.update(fn)   — 每個動畫影格呼叫 fn(timestamp)，取代預設視覺化
+
+GameAPI.onInput((playerId, key, state, p) => {
+  // 即時響應按鍵
+});
+GameAPI.update(ts => {
+  const ctx = GameAPI.ctx;
+  // 自訂繪圖邏輯
+});
+```
+
+若未提供 `gameCode`，display 顯示預設視覺化：每個玩家有彩色區塊，按下的按鍵以發光圓圈呈現。
 
 #### loop 階段設定
 
@@ -284,6 +342,9 @@ immersive-game/
 
 ### `card-battle` — 卡牌對戰
 2–8 人，每人手牌 5 張，依設定回合數出牌比點數，最高 value 者得 1 分，最後總分高者勝。支援身份抽取、補牌模式設定。
+
+### `input-test` — 控制器測試
+1–8 人，單一 `input` 階段搭配 `pad-4` 佈局，用來驗證控制器輸入與 display 接收是否正常。
 
 ---
 

@@ -351,7 +351,7 @@
   let originalServerCode = '';      // original server.js code for dirty check
 
   const HIST_LIMIT = 30;
-  const STAGE_TYPE_VALUES = ['identity_draw','card_play','vote','result','input','intermission','loop'];
+  const STAGE_TYPE_VALUES = ['identity_draw','card_play','vote','result','game','intermission','loop'];
   function getStageTypes() {
     return STAGE_TYPE_VALUES.map(v => ({ value: v, label: (typeof t === 'function' ? t('stage.'+v) : v) }));
   }
@@ -402,7 +402,7 @@
     { value: 'timer',             types: ['vote'], category: 'stage_advance' },
 
     // === 其他階段類型 ===
-    { value: 'all_submitted',     types: ['input'], category: 'stage_advance' },
+    { value: 'all_submitted',     types: ['game'], category: 'stage_advance' },
     { value: 'host',              types: ['intermission'], category: 'stage_advance' },
     { value: 'timer',             types: ['intermission'], category: 'stage_advance' },
     { value: 'auto',              types: ['intermission'], category: 'stage_advance' },
@@ -1063,7 +1063,7 @@
           </div>
         ` : ''}
         ${s.type === 'vote'  ? renderVoteConfigBlock(s, String(si), null) : ''}
-        ${s.type === 'input' ? renderInputConfigBlock(si, s) : ''}
+        ${s.type === 'game' ? renderGameConfigBlock(si, s) : ''}
         ${s.type === 'loop'  ? renderLoopBlock(si, s) : ''}
       </div>`).join('') + `<button class="add-card-btn" onclick="addStage()">+ 新增階段</button>`;
   }
@@ -1233,8 +1233,8 @@
     </div>`;
   }
 
-  function renderInputConfigBlock(si, stage) {
-    const ic = stage.inputConfig || {};
+  function renderGameConfigBlock(si, stage) {
+    const ic = stage.gameConfig || {};
     const labels = ic.buttonLabels || {};
     const layout = ic.layout || 'pad-4';
 
@@ -1260,7 +1260,7 @@
       <div class="vc-title">🎮 控制器設定</div>
       <div class="field-row">
         <label class="field-label">控制器樣式</label>
-        <select class="field-input" onchange="setInputConfigProp(${si},'layout',this.value)">
+        <select class="field-input" onchange="setGameConfigProp(${si},'layout',this.value)">
           ${layoutOptions.map(o => `<option value="${o.value}" ${layout===o.value?'selected':''}>${o.label}</option>`).join('')}
         </select>
       </div>
@@ -1271,7 +1271,7 @@
           <div style="display:flex;align-items:center;gap:8px;width:100%">
             <span style="font-size:.78rem;color:#7777aa;width:40px">${k}</span>
             <input class="field-input" style="flex:1" placeholder="${k}" value="${labels[k]||''}"
-              oninput="setInputBtnLabel(${si},'${k}',this.value)">
+              oninput="setGameBtnLabel(${si},'${k}',this.value)">
           </div>`).join('')}
       </div>` : ''}
       <div class="field-row" style="flex-direction:column;align-items:flex-start;gap:6px">
@@ -1281,23 +1281,23 @@
         </div>
         <textarea class="field-input" rows="8" style="font-family:monospace;font-size:.78rem"
           placeholder="// 範例：\nGameAPI.update(ts => {\n  const ctx = GameAPI.ctx;\n  ctx.clearRect(0,0,GameAPI.canvas.width,GameAPI.canvas.height);\n  // 自訂遊戲邏輯\n});"
-          oninput="setInputConfigProp(${si},'gameCode',this.value)">${ic.gameCode||''}</textarea>
+          oninput="setGameConfigProp(${si},'gameCode',this.value)">${ic.gameCode||''}</textarea>
       </div>
     </div>`;
   }
 
-  function setInputConfigProp(si, key, val) {
-    if (!manifest.stages[si].inputConfig) manifest.stages[si].inputConfig = {};
-    manifest.stages[si].inputConfig[key] = val || undefined;
-    if (!val) delete manifest.stages[si].inputConfig[key];
+  function setGameConfigProp(si, key, val) {
+    if (!manifest.stages[si].gameConfig) manifest.stages[si].gameConfig = {};
+    manifest.stages[si].gameConfig[key] = val || undefined;
+    if (!val) delete manifest.stages[si].gameConfig[key];
     pushUndo(); renderStages();
   }
 
-  function setInputBtnLabel(si, btnKey, val) {
-    if (!manifest.stages[si].inputConfig) manifest.stages[si].inputConfig = {};
-    if (!manifest.stages[si].inputConfig.buttonLabels) manifest.stages[si].inputConfig.buttonLabels = {};
-    if (val) manifest.stages[si].inputConfig.buttonLabels[btnKey] = val;
-    else delete manifest.stages[si].inputConfig.buttonLabels[btnKey];
+  function setGameBtnLabel(si, btnKey, val) {
+    if (!manifest.stages[si].gameConfig) manifest.stages[si].gameConfig = {};
+    if (!manifest.stages[si].gameConfig.buttonLabels) manifest.stages[si].gameConfig.buttonLabels = {};
+    if (val) manifest.stages[si].gameConfig.buttonLabels[btnKey] = val;
+    else delete manifest.stages[si].gameConfig.buttonLabels[btnKey];
     pushUndo();
   }
 

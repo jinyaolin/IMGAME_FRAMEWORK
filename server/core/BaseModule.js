@@ -85,6 +85,19 @@ class BaseModule {
     return frame.stages[frame.index] || null;
   }
 
+  getCurrentStageInfo() {
+    const stage = this._currentStage();
+    if (!stage) return null;
+    return {
+      stageId:    stage.id,
+      stageName:  stage.name,
+      stageType:  stage.type,
+      stageIndex: this.stageIndex,
+      roundNumber: this.roundNumber,
+      gameConfig: stage.gameConfig || null,
+    };
+  }
+
   // Entry point for starting whatever is at the current stack position.
   // Handles loop stages by pushing a new frame; otherwise calls _startCurrentStage.
   async _enterStageOrLoop(session) {
@@ -393,7 +406,7 @@ class BaseModule {
       stageIndex: this.stageIndex,
       roundNumber: this.roundNumber,
       loopContext,
-      ...(stage.inputConfig ? { inputConfig: stage.inputConfig } : {})
+      ...(stage.gameConfig ? { gameConfig: stage.gameConfig } : {})
     });
 
     // Handle identity_draw stage - assign identities
@@ -411,9 +424,9 @@ class BaseModule {
       await this._startVoteStage(session, stage);
     }
 
-    // Handle input/controller stage
-    if (stage.type === 'input') {
-      await this._startInputStage(session, stage);
+    // Handle game stage
+    if (stage.type === 'game') {
+      await this._startGameStage(session, stage);
     }
 
     // Handle intermission stage (pause)
@@ -535,9 +548,9 @@ class BaseModule {
     }
 
     // Relay controller input to display for input stages
-    if (action === 'input') {
+    if (action === 'game') {
       const stage = this._currentStage();
-      if (stage?.type === 'input') {
+      if (stage?.type === 'game') {
         const player = this.players.find(p => p.id === playerId);
         session.broadcastDisplay('player_input', {
           playerId,
@@ -590,7 +603,7 @@ class BaseModule {
         roundNumber: this.roundNumber,
         loopContext,
         isReconnect: true,
-        ...(stage.inputConfig ? { inputConfig: stage.inputConfig } : {})
+        ...(stage.gameConfig ? { gameConfig: stage.gameConfig } : {})
       });
     }
 
@@ -1463,8 +1476,8 @@ class BaseModule {
 
   // ── Input / Controller Stage ───────────────────────────────────────────
 
-  async _startInputStage(session, stage) {
-    console.log('[BaseModule] Entering input/controller stage:', stage.name);
+  async _startGameStage(session, stage) {
+    console.log('[BaseModule] Entering game stage:', stage.name);
     for (const player of this.players) player.status = 'active';
 
     const trigger = stage.advance?.trigger || 'host';

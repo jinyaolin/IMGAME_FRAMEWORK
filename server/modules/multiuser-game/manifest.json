@@ -52,7 +52,7 @@
     {
       "id": "card_play",
       "name": "多人對戰",
-      "type": "input",
+      "type": "game",
       "enabled": true,
       "deckId": "action",
       "maxRounds": 5,
@@ -70,7 +70,7 @@
         "duration": 3,
         "fallback": "host"
       },
-      "inputConfig": {
+      "gameConfig": {
         "buttonLabels": {
           "btn1": "1",
           "btn2": "2",

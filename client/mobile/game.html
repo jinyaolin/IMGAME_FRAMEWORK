@@ -1139,11 +1139,11 @@
         setStatus(`階段：${data.stageName}`);
         hideIdentityOverlay();
         hideControllerZone();
-      } else if (data.stageType === 'input') {
+      } else if (data.stageType === 'game') {
         console.log('[Mobile] Entering input/controller stage');
         setStatus(`🎮 ${data.stageName}`);
         hideIdentityOverlay();
-        showControllerZone(data.inputConfig || {});
+        showControllerZone(data.gameConfig || {});
       } else {
         setStatus(`階段：${data.stageName}`);
         hideIdentityOverlay();
@@ -1641,12 +1641,12 @@
     // ════════════════════════════════════════════════════════════════
     const pressedKeys = new Set();
 
-    function showControllerZone(inputConfig) {
+    function showControllerZone(gameConfig) {
       document.getElementById('cardZone').style.display = 'none';
       document.getElementById('actionbar').style.display = 'none';
       const cz = document.getElementById('controllerZone');
       cz.classList.add('active');
-      renderController(inputConfig || {});
+      renderController(gameConfig || {});
     }
 
     function hideControllerZone() {
@@ -1746,7 +1746,7 @@
 
     function sendControllerInput(key, state) {
       const seq = ++inputSeq;
-      client.playerAction('input', { key, state, seq });
+      client.playerAction('game', { key, state, seq });
     }
   </script>
 </body>

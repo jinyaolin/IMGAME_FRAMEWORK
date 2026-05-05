@@ -372,7 +372,13 @@
       document.getElementById('qrOverlayImg').src = Config.qrSrc(data.roomId);
       document.getElementById('qrOverlayUrl').textContent = mobileUrl;
 
-      if (data.phase === 'playing') enterGameView();
+      if (data.phase === 'playing') {
+        enterGameView();
+        if (data.currentStage?.stageType === 'game') {
+          stopGameStage();
+          startGameStage(data.currentStage.gameConfig || {}, [...players.values()]);
+        }
+      }
     });
 
     client.on('game_started', (data) => {
@@ -438,7 +444,7 @@
       document.getElementById('countdownOverlay').classList.remove('visible');
 
       // Stop any running input game loop
-      stopInputStage();
+      stopGameStage();
 
       // Handle intermission stage - show pause screen
       if (data.stageType === 'intermission') {
@@ -451,8 +457,8 @@
             <div style="font-size:1.2rem;color:#6666aa;">${t('display.paused')}</div>
           </div>
         `;
-      } else if (data.stageType === 'input') {
-        startInputStage(data.inputConfig || {}, [...players.values()]);
+      } else if (data.stageType === 'game') {
+        startGameStage(data.gameConfig || {}, [...players.values()]);
       } else if (data.stageType === 'card_play') {
         document.getElementById('moduleDisplay').innerHTML = '';
       }
@@ -812,7 +818,7 @@
     let inputHandlers = [];
     let inputCanvas = null, inputCtx = null;
 
-    function startInputStage(cfg, playersList) {
+    function startGameStage(cfg, playersList) {
       inputPlayers.clear();
       playersList.forEach((p, i) => {
         inputPlayers.set(p.id, {
@@ -857,7 +863,7 @@
       inputRAF = requestAnimationFrame(loop);
     }
 
-    function stopInputStage() {
+    function stopGameStage() {
       if (inputRAF) { cancelAnimationFrame(inputRAF); inputRAF = null; }
       inputPlayers.clear();
       inputHandlers = [];

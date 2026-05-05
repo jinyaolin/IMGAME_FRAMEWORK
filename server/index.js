@@ -636,12 +636,16 @@ io.on('connection', (socket) => {
 
     socket.join(roomId);
     session.displaySocketIds.add(socket.id);
+    const currentStage = (session.phase === 'playing' && session.currentModule)
+      ? session.currentModule.getCurrentStageInfo?.() ?? null
+      : null;
     socket.emit('display_joined', {
       roomId,
       phase: session.phase,
       moduleName: session.moduleName,
       players: session.players.publicList(),
       sharedState: session.sharedState,
+      currentStage,
     });
     console.log(`[Room:${roomId}] Display connected`);
   });

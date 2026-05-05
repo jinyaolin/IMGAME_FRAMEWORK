@@ -1,20 +1,22 @@
 # Immersive Game
 
-多人手機 + 大螢幕互動的沉浸式遊戲框架。設計目的是讓沉浸式空間裡的觀眾，用手機當作私人介面（手牌、身份卡、按鈕），同時搭配一個大螢幕作為共同視覺場景，由一位 host／GM 控制流程。
+**[中文版](README.zh-TW.md)** | English
+
+Multiplayer interactive game framework designed for immersive spaces. Players use their phones as private interfaces (identity cards, role cards, buttons), while a large screen serves as the shared visual scene controlled by a host/GM.
 
 ```
                         ┌─────────────────┐
-                        │   大螢幕 / TD    │
+                        │   Large Screen  │
                         │   (display)     │
                         └────────▲────────┘
                                  │
-   📱 手機 ──┐              Socket.IO
-   📱 手機 ──┤  ←──────────►  Server  ←─────────► 🎛 Host 控制台
-   📱 手機 ──┤                                    (host UI)
-   📱 手機 ──┘
+   📱 Phone ──┐              Socket.IO
+   📱 Phone ──┤  ←──────────►  Server  ←─────────► 🎛 Host Console
+   📱 Phone ──┤                                    (host UI)
+   📱 Phone ──┘
 ```
 
-設定一份遊戲不用寫程式 — 用內建 **編輯器** 做出新模組（卡牌內容、階段、推進規則、計時器、投票設定、循環邏輯），存檔即可開玩。
+No coding required — use the built-in **Editor** to create game modules (card content, stages, progression rules, timers, voting settings, loop logic), save, and play.
 
 ---
 
@@ -23,11 +25,11 @@
 ```bash
 npm install
 npm start                                 # localhost:3000
-npm run start:lan                         # 用本機 en0 IP 開放 LAN（手機掃 QR code 用）
+npm run start:lan                         # Use local en0 IP for LAN (for mobile QR scanning)
 npm run dev                               # nodemon
 ```
 
-啟動後會看到：
+After starting, you'll see:
 
 ```
 🎮 Immersive Game Server
@@ -39,222 +41,230 @@ npm run dev                               # nodemon
    Decks   → http://localhost:3000/decks
 ```
 
-| URL | 角色 | 設備 |
+| URL | Role | Device |
 |-----|------|------|
-| `/host` | 主持人 — 開房、選模組、推進階段、踢人 | 桌機／平板 |
-| `/mobile` | 玩家 — 看私人手牌、出牌、確認身份、投票 | 手機 |
-| `/display` | 大螢幕公共資訊 — 進度、投票結果、視覺 | 投影機／TD Web Render |
-| `/editor` | 設計師 — 建立／修改／刪除遊戲模組，支援卡牌挑選 | 桌機 |
-| `/decks` | 設計師 — 管理共用牌組（卡牌內容＋圖片上傳） | 桌機 |
+| `/host` | Host — create rooms, select modules, advance stages, kick players | Desktop/Tablet |
+| `/mobile` | Player — view private cards, play cards, confirm identity, vote | Phone |
+| `/display` | Large screen public info — progress, voting results, visuals | Projector/Web Render TD |
+| `/editor` | Designer — create/modify/delete game modules, supports card selection | Desktop |
+| `/decks` | Designer — manage shared card decks (card content + image upload) | Desktop |
 
 ---
 
-## 一場遊戲的流程
+## Game Flow
 
-1. **Host** 打開 `/host` → 選擇模組 → 「建立房間」拿到房號 + QR code
-2. **玩家** 用手機掃 QR 進到 `/mobile?room=ABCDEF`，輸入名稱
-3. **大螢幕** 打開 `/display?room=ABCDEF`
-4. **Host** 確認人數準備齊全 → 啟動遊戲
-5. 遊戲依模組階段流程跑
-6. 結束後 host 可重新開始或關閉房間
+1. **Host** opens `/host` → selects module → "Create Room" to get room number + QR code
+2. **Players** scan QR code with phones to enter `/mobile?room=ABCDEF`, enter names
+3. **Large screen** opens `/display?room=ABCDEF`
+4. **Host** confirms everyone is ready → starts game
+5. Game runs through module stages
+6. After ending, host can restart or close room
 
-玩家斷線給 30 秒寬限重連，重連後手牌、身份、投票狀態、目前階段全部自動還原。
-
----
-
-## 主要功能
-
-### 🎴 自訂牌組組合
-在編輯器中建立遊戲模組時，可以從全域牌組中挑選特定卡牌來建立自訂牌組：
-
-**使用步驟**：
-1. 在編輯器中選擇一個模組
-2. 切換到「牌組」分頁
-3. 新增一個牌組或編輯現有牌組
-4. 從下拉選單選擇一個全域牌組
-5. 展開牌組後會看到該牌組的所有卡牌列表
-6. 勾選想要的卡牌，並在右側輸入框設定張數
-7. 使用「全選」快速選取所有卡牌，或「清除」取消所有選擇
-8. 儲存模組後，遊戲將只使用選中的卡牌和指定張數
-
-**應用場景**：
-- 從大型角色牌組中挑選特定角色給新手局
-- 調整行動牌的強度分佈（減少高點數卡牌）
-- 建立主題變體（例如：只用魔法類卡牌）
-- 測試用小牌組（加快遊戲節奏）
-
-**技術細節**：
-- 卡牌選擇資訊儲存在模組 manifest 的 `selectedCards` 欄位
-- 格式：`{ "cardId": count, ... }`
-- 未選擇任何卡牌時，使用完整牌組
-- 切換全域牌組時會自動清空已選擇的卡牌
+Players get 30-second grace window for reconnection. Upon reconnecting, hand cards, identities, voting status, and current stage are automatically restored.
 
 ---
 
-## 框架核心概念
+## Key Features
 
-### 1. 模組 (Module)
-一個 `manifest.json` 就是一個遊戲，位於 `server/modules/<id>/`。
+### 🎴 Custom Deck Combination
+When creating game modules in the editor, you can select specific cards from global decks to create custom decks:
+
+**How to use:**
+1. Select a module in the editor
+2. Switch to "Decks" tab
+3. Add a new deck or edit existing deck
+4. Select a global deck from dropdown
+5. Expand the deck to see all cards
+6. Check desired cards and set quantities in the right input field
+7. Use "Select All" to quickly select all cards, or "Clear" to cancel selection
+8. Save module — game will only use selected cards with specified quantities
+
+**Use cases:**
+- Select specific characters from large character decks for beginner games
+- Adjust action card strength distribution (reduce high-value cards)
+- Create themed variants (e.g., magic-only cards)
+- Test with small decks (faster gameplay)
+
+**Technical details:**
+- Card selection info stored in module manifest's `selectedCards` field
+- Format: `{ "cardId": count, ... }`
+- Uses full deck when no cards selected
+- Automatically clears selected cards when switching global decks
+
+---
+
+## Framework Core Concepts
+
+### 1. Module (Game)
+A `manifest.json` is a complete game, located in `server/modules/<id>/`.
 
 ```jsonc
 {
   "id": "card-battle",
-  "name": "卡牌對戰",
+  "name": "Card Battle",
   "minPlayers": 2,
   "maxPlayers": 8,
   "version": "2.0.0",
-  "decks":  [ /* 牌組 */ ],
-  "stages": [ /* 階段流程 */ ]
+  "decks":  [ /* decks */ ],
+  "stages": [ /* stage flow */ ]
 }
 ```
 
-### 2. 階段 (Stages)
+### 2. Stages
 
-階段是遊戲流程的骨架。目前支援以下 type：
+Stages are the skeleton of game flow. Currently supported types:
 
-| Type | 行為 |
+| Type | Behavior |
 |------|------|
-| `identity_draw` | 從指定牌組抽牌，私下發給每位玩家當身份／角色 |
-| `card_play` | 多回合出牌 → 翻牌 → 結算 → 下一回合 |
-| `vote` | 公開或匿名投票，支援倒數計時、單選／多選、換票 |
-| `intermission` | 暫停等待，僅顯示說明文字，不觸發任何遊戲邏輯 |
-| `input` | 將 mobile 變成即時遊戲控制器，按鍵訊號即時傳送到 display canvas |
-| `loop` | 循環執行一組子階段 N 次（可用於多輪投票、多輪劇情等） |
-| `result` | 計算最終排名、廣播 `game_ended` |
+| `identity_draw` | Draw cards from specified deck, privately deal to each player as identity/role |
+| `card_play` | Multi-round card play → reveal → settle → next round |
+| `vote` | Public or anonymous voting, supports countdown, single/multi-select, vote changing |
+| `intermission` | Pause wait, only shows description text, triggers no game logic |
+| `input` | Transform mobile into real-time game controller, button signals sent to display canvas immediately |
+| `loop` | Loop through a set of child stages N times (for multi-round voting, multi-round story, etc.) |
+| `result` | Calculate final rankings, broadcast `game_ended` |
 
-#### 推進條件 (advance)
+#### Advance Conditions
 
 ```jsonc
 "advance": {
-  "trigger": "all_played",   // 見下表
-  "duration": 5,             // timer/auto 用（秒）
-  "fallback": "host"         // 任何 trigger 都可加，host 保留強制推進鈕
+  "trigger": "all_played",   // see table below
+  "duration": 5,             // for timer/auto (seconds)
+  "fallback": "host"         // any trigger can add this, host keeps force advance button
 }
 ```
 
-| Trigger | 意義 |
+| Trigger | Meaning |
 |---------|------|
-| `host` | Host 按按鈕（預設） |
-| `all_played` | 全員出牌後自動 |
-| `all_confirmed` | 全員確認身份後自動 |
-| `vote_ended` | 投票結果出來後自動 |
-| `auto` | 固定延遲後自動（不顯示倒數） |
-| `timer` | 倒數結束後自動，三端都看到秒數 |
+| `host` | Host clicks button (default) |
+| `all_played` | Auto after all played |
+| `all_confirmed` | Auto after all confirmed |
+| `vote_ended` | Auto after voting results ready |
+| `auto` | Auto after fixed delay (no countdown shown) |
+| `timer` | Auto after countdown ends, all three ends see seconds |
+| `identity_timer` | Countdown after all confirmed |
+| `auto_next` | Immediately advance to next stage after reveal |
+| `round_timer` | Countdown to next stage after reveal |
+| `host_reveal` | Host manual reveal |
+| `play_timer` | Countdown reveal after all played |
+| `all_submitted` | Auto after all submitted |
+| `auto_restart` | Immediately restart game |
+| `restart_timer` | Restart after countdown |
 
-`fallback: 'host'` 表示就算是自動推進，host 仍保留強制推進按鈕。
+`fallback: 'host'` means even with auto-advance, host keeps force advance button.
 
-#### vote 階段設定
+#### Vote Stage Config
 
 ```jsonc
 {
   "type": "vote",
-  "name": "淘汰投票",
+  "name": "Elimination Vote",
   "voteConfig": {
-    "title": "請投票淘汰一位玩家",
+    "title": "Please vote to eliminate a player",
     "target": "players",          // players | options
-    "options": [],                // target=options 時手動填選項
-    "countdownSeconds": 30,       // 0 = 不計時
-    "anonymous": false,           // 匿名投票
+    "options": [],                // for target=options
+    "countdownSeconds": 30,       // 0 = no timer
+    "anonymous": false,           // anonymous voting
     "allowSelfVote": false,
     "multiSelect": false,
     "maxSelections": 1,
     "canChangeVote": true,
-    "revealDelay": 2              // 結果公布延遲秒數
+    "revealDelay": 2              // result announcement delay (seconds)
   },
   "advance": { "trigger": "vote_ended", "fallback": "host" }
 }
 ```
 
-#### input 階段設定
+#### Input Stage Config
 
 ```jsonc
 {
   "type": "input",
-  "name": "多人控制器",
+  "name": "Multiplayer Controller",
   "inputConfig": {
-    "layout": "dpad-2btn",     // 見下表
-    "buttonLabels": {          // 各按鍵自訂標籤（選填）
+    "layout": "dpad-2btn",     // see table below
+    "buttonLabels": {          // custom labels for each button (optional)
       "btn1": "A",
       "btn2": "B"
     },
-    "gameCode": "..."          // display canvas 遊戲邏輯 JS（選填）
+    "gameCode": "..."          // display canvas game logic JS (optional)
   },
   "advance": { "trigger": "host" }
 }
 ```
 
-**控制器樣式 (`layout`)**：
+**Controller Layouts (`layout`)**:
 
-| 值 | 外觀 |
+| Value | Appearance |
 |----|------|
-| `pad-8` | 2×4 八按鈕格狀（btn1–btn8） |
-| `pad-4` | 2×2 四按鈕格狀（btn1–btn4） |
-| `pad-2` | 左右兩個大按鈕（btn1, btn2） |
-| `dpad-2btn` | 左側十字鍵（up/down/left/right）＋右側 A/B 兩鍵 |
-| `dpad-dpad` | 雙十字鍵（左 up/down/left/right，右 up2/down2/left2/right2） |
+| `pad-8` | 2×4 eight-button grid (btn1–btn8) |
+| `pad-4` | 2×2 four-button grid (btn1–btn4) |
+| `pad-2` | Two large buttons left-right (btn1, btn2) |
+| `dpad-2btn` | Left D-pad (up/down/left/right) + right A/B buttons |
+| `dpad-dpad` | Dual D-pad (left up/down/left/right, right up2/down2/left2/right2) |
 
-每次玩家按下或放開按鍵，server 都會以 `player_input` 事件即時廣播到 display：
+Every time a player presses or releases a button, server immediately broadcasts to display as `player_input` event:
 
 ```json
 { "playerId": "p1", "playerName": "Alice", "key": "btn1", "state": "down" }
 ```
 
-**`gameCode` — 自訂 display 遊戲**
+**`gameCode` — Custom Display Game**
 
-`gameCode` 是一段 JavaScript，在 display 端執行，可透過 `GameAPI` 物件接收玩家輸入並自訂畫面：
+`gameCode` is JavaScript that runs on display side, can use `GameAPI` object to receive player input and customize display:
 
 ```js
-// GameAPI 提供：
-// GameAPI.canvas   — HTMLCanvasElement（全畫面）
+// GameAPI provides:
+// GameAPI.canvas   — HTMLCanvasElement (fullscreen)
 // GameAPI.ctx      — CanvasRenderingContext2D
 // GameAPI.players  — Map<playerId, { name, color, inputs: Set<key> }>
-// GameAPI.onInput(fn)  — 每次有按鍵事件時呼叫 fn(playerId, key, state, player)
-// GameAPI.update(fn)   — 每個動畫影格呼叫 fn(timestamp)，取代預設視覺化
+// GameAPI.onInput(fn)  — called on each button event fn(playerId, key, state, player)
+// GameAPI.update(fn)   — called each animation frame, replaces default visualization
 
 GameAPI.onInput((playerId, key, state, p) => {
-  // 即時響應按鍵
+  // real-time response to buttons
 });
 GameAPI.update(ts => {
   const ctx = GameAPI.ctx;
-  // 自訂繪圖邏輯
+  // custom drawing logic
 });
 ```
 
-若未提供 `gameCode`，display 顯示預設視覺化：每個玩家有彩色區塊，按下的按鍵以發光圓圈呈現。
+If not provided, display shows default visualization: each player has colored area, pressed buttons shown as glowing circles.
 
-#### loop 階段設定
+#### Loop Stage Config
 
 ```jsonc
 {
   "type": "loop",
-  "name": "多輪投票",
+  "name": "Multi-round Voting",
   "loopConfig": { "iterations": 3 },
   "childStages": [
-    { "type": "intermission", "name": "說明", "advance": { "trigger": "host" } },
-    { "type": "vote", "name": "投票", "voteConfig": { ... }, "advance": { "trigger": "vote_ended" } }
+    { "type": "intermission", "name": "Instructions", "advance": { "trigger": "host" } },
+    { "type": "vote", "name": "Vote", "voteConfig": { ... }, "advance": { "trigger": "vote_ended" } }
   ]
 }
 ```
 
-### 3. 牌組 (Decks)
-兩種來源：
+### 3. Decks
+Two sources:
 
-**內嵌**（manifest 自帶）：
+**Embedded** (module自带):
 ```jsonc
-{ "id": "action", "name": "行動牌組", "type": "action",
+{ "id": "action", "name": "Action Deck", "type": "action",
   "drawCount": 5, "allowDuplicate": true, "enabled": true,
   "cards": [
-    { "id": "c1", "name": "火球術", "value": 9, "description": "強攻" }
+    { "id": "c1", "name": "Fireball", "value": 9, "description": "Strong attack" }
   ]
 }
 ```
 
-**引用全域**（多模組共用）：
+**Reference global** (shared across modules):
 ```jsonc
 {
   "ref": "fantasy-roles",
   "id": "my-custom-deck",
-  "name": "自訂奇幻牌組",
+  "name": "Custom Fantasy Deck",
   "drawCount": 3,
   "allowDuplicate": false,
   "selectedCards": {
@@ -265,23 +275,23 @@ GameAPI.update(ts => {
 }
 ```
 
-全域牌組存在 `server/decks/*.json`，用 `/decks` UI 管理（含卡牌圖片上傳）。
+Global decks stored in `server/decks/*.json`, managed via `/decks` UI (includes card image upload).
 
-**從全域牌組挑選特定卡牌**（新功能）：
-- 在編輯器中引用全域牌組後，可以從中挑選想要的卡牌
-- 每張卡牌都可以設定獨立的張數
-- 使用「全選」或「清除」按鈕快速操作
-- 若未選擇任何卡牌，則使用完整牌組
-- 卡牌選擇會保存在模組的 `selectedCards` 欄位中
+**Select specific cards from global decks** (new feature):
+- After referencing global deck in editor, can select desired cards from it
+- Each card can have independent quantity setting
+- Use "Select All" or "Clear" buttons for quick operations
+- Uses full deck if no cards selected
+- Card selection saved in module's `selectedCards` field
 
-### 4. 引擎 (Engine)
-所有模組共用 `server/core/BaseModule.js` 通用引擎。若需客製邏輯，在模組目錄放 `server.js` 繼承 `BaseModule`：
+### 4. Engine
+All modules share `server/core/BaseModule.js` universal engine. For custom logic, place `server.js` in module directory inheriting from `BaseModule`:
 
 ```js
 const BaseModule = require('../../core/BaseModule');
 class MyGame extends BaseModule {
   async onPlayerAction(playerId, action, data, session) {
-    // 自訂行為
+    // custom behavior
   }
 }
 module.exports = MyGame;
@@ -289,121 +299,121 @@ module.exports = MyGame;
 
 ---
 
-## 重連恢復 (Reconnect Recovery)
+## Reconnection Recovery
 
-玩家斷線後重連，server 會自動推送完整狀態還原封包：
+When players disconnect and reconnect, server automatically pushes complete state restoration packet:
 
-| 事件 | 內容 |
+| Event | Content |
 |------|------|
-| `identity_assigned` | 身份牌（含 `alreadyConfirmed` 旗標，已確認者不彈確認 overlay） |
-| `cards_drawn` | 目前手牌 |
-| `stage_started` | 目前所在階段（含 loop context） |
-| `vote_started` | 如果正在投票中，補發完整投票資訊 |
-| `vote_countdown` | 投票剩餘秒數 |
-| `vote_cast` | 如果玩家已投票，恢復「已投票」狀態 |
-| `players_eliminated` | 如果玩家已被淘汰 |
+| `identity_assigned` | Identity card (includes `alreadyConfirmed` flag, confirmed ones won't show overlay) |
+| `cards_drawn` | Current hand cards |
+| `stage_started` | Current stage (includes loop context) |
+| `vote_started` | If in voting, resend complete voting info |
+| `vote_countdown` | Voting remaining seconds |
+| `vote_cast` | If player voted, restore "voted" status |
+| `players_eliminated` | If player eliminated |
 
 ---
 
-## 目錄結構
+## Directory Structure
 
 ```
 immersive-game/
 ├── README.md
 ├── server/
-│   ├── index.js                    ← Express + Socket.IO 主入口
+│   ├── index.js                    ← Express + Socket.IO main entry
 │   ├── core/
-│   │   ├── BaseModule.js           ← 通用遊戲引擎（stage traversal、vote、loop、reconnect）
-│   │   ├── ModuleLoader.js         ← 掃描／載入 manifest
-│   │   ├── DeckManager.js          ← 全域牌組 CRUD
-│   │   ├── GameSession.js          ← 房間狀態機
-│   │   └── PlayerManager.js        ← 玩家管理
+│   │   ├── BaseModule.js           ← Universal game engine (stage traversal, vote, loop, reconnect)
+│   │   ├── ModuleLoader.js         ← Scan/load manifests
+│   │   ├── DeckManager.js          ← Global deck CRUD
+│   │   ├── GameSession.js          ← Room state machine
+│   │   └── PlayerManager.js        ← Player management
 │   ├── api/
-│   │   └── decks.js                ← /api/decks REST 路由
+│   │   └── decks.js                ← /api/decks REST routes
 │   ├── modules/
-│   │   ├── card-battle/            ← 內建範例：卡牌對戰
-│   │   ├── multi-stage-test/       ← 測試：多階段流程
-│   │   ├── public-vote-test/       ← 測試：公開投票
-│   │   └── vote-demo/             ← 測試：投票示範
-│   └── decks/                      ← 全域牌組 JSON
+│   │   ├── card-battle/            ← Built-in example: Card battle
+│   │   ├── multi-stage-test/       ← Test: Multi-stage flow
+│   │   ├── public-vote-test/       ← Test: Public voting
+│   │   └── vote-demo/             ← Test: Voting demo
+│   └── decks/                      ← Global deck JSON
 ├── client/
-│   ├── mobile/game.html            ← 玩家手機端
-│   ├── host/index.html             ← Host 控制台
-│   ├── display/index.html          ← 大螢幕公共介面
-│   ├── editor/index.html           ← 模組編輯器
-│   ├── decks/                      ← 全域牌組管理
-│   └── shared/socket.js            ← 共用 socket wrapper
-└── public/uploads/                 ← 卡牌圖片（不進 git）
+│   ├── mobile/game.html            ← Player phone interface
+│   ├── host/index.html             ← Host console
+│   ├── display/index.html          ← Large screen public interface
+│   ├── editor/index.html           ← Module editor
+│   ├── decks/                      ← Global deck management
+│   └── shared/socket.js            ← Shared socket wrapper
+└── public/uploads/                 ← Card images (not in git)
 ```
 
 ---
 
-## 內建模組
+## Built-in Modules
 
-### `card-battle` — 卡牌對戰
-2–8 人，每人手牌 5 張，依設定回合數出牌比點數，最高 value 者得 1 分，最後總分高者勝。支援身份抽取、補牌模式設定。
+### `card-battle` — Card Battle
+2–8 players, 5 cards each, play cards for set rounds comparing values, highest value gets 1 point, highest total score wins. Supports identity draw, refill mode settings.
 
-### `input-test` — 控制器測試
-1–8 人，單一 `input` 階段搭配 `pad-4` 佈局，用來驗證控制器輸入與 display 接收是否正常。
+### `input-test` — Controller Test
+1–8 players, single `input` stage with `pad-4` layout, to verify controller input and display reception works correctly.
 
 ---
 
-## 開發
+## Development
 
-### LAN 模式（手機真機測試）
+### LAN Mode (mobile real-device testing)
 ```bash
 npm run start:lan
 ```
-自動抓 `en0` IP，QR code 讓同 WiFi 手機直接連。
+Auto-grabs `en0` IP, QR code lets same-WiFi phones connect directly.
 
-### 編輯器使用指南
-`/editor` 提供視覺化介面來設計遊戲模組，無需手動編輯 JSON：
+### Editor Usage Guide
+`/editor` provides visual interface to design game modules without manual JSON editing:
 
-1. **基本參數**分頁：設定模組名稱、說明、人數限制、版本等資訊
-2. **牌組**分頁：
-   - 新增牌組並引用全域牌組
-   - 從引用的牌組中挑選特定卡牌
-   - 設定每張卡牌的張數
-   - 調整預設抽牌數和是否允許重複
-3. **階段**分頁：
-   - 新增不同類型的階段（身份抽取、出牌回合、投票、暫停、循環、結算）
-   - 設定階段推進條件（手動、自動、倒數）
-   - 配置投票參數（匿名、可否投自己、多選等）
-   - 設定出牌回合的補牌模式和回合數
-4. **進階**分頁：
-   - 直接編輯 manifest JSON 和 fieldConfig 結構描述
-   - **編輯 server.js**：繼承 BaseModule 來實現自訂遊戲邏輯
-     - 點擊「➕ 新增 server.js」或「📝 編輯 server.js」按鈕
-     - 編輯器會自動驗證語法和基本結構
-     - 必須繼承 BaseModule 並導出模組類
-     - 範例：
+1. **Basic Parameters** tab: Set module name, description, player limits, version, etc.
+2. **Decks** tab:
+   - Add deck and reference global deck
+   - Select specific cards from referenced deck
+   - Set quantity for each card
+   - Adjust default draw count and duplicate allowance
+3. **Stages** tab:
+   - Add different stage types (identity draw, card play, voting, pause, loop, result)
+   - Set stage advance conditions (manual, auto, countdown)
+   - Configure voting parameters (anonymous, self-vote, multi-select)
+   - Set card play round refill mode and round count
+4. **Advanced** tab:
+   - Direct edit manifest JSON and fieldConfig structure descriptions
+   - **Edit server.js**: Inherit BaseModule to implement custom game logic
+     - Click "➕ Add server.js" or "📝 Edit server.js" button
+     - Editor auto-validates syntax and basic structure
+     - Must inherit BaseModule and export module class
+     - Example:
        ```javascript
        const BaseModule = require('../../core/BaseModule');
 
        class MyModule extends BaseModule {
          async onPlayerAction(playerId, action, data, session) {
-           // 自訂行為
+           // custom behavior
          }
        }
 
        module.exports = MyModule;
        ```
-     - 可刪除 server.js 來使用預設的 BaseModule 行為
+     - Can delete server.js to use default BaseModule behavior
 
-**快捷鍵**：
-- `⌘S` / `Ctrl+S`：儲存目前模組
-- `⌘Z` / `Ctrl+Z`：還原上一步修改
+**Keyboard shortcuts**:
+- `⌘S` / `Ctrl+S`: Save current module
+- `⌘Z` / `Ctrl+Z`: Undo last change
 
 ### TouchDesigner / Web Render TOP
-把 `/display?room=ABCDEF` 餵給 Web Render TOP 即可。Display 端持續收到 `state_update`。
+Feed `/display?room=ABCDEF` to Web Render TOP. Display continuously receives `state_update`.
 
-### 環境變數
-| 變數 | 說明 |
-|------|------|
-| `PORT` | 服務 port（預設 3000） |
-| `HOST` | QR code 內嵌的 IP（預設用 request Host header） |
+### Environment Variables
+| Variable | Description |
+|----------|-------------|
+| `PORT` | Service port (default 3000) |
+| `HOST` | IP embedded in QR code (default uses request Host header) |
 
 ---
 
-## 授權
+## License
 TBD

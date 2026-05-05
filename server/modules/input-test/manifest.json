@@ -11,8 +11,21 @@
       "type": "input",
       "name": "控制器",
       "enabled": true,
-      "inputConfig": { "layout": "pad-4" },
-      "advance": { "trigger": "host" }
+      "inputConfig": {
+        "layout": "pad-4"
+      },
+      "advance": {
+        "trigger": "host"
+      }
+    },
+    {
+      "id": "stage_morutzr9_u24z1",
+      "name": "新階段",
+      "type": "result",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      }
     }
   ]
 }

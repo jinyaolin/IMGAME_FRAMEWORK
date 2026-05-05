@@ -267,7 +267,7 @@
   <!-- Connection overlay -->
   <div id="connectOverlay">
     <div class="spinner"></div>
-    <span id="connectMsg">連線中…</span>
+    <span id="connectMsg" data-i18n="display.connecting">連線中…</span>
   </div>
 
   <!-- QR Code overlay -->
@@ -346,7 +346,7 @@
 
     client.on('disconnect', () => {
       document.getElementById('connectOverlay').classList.remove('hidden');
-      document.getElementById('connectMsg').textContent = '連線中斷，重新連線…';
+      document.getElementById('connectMsg').textContent = t('display.reconnecting');
     });
 
     client.on('room_closed', () => {
@@ -806,7 +806,7 @@
 
     // ── Input / Controller Stage ──────────────────────────────────
     const CTRL_COLORS = ['#ff6644','#44aaff','#44ff88','#ffdd44','#ff44aa','#88aaff','#ffaa44','#44ffdd'];
-    const inputPlayers = new Map(); // playerId → { name, color, inputs: Set }
+    const inputPlayers = new Map(); // playerId → { name, color, inputs: Set, lastSeq: Map<key, seq> }
     let inputRAF = null;
     let inputUpdateFn = null;
     let inputHandlers = [];
@@ -815,7 +815,12 @@
     function startInputStage(cfg, playersList) {
       inputPlayers.clear();
       playersList.forEach((p, i) => {
-        inputPlayers.set(p.id, { name: p.name, color: CTRL_COLORS[i % CTRL_COLORS.length], inputs: new Set() });
+        inputPlayers.set(p.id, {
+          name: p.name,
+          color: CTRL_COLORS[i % CTRL_COLORS.length],
+          inputs: new Set(),
+          lastSeq: new Map() // key → last sequence number
+        });
       });
 
       const displayEl = document.getElementById('moduleDisplay');
@@ -924,6 +929,17 @@
     client.on('player_input', data => {
       const ps = inputPlayers.get(data.playerId);
       if (!ps) return;
+
+      // Handle sequence number to prevent out-of-order issues
+      if (data.seq !== undefined) {
+        const lastSeq = ps.lastSeq.get(data.key) || 0;
+        if (data.seq <= lastSeq) {
+          // This is an old event, ignore it
+          return;
+        }
+        ps.lastSeq.set(data.key, data.seq);
+      }
+
       if (data.state === 'down') ps.inputs.add(data.key);
       else ps.inputs.delete(data.key);
       for (const h of inputHandlers) {

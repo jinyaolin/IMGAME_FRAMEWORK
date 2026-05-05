@@ -544,6 +544,7 @@ class BaseModule {
           playerName: player?.name || playerId,
           key: data?.key,
           state: data?.state,
+          seq: data?.seq, // Forward sequence number to prevent out-of-order issues
         });
       }
     }

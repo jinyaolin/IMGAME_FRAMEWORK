@@ -502,53 +502,55 @@
 <body>
 
 <header>
-  <h1>🎮 HOST 控制台</h1>
+  <h1 data-i18n="host.title">🎮 HOST 控制台</h1>
   <div style="display:flex;align-items:center;gap:12px;">
     <a href="/editor" target="_blank"
        style="font-size:.82rem;color:#aaaaff;text-decoration:none;border:1px solid #3a3a6a;
-              padding:6px 12px;border-radius:6px;background:#14142a;">
+              padding:6px 12px;border-radius:6px;background:#14142a;"
+       data-i18n="host.editor_link">
       📝 模組編輯器
     </a>
     <button class="btn btn-neutral"
             id="toggleQrBtn"
             onclick="toggleDisplayQR()"
             style="padding:6px 12px;font-size:.82rem;"
-            title="在 Display 顯示/隱藏玩家加入 QR Code">
-      📱 使用者加入條碼
+            title="在 Display 顯示/隱藏玩家加入 QR Code"
+            data-i18n="host.qr_btn">
+      📱 玩家加入 QR
     </button>
     <div class="badge"
          style="cursor:pointer;"
          onclick="openDisplayPage()"
-         title="點擊打開 Display 頁面">房間 <span id="headerRoom">------</span> 📺</div>
+         title="點擊打開 Display 頁面"><span data-i18n="host.room_badge">房間</span> <span id="headerRoom">------</span> 📺</div>
   </div>
 </header>
 
 <!-- Setup screen -->
 <div id="setupScreen">
-  <h2>🎮 遊戲房間</h2>
-  <p>選擇現有房間或建立新遊戲房間</p>
+  <h2 data-i18n="host.room_section">🎮 遊戲房間</h2>
+  <p data-i18n="host.room_desc">選擇現有房間或建立新遊戲房間</p>
 
   <!-- Room list -->
   <div style="margin-bottom:24px;width:100%;max-width:480px;">
-    <div class="section-title" style="margin-bottom:12px;">現有房間</div>
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="host.existing_rooms">現有房間</div>
     <div id="roomList" style="min-height:60px;">
-      <div style="color:#555;font-size:.8rem;text-align:center;padding:20px;">載入中…</div>
+      <div style="color:#555;font-size:.8rem;text-align:center;padding:20px;" data-i18n="host.loading">載入中…</div>
     </div>
   </div>
 
   <!-- Create new room -->
   <div style="border-top:1px solid #2a2a4a;padding-top:24px;width:100%;max-width:480px;">
-    <div class="section-title" style="margin-bottom:12px;">建立新房間 — 選擇遊戲模組</div>
+    <div class="section-title" style="margin-bottom:12px;" data-i18n="host.create_section">建立新房間 — 選擇遊戲模組</div>
     <div id="setupModuleList" class="setup-module-list">
-      <div style="color:#555;font-size:.8rem;text-align:center;padding:16px;">載入中…</div>
+      <div style="color:#555;font-size:.8rem;text-align:center;padding:16px;" data-i18n="host.loading">載入中…</div>
     </div>
     <div style="margin-top:12px;display:flex;gap:8px;">
-      <button class="btn btn-primary btn-full" id="createRoomBtn" onclick="createRoom()" style="margin-bottom:8px;" disabled>
+      <button class="btn btn-primary btn-full" id="createRoomBtn" onclick="createRoom()" style="margin-bottom:8px;" disabled data-i18n="host.create_room_btn">
         ➕ 建立新房間
       </button>
     </div>
-    <button class="btn btn-neutral btn-full" onclick="refreshRooms()" style="font-size:.82rem;">
-      🔄 重新整理房間列表
+    <button class="btn btn-neutral btn-full" onclick="refreshRooms()" style="font-size:.82rem;" data-i18n="host.refresh">
+      🔄 重新整理
     </button>
   </div>
 </div>
@@ -559,17 +561,17 @@
   <!-- ── Left: Players ── -->
   <div class="col">
     <div class="col-title-row">
-      <span>玩家 (<span id="playerCount">0</span>)</span>
+      <span><span data-i18n="host.players">玩家</span> (<span id="playerCount">0</span>)</span>
       <div class="sort-wrap">
         <button class="sort-btn" id="sortBtn" onclick="toggleSortMenu(event)">
-          <span id="sortLabel">登入順序</span> ▾
+          <span id="sortLabel" data-i18n="host.sort_join">登入順序</span> ▾
         </button>
         <div class="sort-menu" id="sortMenu">
-          <div class="sort-opt" data-mode="join"     onclick="setSortMode('join')">登入順序</div>
-          <div class="sort-opt" data-mode="name-asc" onclick="setSortMode('name-asc')">名字 A → Z</div>
-          <div class="sort-opt" data-mode="name-desc"onclick="setSortMode('name-desc')">名字 Z → A</div>
+          <div class="sort-opt" data-mode="join"     onclick="setSortMode('join')"     data-i18n="host.sort_join">登入順序</div>
+          <div class="sort-opt" data-mode="name-asc" onclick="setSortMode('name-asc')" data-i18n="host.sort_name_asc">名字 A → Z</div>
+          <div class="sort-opt" data-mode="name-desc"onclick="setSortMode('name-desc')" data-i18n="host.sort_name_desc">名字 Z → A</div>
           <div class="sort-divider"></div>
-          <div class="sort-opt" data-mode="manual"   onclick="setSortMode('manual')">手動排列（可拖曳）</div>
+          <div class="sort-opt" data-mode="manual"   onclick="setSortMode('manual')"   data-i18n="host.sort_manual">手動排列（可拖曳）</div>
         </div>
       </div>
     </div>
@@ -577,7 +579,7 @@
       <div class="number-column" id="numberColumn">
         <!-- Fixed number badges will be rendered here -->
       </div>
-      <div id="playerList"><div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">等待玩家加入…</div></div>
+      <div id="playerList"><div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px" data-i18n="host.waiting_players">等待玩家加入…</div></div>
     </div>
   </div>
 
@@ -591,9 +593,9 @@
       </div>
 
       <div class="section" id="moduleSelectSection">
-        <div class="section-title" id="moduleSelectTitle">選擇遊戲模組</div>
+        <div class="section-title" id="moduleSelectTitle" data-i18n="host.module_select">選擇遊戲模組</div>
         <div class="module-grid" id="moduleGrid">
-          <div style="color:#555;font-size:.8rem;">載入中…</div>
+          <div style="color:#555;font-size:.8rem;" data-i18n="host.loading">載入中…</div>
         </div>
       </div>
 
@@ -607,28 +609,29 @@
         <div id="mdDesc" style="font-size:.78rem;color:#8888bb;margin-bottom:10px;line-height:1.5;"></div>
 
         <div class="md-section">
-          <div class="md-label">基本參數</div>
+          <div class="md-label" data-i18n="host.md_basic">基本參數</div>
           <div id="mdFields" class="md-kv"></div>
         </div>
         <div class="md-section">
-          <div class="md-label">牌組</div>
+          <div class="md-label" data-i18n="host.md_decks">牌組</div>
           <div id="mdDecks" class="md-list"></div>
         </div>
         <div class="md-section" style="margin-bottom:0;">
-          <div class="md-label">啟用階段</div>
+          <div class="md-label" data-i18n="host.md_stages">啟用階段</div>
           <div id="mdStages" class="md-list"></div>
         </div>
 
         <div style="margin-top:12px;text-align:right;">
           <a id="mdEditorLink" href="/editor" target="_blank"
-             style="font-size:.74rem;color:#6688ff;text-decoration:none;">→ 在編輯器中開啟</a>
+             style="font-size:.74rem;color:#6688ff;text-decoration:none;"
+             data-i18n="host.md_editor_link">→ 在編輯器中開啟</a>
         </div>
       </div>
 
       <div class="section" style="margin-top:12px;">
-        <button class="btn btn-success btn-full" id="startBtn" onclick="startGame()" disabled>啟動遊戲模組</button>
+        <button class="btn btn-success btn-full" id="startBtn" onclick="startGame()" disabled data-i18n="host.start_game">啟動遊戲模組</button>
         <div id="startHint" style="font-size:.73rem;color:#cc8800;text-align:center;min-height:1.2em;margin-bottom:4px;"></div>
-        <button class="btn btn-danger btn-full" onclick="closeRoom()" style="margin-top:4px;font-size:.82rem;">關閉房間</button>
+        <button class="btn btn-danger btn-full" onclick="closeRoom()" style="margin-top:4px;font-size:.82rem;" data-i18n="host.close_room">關閉房間</button>
       </div>
     </div>
 
@@ -645,13 +648,13 @@
            style="background:#0e0e22;border:1px solid #2a4a6a;border-left-width:4px;
 	                  border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:.82rem;
 	                  min-height:38px;opacity:0;transition:opacity .3s;visibility:hidden;">
-        <span id="gpAdvanceText">⏱ 自動推進中…</span>
+        <span id="gpAdvanceText" data-i18n="host.auto_advancing">⏱ 自動推進中…</span>
         <span id="gpAdvanceTimer" style="float:right;font-family:monospace;color:#66bbff;"></span>
       </div>
 
       <!-- Round progress -->
       <div class="gp-round-row">
-        <span class="gp-round-label">回合</span>
+        <span class="gp-round-label" data-i18n="host.round">回合</span>
         <div class="round-dots" id="gpRoundDots"></div>
         <div class="progress-bar"><div class="progress-fill" id="gpProgressFill" style="width:0%"></div></div>
         <span style="font-size:.72rem;color:#6666aa;" id="gpRoundText">0/0</span>
@@ -660,13 +663,13 @@
       <hr class="divider">
 
       <!-- Player action grid -->
-      <div class="section-title" style="margin-bottom:8px;" id="gpGridLabel">玩家狀態</div>
+      <div class="section-title" style="margin-bottom:8px;" id="gpGridLabel" data-i18n="host.player_status">玩家狀態</div>
       <div class="gp-player-grid" id="gpPlayerGrid"></div>
 
       <!-- Reveal cards (only in reveal phase) -->
       <div id="gpRevealSection" class="hidden">
         <hr class="divider">
-        <div class="section-title" style="margin-bottom:8px;">本回合出牌</div>
+        <div class="section-title" style="margin-bottom:8px;" data-i18n="host.this_round">本回合出牌</div>
         <div class="gp-reveals" id="gpReveals"></div>
         <div id="gpWinnerLine" style="font-size:.82rem;color:#ffdd44;text-align:center;margin-bottom:12px;"></div>
       </div>
@@ -679,34 +682,34 @@
     <!-- PANEL C: Result -->
     <div id="resultPanel">
       <div style="font-size:2rem;margin-bottom:8px;">🏆</div>
-      <div class="rp-title">遊戲結束</div>
+      <div class="rp-title" data-i18n="host.game_over">遊戲結束</div>
       <div class="rp-sub" id="rpWinners"></div>
       <div class="rp-leaderboard" id="rpLeaderboard"></div>
       <hr class="divider">
-      <button class="btn btn-success btn-full" onclick="hostAction('restart')">重新開始（同模組）</button>
-      <button class="btn btn-danger btn-full" onclick="closeRoom()">結束房間</button>
+      <button class="btn btn-success btn-full" onclick="hostAction('restart')" data-i18n="host.restart">重新開始（同模組）</button>
+      <button class="btn btn-danger btn-full" onclick="closeRoom()" data-i18n="host.end_room">結束房間</button>
     </div>
 
     <!-- PANEL D: Vote -->
     <div id="votePanel">
       <div class="gp-header">
-        <span class="gp-module-name" id="voteModuleName">🗳️ 投票階段</span>
+        <span class="gp-module-name" id="voteModuleName" data-i18n="host.vote_stage">🗳️ 投票階段</span>
         <div style="display:flex;align-items:center;gap:12px;">
           <span id="voteTimer" style="font-size:.85rem;color:#ffdd44;font-weight:600;"></span>
-          <span class="phase-badge"><span class="phase-dot"></span><span id="votePhaseLabel">投票中</span></span>
+          <span class="phase-badge"><span class="phase-dot"></span><span id="votePhaseLabel" data-i18n="host.voting">投票中</span></span>
         </div>
       </div>
 
       <div style="margin-bottom:16px;">
-        <span class="section-title">投票進度</span>
+        <span class="section-title" data-i18n="host.vote_progress">投票進度</span>
         <div class="gp-player-grid" id="votePlayerGrid"></div>
       </div>
 
       <hr class="divider">
 
-      <div class="section-title">即時票數</div>
+      <div class="section-title" data-i18n="host.vote_live">即時票數</div>
       <div class="vote-results" id="voteResults">
-        <div style="color:#666;font-size:.82rem;text-align:center;padding:20px;">等待投票…</div>
+        <div style="color:#666;font-size:.82rem;text-align:center;padding:20px;" data-i18n="host.waiting_vote">等待投票…</div>
       </div>
 
       <hr class="divider">
@@ -722,7 +725,7 @@
       <img id="qrImg" src="" alt="">
       <p id="joinUrlText"></p>
     </div>
-    <div class="col-title">事件記錄</div>
+    <div class="col-title" data-i18n="host.events">事件記錄</div>
     <div id="logList"></div>
   </div>
 
@@ -780,14 +783,14 @@
     } catch (err) {
       console.error('[Host] Failed to load rooms:', err);
       document.getElementById('roomList').innerHTML =
-        '<div style="color:#884444;font-size:.8rem;text-align:center;padding:20px;">載入失敗</div>';
+        `<div style="color:#884444;font-size:.8rem;text-align:center;padding:20px;">${t('host.load_failed')}</div>`;
     }
   }
 
   function renderRoomList(rooms) {
     const container = document.getElementById('roomList');
     if (!rooms || rooms.length === 0) {
-      container.innerHTML = '<div style="color:#555;font-size:.8rem;text-align:center;padding:20px;">沒有現有房間</div>';
+      container.innerHTML = `<div style="color:#555;font-size:.8rem;text-align:center;padding:20px;">${t('host.no_rooms')}</div>`;
       return;
     }
 
@@ -796,7 +799,7 @@
         <div class="room-info">
           <div class="room-id">${room.roomId}</div>
           <div class="room-details">
-            ${room.moduleName ? room.moduleName : '等待選擇模組'} · ${room.playerCount} 玩家
+            ${room.moduleName ? room.moduleName : t('host.waiting_module')} · ${room.playerCount} ${t('host.players')}
           </div>
         </div>
         <div class="room-arrow">→</div>
@@ -809,7 +812,7 @@
       // First verify room exists
       const res = await fetch(`/api/rooms/${targetRoomId}`);
       if (!res.ok) {
-        alert('房間不存在');
+        alert(t('alert.room_not_found'));
         refreshRooms();
         return;
       }
@@ -827,14 +830,14 @@
       const qrBtn = document.getElementById('toggleQrBtn');
       qrBtn.style.background = '#2a2a5a';
       qrBtn.style.color = '#aaaaff';
-      qrBtn.innerHTML = '📱 使用者加入條碼';
+      qrBtn.textContent = t('host.qr_btn');
 
       client.connect();
       client.on('connect', () => client.joinHost(roomId));
       setupEvents();
     } catch (err) {
       console.error('[Host] Failed to join room:', err);
-      alert('無法加入房間');
+      alert(t('alert.join_failed'));
       refreshRooms();
     }
   }
@@ -848,14 +851,14 @@
       const modules = await res.json();
       const container = document.getElementById('setupModuleList');
       if (!modules.length) {
-        container.innerHTML = '<div style="color:#555;font-size:.8rem;text-align:center;padding:16px;">沒有可用模組</div>';
+        container.innerHTML = `<div style="color:#555;font-size:.8rem;text-align:center;padding:16px;">${t('editor.no_modules')}</div>`;
         return;
       }
       container.innerHTML = modules.map(m => `
         <div class="setup-module-item" id="smi-${m.id}" onclick="selectSetupModule('${m.id}')">
           <div>
             <div class="smi-name">${m.name || m.id}</div>
-            <div class="smi-meta">${m.minPlayers}–${m.maxPlayers} 人 · ${m.description || ''}</div>
+            <div class="smi-meta">${m.minPlayers}–${m.maxPlayers} ${t('host.players')} · ${m.description || ''}</div>
           </div>
           <span class="smi-check">✓</span>
         </div>
@@ -895,7 +898,7 @@
     const qrBtn = document.getElementById('toggleQrBtn');
     qrBtn.style.background = '#2a2a5a';
     qrBtn.style.color = '#aaaaff';
-    qrBtn.innerHTML = '📱 使用者加入條碼';
+    qrBtn.textContent = t('host.qr_btn');
 
     client.connect();
     client.on('connect', () => client.joinHost(roomId));
@@ -904,7 +907,7 @@
 
   // ── Close room ──────────────────────────────────────────────────
   function closeRoom() {
-    if (!confirm('確定要關閉房間嗎？所有玩家將被踢出。')) return;
+    if (!confirm(t('alert.close_room'))) return;
     client.closeRoom();
   }
 
@@ -975,12 +978,12 @@
         selectedModule   = d.manifest.id;
         renderModuleDetails(selectedManifest);
         document.getElementById('moduleSelectSection').style.display = 'none';
-        document.getElementById('moduleSelectTitle').textContent = '遊戲模組';
+        document.getElementById('moduleSelectTitle').textContent = t('host.module_selected');
       }
       renderPlayers(d.players || []);
       setQR(d.roomId);
       updateSortButtonState(); // Initialize sort button state
-      addLog('Host 已連線');
+      addLog(t('host.connected') || 'Host 已連線');
     });
 
     client.on('room_closed', () => backToSetup());
@@ -997,9 +1000,9 @@
       addLog(`${d.player?.name} 加入`);
     });
     client.on('player_left',        d => { renderPlayers(d.players || []); addLog('玩家離開'); });
-    client.on('player_ready',       d => { renderPlayers(d.players || []); updateLobbyBtns(); addLog('玩家準備完成'); });
-    client.on('player_disconnected',d => addLog('玩家斷線'));
-    client.on('player_reconnected', d => addLog('玩家重連'));
+    client.on('player_ready',       d => { renderPlayers(d.players || []); updateLobbyBtns(); addLog(t('host.log.player_ready')); });
+    client.on('player_disconnected',d => addLog(t('host.log.player_disconnected')));
+    client.on('player_reconnected', d => addLog(t('host.log.player_reconnected')));
 
     client.on('game_started', d => {
       console.log('[Host] Game started:', d);
@@ -1413,8 +1416,8 @@
 
     if (!disabled && selectedManifest) {
       const { minPlayers, maxPlayers } = selectedManifest;
-      if (readyCount < minPlayers) { disabled = true; msg = `至少需要 ${minPlayers} 人準備（目前 ${readyCount} 人）`; }
-      else if (readyCount > maxPlayers) { disabled = true; msg = `最多 ${maxPlayers} 人（目前 ${readyCount} 人）`; }
+      if (readyCount < minPlayers) { disabled = true; msg = t('alert.min_players', { n: minPlayers, now: readyCount }); }
+      else if (readyCount > maxPlayers) { disabled = true; msg = t('alert.max_players', { n: maxPlayers, now: readyCount }); }
     }
 
     document.getElementById('startBtn').disabled = disabled;
@@ -1511,12 +1514,12 @@
       if (state.phase === 'identity_draw') {
         statusIcon = !p.isConnected ? '✕' : (p.confirmed ? '✓' : '⏳');
         rowCls = !p.isConnected ? 'disconnected' : p.confirmed ? 'played' : 'waiting';
-        statusText = !p.isConnected ? '斷線' : p.confirmed ? '已確認' : '查看中';
+        statusText = !p.isConnected ? t('pstatus.disconnected') : p.confirmed ? t('pstatus.confirmed') : t('pstatus.viewing');
         scoreText = statusText;
       } else {
         statusIcon = p.hasPlayed ? '✓' : (p.isConnected ? '⏳' : '✕');
         rowCls = !p.isConnected ? 'disconnected' : p.hasPlayed ? 'played' : 'waiting';
-        statusText = p.hasPlayed ? '已出牌' : (p.isConnected ? '等待中' : '斷線');
+        statusText = p.hasPlayed ? t('pstatus.played') : (p.isConnected ? t('pstatus.waiting') : t('pstatus.disconnected'));
         scoreText = `${p.score}pt · ${p.handCount}張`;
       }
 
@@ -1673,7 +1676,7 @@
 
     if (!list.length) {
       if (numberColumnEl) numberColumnEl.innerHTML = '';
-      if (playerListEl) playerListEl.innerHTML = '<div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">等待玩家加入…</div>';
+      if (playerListEl) playerListEl.innerHTML = `<div style="color:#555;font-size:.82rem;text-align:center;margin-top:20px">${t('host.waiting_players')}</div>`;
       return;
     }
 
@@ -1730,17 +1733,17 @@
 
       // Build inline status display
       const statusLabels = {
-        'waiting': '⏳ 等待準備',
-        'ready': '✓ 已準備',
-        'viewing': '👁️ 查看中',
-        'confirmed': '✓ 已確認',
-        'thinking': '🤔 思考中',
-        'played': '✓ 已出牌',
-        'voting': '🗳️ 投票中',
-        'voted': '✓ 已投票',
-        'completed': '✓ 已完成',
-        'eliminated': '❌ 已淘汰',
-        'disconnected': '🔴 已斷線'
+        'waiting': t('status.waiting'),
+        'ready': t('status.ready'),
+        'viewing': t('status.viewing'),
+        'confirmed': t('status.confirmed'),
+        'thinking': t('status.thinking'),
+        'played': t('status.played'),
+        'voting': t('status.voting'),
+        'voted': t('status.voted'),
+        'completed': t('status.completed'),
+        'eliminated': t('status.eliminated'),
+        'disconnected': t('status.disconnected')
       };
       const statusLabel = statusLabels[p.status] || p.status || '未知';
       const statusIcon = statusLabel.split(' ')[0]; // Take emoji only for inline display
@@ -1962,17 +1965,17 @@
 
     // Display player status (unified status field)
     const statusLabels = {
-      'waiting': '⏳ 等待準備',
-      'ready': '✓ 已準備',
-      'viewing': '👁️ 查看中',
-      'confirmed': '✓ 已確認',
-      'thinking': '🤔 思考中',
-      'played': '✓ 已出牌',
-      'voting': '🗳️ 投票中',
-      'voted': '✓ 已投票',
-      'completed': '✓ 已完成',
-      'eliminated': '❌ 已淘汰',
-      'disconnected': '🔴 已斷線'
+      'waiting': t('status.waiting'),
+      'ready': t('status.ready'),
+      'viewing': t('status.viewing'),
+      'confirmed': t('status.confirmed'),
+      'thinking': t('status.thinking'),
+      'played': t('status.played'),
+      'voting': t('status.voting'),
+      'voted': t('status.voted'),
+      'completed': t('status.completed'),
+      'eliminated': t('status.eliminated'),
+      'disconnected': t('status.disconnected')
     };
     const statusLabel = statusLabels[player.status] || player.status || '未知';
     const statusRow = `<div class="tt-row">${statusLabel}</div>`;

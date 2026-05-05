@@ -377,21 +377,22 @@
       color: #718096;
     }
   </style>
+  <script src="../shared/config.js"></script>
 </head>
 <body>
   <div class="container">
     <!-- Header -->
     <div class="header">
       <div>
-        <h1>🃏 卡牌管理器</h1>
-        <p style="color: #718096; margin-top: 4px;">管理所有遊戲模組共享的卡牌</p>
+        <h1 data-i18n="decks.title">🃏 卡牌管理器</h1>
+        <p style="color: #718096; margin-top: 4px;" data-i18n="decks.subtitle">管理所有遊戲模組共享的卡牌</p>
       </div>
-      <button class="btn btn-primary" onclick="showCreateDeckModal()">+ 新增卡牌組</button>
+      <button class="btn btn-primary" onclick="showCreateDeckModal()" data-i18n="decks.add_deck">+ 新增卡牌組</button>
     </div>
 
     <!-- Decks Grid -->
     <div id="decksContainer" class="deck-grid">
-      <div class="loading">載入中...</div>
+      <div class="loading" data-i18n="decks.loading">載入中…</div>
     </div>
   </div>
 
@@ -399,41 +400,41 @@
   <div id="deckModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2 class="modal-title" id="deckModalTitle">新增卡牌組</h2>
+        <h2 class="modal-title" id="deckModalTitle" data-i18n="decks.card.add_title">新增卡牌組</h2>
         <button class="close-btn" onclick="closeDeckModal()">&times;</button>
       </div>
       <form id="deckForm" onsubmit="saveDeck(event)">
         <input type="hidden" id="deckId">
 
         <div class="form-group">
-          <label class="form-label">卡牌組 ID</label>
-          <input type="text" id="deckIdInput" class="form-input" required pattern="[a-z0-9_-]+" placeholder="例如: basic-actions">
-          <small style="color: #718096; font-size: 12px;">只能使用小寫字母、數字、底線和連字號</small>
+          <label class="form-label" data-i18n="decks.form.id_label">卡牌組 ID</label>
+          <input type="text" id="deckIdInput" class="form-input" required pattern="[a-z0-9_-]+" data-i18n-ph="decks.form.id_placeholder" placeholder="例如: basic-actions">
+          <small style="color: #718096; font-size: 12px;" data-i18n="decks.form.id_hint">只能使用小寫字母、數字、底線和連字號</small>
         </div>
 
         <div class="form-group">
-          <label class="form-label">名稱</label>
-          <input type="text" id="deckName" class="form-input" required placeholder="例如: 基礎行動牌">
+          <label class="form-label" data-i18n="decks.form.name_label">名稱</label>
+          <input type="text" id="deckName" class="form-input" required data-i18n-ph="decks.form.name_placeholder" placeholder="例如: 基礎行動牌">
         </div>
 
         <div class="form-group">
-          <label class="form-label">類型</label>
+          <label class="form-label" data-i18n="decks.form.type_label">類型</label>
           <select id="deckType" class="form-select" required>
-            <option value="action">行動牌</option>
-            <option value="role">角色牌</option>
-            <option value="item">物品牌</option>
-            <option value="event">事件牌</option>
+            <option value="action" data-i18n="decks.type.action">行動牌</option>
+            <option value="role" data-i18n="decks.type.role">角色牌</option>
+            <option value="item" data-i18n="decks.type.item">物品牌</option>
+            <option value="event" data-i18n="decks.type.event">事件牌</option>
           </select>
         </div>
 
         <div class="form-group">
-          <label class="form-label">描述</label>
-          <textarea id="deckDescription" class="form-textarea" placeholder="卡牌組的用途說明..."></textarea>
+          <label class="form-label" data-i18n="decks.form.desc_label">描述</label>
+          <textarea id="deckDescription" class="form-textarea" data-i18n-ph="decks.form.desc_placeholder" placeholder="卡牌組的用途說明…"></textarea>
         </div>
 
         <div style="display: flex; gap: 8px; justify-content: flex-end;">
-          <button type="button" class="btn btn-secondary" onclick="closeDeckModal()">取消</button>
-          <button type="submit" class="btn btn-primary">儲存</button>
+          <button type="button" class="btn btn-secondary" onclick="closeDeckModal()" data-i18n="decks.form.cancel">取消</button>
+          <button type="submit" class="btn btn-primary" data-i18n="decks.form.save">儲存</button>
         </div>
       </form>
     </div>
@@ -443,7 +444,7 @@
   <div id="viewDeckModal" class="modal">
     <div class="modal-content large">
       <div class="modal-header">
-        <h2 class="modal-title" id="viewDeckTitle">卡牌組詳情</h2>
+        <h2 class="modal-title" id="viewDeckTitle" data-i18n="decks.view.title">卡牌組詳情</h2>
         <button class="close-btn" onclick="closeViewDeckModal()">&times;</button>
       </div>
       <div id="viewDeckContent"></div>
@@ -454,7 +455,7 @@
   <div id="cardModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2 class="modal-title" id="cardModalTitle">編輯卡牌</h2>
+        <h2 class="modal-title" id="cardModalTitle" data-i18n="decks.card.edit_title">編輯卡牌</h2>
         <button class="close-btn" onclick="closeCardModal()">&times;</button>
       </div>
       <form id="cardForm" onsubmit="saveCard(event)">
@@ -462,42 +463,46 @@
         <input type="hidden" id="cardId">
 
         <div class="form-group">
-          <label class="form-label">卡牌 ID</label>
-          <input type="text" id="cardIdInput" class="form-input" required pattern="[a-z0-9_-]+" placeholder="例如: fire-punch">
+          <label class="form-label" data-i18n="decks.card.id_label">卡牌 ID</label>
+          <input type="text" id="cardIdInput" class="form-input" required pattern="[a-z0-9_-]+" data-i18n-ph="decks.card.id_placeholder" placeholder="例如: fire-punch">
         </div>
 
         <div class="form-group">
-          <label class="form-label">名稱</label>
-          <input type="text" id="cardName" class="form-input" required placeholder="例如: 火焰拳">
+          <label class="form-label" data-i18n="decks.card.name_label">名稱</label>
+          <input type="text" id="cardName" class="form-input" required data-i18n-ph="decks.card.name_placeholder" placeholder="例如: 火焰拳">
         </div>
 
         <div id="dynamicCardFields"></div>
 
         <div class="form-group">
-          <label class="form-label">說明</label>
-          <textarea id="cardDescription" class="form-textarea" placeholder="卡牌效果描述..."></textarea>
+          <label class="form-label" data-i18n="decks.card.desc_label">說明</label>
+          <textarea id="cardDescription" class="form-textarea" data-i18n-ph="decks.card.desc_placeholder" placeholder="卡牌效果描述…"></textarea>
         </div>
 
         <div class="form-group">
-          <label class="form-label">卡牌圖片</label>
+          <label class="form-label" data-i18n="decks.card.image_label">卡牌圖片</label>
           <div class="image-upload-area" onclick="document.getElementById('cardImageInput').click()">
             <input type="file" id="cardImageInput" accept="image/*" style="display: none" onchange="handleImageSelect(event)">
             <img id="cardImagePreview" class="image-preview" style="display: none;">
             <div id="imageUploadPlaceholder">
-              <p style="color: #718096;">📷 點擊上傳圖片</p>
-              <small style="color: #a0aec0;">支援 JPG、PNG、GIF、WebP (最大 5MB)</small>
+              <p style="color: #718096;" data-i18n="decks.card.image_upload">📷 點擊上傳圖片</p>
+              <small style="color: #a0aec0;" data-i18n="decks.card.image_hint">支援 JPG、PNG、GIF、WebP (最大 5MB)</small>
             </div>
           </div>
         </div>
 
         <div style="display: flex; gap: 8px; justify-content: flex-end;">
-          <button type="button" class="btn btn-secondary" onclick="closeCardModal()">取消</button>
-          <button type="submit" class="btn btn-primary">儲存</button>
+          <button type="button" class="btn btn-secondary" onclick="closeCardModal()" data-i18n="decks.form.cancel">取消</button>
+          <button type="submit" class="btn btn-primary" data-i18n="decks.form.save">儲存</button>
         </div>
       </form>
     </div>
   </div>
 
+  <script>
+    // Initialize i18n
+    Config.initUI();
+  </script>
   <script>
     let decks = [];
     let currentDeckId = null;
@@ -513,11 +518,11 @@
           decks = data.decks;
           renderDecks();
         } else {
-          showToast('載入失敗：' + data.error);
+          showToast(t('decks.error.load_fail') + data.error);
         }
       } catch (err) {
         console.error('Failed to load decks:', err);
-        showToast('載入卡牌失敗');
+        showToast(t('decks.error.load_fail'));
       }
     }
 
@@ -531,8 +536,8 @@
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
             </svg>
-            <h3>還沒有卡牌組</h3>
-            <p>點擊「新增卡牌組」開始建立</p>
+            <h3>${t('decks.empty')}</h3>
+            <p>${t('decks.empty_hint')}</p>
           </div>
         `;
         return;
@@ -548,13 +553,13 @@
           </div>
           ${deck.description ? `<div class="deck-description">${deck.description}</div>` : ''}
           <div class="stats-row">
-            <span>📦 ${deck.cards?.length || 0} 張卡牌</span>
-            <span>🕐 更新於 ${new Date(deck.updatedAt).toLocaleDateString('zh-TW')}</span>
+            <span>📦 ${deck.cards?.length || 0} ${t('decks.cards.count')}</span>
+            <span>🕐 ${t('decks.cards.updated')} ${new Date(deck.updatedAt).toLocaleDateString('zh-TW')}</span>
           </div>
           <div class="deck-actions">
-            <button class="btn btn-primary btn-sm" onclick="editDeck('${deck.id}')">✏️ 編輯</button>
-            <button class="btn btn-secondary btn-sm" onclick="viewDeck('${deck.id}')">👁️ 查看</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteDeck('${deck.id}')">🗑️ 刪除</button>
+            <button class="btn btn-primary btn-sm" onclick="editDeck('${deck.id}')">${t('decks.action.edit')}</button>
+            <button class="btn btn-secondary btn-sm" onclick="viewDeck('${deck.id}')">${t('decks.action.view')}</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteDeck('${deck.id}')">${t('decks.action.delete')}</button>
           </div>
         </div>
       `).join('');
@@ -562,11 +567,12 @@
 
     // Show create deck modal
     function showCreateDeckModal() {
-      document.getElementById('deckModalTitle').textContent = '新增卡牌組';
+      document.getElementById('deckModalTitle').textContent = t('decks.card.add_title');
       document.getElementById('deckForm').reset();
       document.getElementById('deckId').value = '';
       document.getElementById('deckIdInput').disabled = false;
       document.getElementById('deckModal').classList.add('active');
+      applyTranslations();
     }
 
     // Edit deck
@@ -582,53 +588,53 @@
     // Open deck editor with cards
     function openDeckEditor(deck) {
       currentDeckId = deck.id;
-      document.getElementById('viewDeckTitle').textContent = `${deck.name} - 卡牌編輯`;
+      document.getElementById('viewDeckTitle').textContent = `${deck.name} - ${t('decks.view.edit_title')}`;
 
       const typeFields = getCardTypeFields(deck.type);
 
       const content = document.getElementById('viewDeckContent');
       content.innerHTML = `
         <div class="form-group">
-          <label class="form-label">卡牌組名稱</label>
+          <label class="form-label">${t('decks.editor.name_label')}</label>
           <input type="text" class="form-input" id="editDeckName" value="${deck.name}" onchange="updateDeckName('${deck.id}', this.value)">
         </div>
 
         <div class="form-group">
-          <label class="form-label">描述</label>
+          <label class="form-label">${t('decks.editor.desc_label')}</label>
           <textarea class="form-textarea" id="editDeckDesc" onchange="updateDeckDesc('${deck.id}', this.value)">${deck.description || ''}</textarea>
         </div>
 
         <div class="form-group">
-          <label class="form-label">卡牌背面圖片</label>
+          <label class="form-label">${t('decks.editor.back_image')}</label>
           <div style="display: flex; gap: 12px; align-items: flex-start;">
             ${deck.backImage ? `
-              <img src="${deck.backImage}" alt="背面圖片" style="width: 80px; height: 112px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0;">
+              <img src="${deck.backImage}" alt="${t('decks.editor.back_image')}" style="width: 80px; height: 112px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0;">
             ` : `
               <div style="width: 80px; height: 112px; background: #f7fafc; border-radius: 8px; border: 1px dashed #cbd5e0; display: flex; align-items: center; justify-content: center; color: #a0aec0; font-size: 24px;">🂠</div>
             `}
             <div style="flex: 1;">
               <input type="file" id="deckBackImageUpload" accept="image/*" style="display: none;" onchange="uploadDeckBackImage('${deck.id}', this.files[0])">
               <button class="btn btn-secondary" onclick="document.getElementById('deckBackImageUpload').click()">
-                ${deck.backImage ? '更換背面圖片' : '上傳背面圖片'}
+                ${deck.backImage ? t('decks.editor.back_change') : t('decks.editor.back_upload')}
               </button>
               ${deck.backImage ? `
-                <button class="btn btn-danger btn-sm" onclick="removeDeckBackImage('${deck.id}')" style="margin-left: 8px;">移除</button>
+                <button class="btn btn-danger btn-sm" onclick="removeDeckBackImage('${deck.id}')" style="margin-left: 8px;">${t('decks.editor.back_remove')}</button>
               ` : ''}
-              <div style="font-size: 12px; color: #718096; margin-top: 4px;">建議尺寸：80x112px，最大 5MB</div>
+              <div style="font-size: 12px; color: #718096; margin-top: 4px;">${t('decks.editor.back_hint')}</div>
             </div>
           </div>
         </div>
 
         <div class="cards-list">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <h3 style="font-size: 16px; font-weight: 600;">卡牌列表 (${deck.cards?.length || 0})</h3>
-            <button class="btn btn-primary btn-sm" onclick="showAddCardModal()">+ 新增卡牌</button>
+            <h3 style="font-size: 16px; font-weight: 600;">${t('decks.cards.title')} (${deck.cards?.length || 0})</h3>
+            <button class="btn btn-primary btn-sm" onclick="showAddCardModal()">${t('decks.cards.add')}</button>
           </div>
 
           ${!deck.cards || deck.cards.length === 0 ? `
             <div class="empty-state" style="padding: 40px;">
-              <p>這個卡牌組還沒有任何卡牌</p>
-              <button class="btn btn-primary" onclick="showAddCardModal()" style="margin-top: 16px;">+ 新增第一張卡牌</button>
+              <p>${t('decks.cards.empty')}</p>
+              <button class="btn btn-primary" onclick="showAddCardModal()" style="margin-top: 16px;">${t('decks.cards.add_first')}</button>
             </div>
           ` : `
             <div class="card-grid">
@@ -658,33 +664,33 @@
       if (type === 'role') {
         return `
           <div class="form-group">
-            <label class="form-label">陣營</label>
+            <label class="form-label">${t('decks.card.team_label')}</label>
             <select id="cardTeam" class="form-select">
-              <option value="red">紅色</option>
-              <option value="blue">藍色</option>
-              <option value="green">綠色</option>
-              <option value="yellow">黃色</option>
-              <option value="purple">紫色</option>
-              <option value="gold">金色</option>
+              <option value="red">${t('decks.team.red')}</option>
+              <option value="blue">${t('decks.team.blue')}</option>
+              <option value="green">${t('decks.team.green')}</option>
+              <option value="yellow">${t('decks.team.yellow')}</option>
+              <option value="purple">${t('decks.team.purple')}</option>
+              <option value="gold">${t('decks.team.gold')}</option>
             </select>
           </div>
         `;
       } else if (type === 'action') {
         return `
           <div class="form-group">
-            <label class="form-label">點數</label>
-            <input type="number" id="cardValue" class="form-input" min="0" max="999" placeholder="例如: 9">
+            <label class="form-label">${t('decks.card.value_label')}</label>
+            <input type="number" id="cardValue" class="form-input" min="0" max="999" data-i18n-ph="decks.card.value_placeholder" placeholder="例如: 9">
           </div>
           <div class="form-group">
-            <label class="form-label">陣營 (可選)</label>
+            <label class="form-label">${t('decks.card.team_label')} (${t('decks.form.type_label')})</label>
             <select id="cardTeam" class="form-select">
-              <option value="">無</option>
-              <option value="red">紅色</option>
-              <option value="blue">藍色</option>
-              <option value="green">綠色</option>
-              <option value="yellow">黃色</option>
-              <option value="purple">紫色</option>
-              <option value="gold">金色</option>
+              <option value="">${t('decks.card.team_none')}</option>
+              <option value="red">${t('decks.team.red')}</option>
+              <option value="blue">${t('decks.team.blue')}</option>
+              <option value="green">${t('decks.team.green')}</option>
+              <option value="yellow">${t('decks.team.yellow')}</option>
+              <option value="purple">${t('decks.team.purple')}</option>
+              <option value="gold">${t('decks.team.gold')}</option>
             </select>
           </div>
         `;
@@ -717,8 +723,8 @@
         if (data.success) {
           const deck = decks.find(d => d.id === deckId);
           if (deck) deck.name = name;
-          document.getElementById('viewDeckTitle').textContent = `${name} - 卡牌編輯`;
-          showToast('名稱已更新');
+          document.getElementById('viewDeckTitle').textContent = `${name} - ${t('decks.view.edit_title')}`;
+          showToast(t('decks.toast.name_updated'));
         }
       } catch (err) {
         console.error('Failed to update deck name:', err);
@@ -738,7 +744,7 @@
         if (data.success) {
           const deck = decks.find(d => d.id === deckId);
           if (deck) deck.description = description;
-          showToast('描述已更新');
+          showToast(t('decks.toast.desc_updated'));
         }
       } catch (err) {
         console.error('Failed to update deck description:', err);
@@ -750,13 +756,13 @@
 
       // Validate file size (5MB max)
       if (file.size > 5 * 1024 * 1024) {
-        showToast('圖片大小不能超過 5MB', 'error');
+        showToast(t('decks.error.too_large'), 'error');
         return;
       }
 
       // Validate file type
       if (!file.type.startsWith('image/')) {
-        showToast('請上傳圖片文件', 'error');
+        showToast(t('decks.error.invalid_file'), 'error');
         return;
       }
 
@@ -764,7 +770,7 @@
         const formData = new FormData();
         formData.append('image', file);
 
-        showToast('上傳中...', 'info');
+        showToast(t('decks.toast.uploading'), 'info');
 
         const response = await fetch(`/api/decks/${deckId}/back-image`, {
           method: 'POST',
@@ -775,14 +781,14 @@
         if (data.success) {
           const deck = decks.find(d => d.id === deckId);
           if (deck) deck.backImage = data.backImage;
-          showToast('背面圖片已上傳');
+          showToast(t('decks.toast.upload_success'));
           openDeckEditor(deck); // Refresh the editor view
         } else {
-          showToast(data.error || '上傳失敗', 'error');
+          showToast(data.error || t('decks.toast.upload_fail'), 'error');
         }
       } catch (err) {
         console.error('Failed to upload deck back image:', err);
-        showToast('上傳失敗', 'error');
+        showToast(t('decks.toast.upload_fail'), 'error');
       }
 
       // Clear the file input
@@ -790,7 +796,7 @@
     }
 
     async function removeDeckBackImage(deckId) {
-      if (!confirm('確定要移除卡牌背面圖片嗎？')) return;
+      if (!confirm(t('decks.confirm.remove_back_image'))) return;
 
       try {
         const response = await fetch(`/api/decks/${deckId}/back-image`, {
@@ -801,14 +807,14 @@
         if (data.success) {
           const deck = decks.find(d => d.id === deckId);
           if (deck) deck.backImage = null;
-          showToast('背面圖片已移除');
+          showToast(t('decks.toast.remove_success'));
           openDeckEditor(deck); // Refresh the editor view
         } else {
-          showToast(data.error || '移除失敗', 'error');
+          showToast(data.error || t('decks.toast.remove_fail'), 'error');
         }
       } catch (err) {
         console.error('Failed to remove deck back image:', err);
-        showToast('移除失敗', 'error');
+        showToast(t('decks.toast.remove_fail'), 'error');
       }
     }
 
@@ -823,16 +829,16 @@
       const content = document.getElementById('viewDeckContent');
       content.innerHTML = `
         <div class="stats-row" style="margin-bottom: 16px;">
-          <span>🏷️ 類型: ${deck.type}</span>
-          <span>📦 ${deck.cards?.length || 0} 張卡牌</span>
-          <span>🕐 更新於 ${new Date(deck.updatedAt).toLocaleString('zh-TW')}</span>
+          <span>🏷️ ${t('decks.view.stats_type')}: ${deck.type}</span>
+          <span>📦 ${deck.cards?.length || 0} ${t('decks.cards.count')}</span>
+          <span>🕐 ${t('decks.cards.updated')} ${new Date(deck.updatedAt).toLocaleString('zh-TW')}</span>
         </div>
 
         ${deck.description ? `<p style="color: #718096; margin-bottom: 16px;">${deck.description}</p>` : ''}
 
         ${!deck.cards || deck.cards.length === 0 ? `
           <div class="empty-state">
-            <p>這個卡牌組還沒有任何卡牌</p>
+            <p>${t('decks.cards.empty')}</p>
           </div>
         ` : `
           <div class="card-grid">
@@ -848,7 +854,7 @@
         `}
 
         <div style="margin-top: 24px; text-align: center;">
-          <button class="btn btn-primary" onclick="closeViewDeckModal(); editDeck('${deckId}')">✏️ 編輯卡牌組</button>
+          <button class="btn btn-primary" onclick="closeViewDeckModal(); editDeck('${deckId}')">${t('decks.action.edit_cards')}</button>
         </div>
       `;
 
@@ -894,21 +900,21 @@
         const data = await response.json();
 
         if (data.success) {
-          showToast(isEdit ? '更新成功！' : '建立成功！');
+          showToast(isEdit ? t('decks.toast.update_success') : t('decks.toast.create_success'));
           closeDeckModal();
           await loadDecks();
         } else {
-          showToast('操作失敗：' + data.error);
+          showToast(t('decks.error.operation_fail') + data.error);
         }
       } catch (err) {
         console.error('Failed to save deck:', err);
-        showToast('儲存失敗');
+        showToast(t('decks.toast.save_fail'));
       }
     }
 
     // Delete deck
     async function deleteDeck(deckId) {
-      if (!confirm('確定要刪除這個卡牌組嗎？此操作無法復原。')) return;
+      if (!confirm(t('decks.confirm.delete_deck'))) return;
 
       try {
         const response = await fetch(`/api/decks/${deckId}`, {
@@ -918,14 +924,14 @@
         const data = await response.json();
 
         if (data.success) {
-          showToast('刪除成功！');
+          showToast(t('decks.toast.delete_success'));
           await loadDecks();
         } else {
-          showToast('刪除失敗：' + data.error);
+          showToast(t('decks.error.operation_fail') + data.error);
         }
       } catch (err) {
         console.error('Failed to delete deck:', err);
-        showToast('刪除失敗');
+        showToast(t('decks.toast.save_fail'));
       }
     }
 
@@ -934,7 +940,7 @@
       const deck = decks.find(d => d.id === currentDeckId);
       if (!deck) return;
 
-      document.getElementById('cardModalTitle').textContent = '新增卡牌';
+      document.getElementById('cardModalTitle').textContent = t('decks.card.add_title');
       document.getElementById('cardForm').reset();
       document.getElementById('cardDeckId').value = currentDeckId;
       document.getElementById('cardId').value = '';
@@ -946,6 +952,7 @@
       currentCardImage = null; // Reset image
 
       document.getElementById('cardModal').classList.add('active');
+      applyTranslations();
     }
 
     // Show edit card modal
@@ -956,7 +963,7 @@
       const card = deck.cards.find(c => c.id === cardId);
       if (!card) return;
 
-      document.getElementById('cardModalTitle').textContent = '編輯卡牌';
+      document.getElementById('cardModalTitle').textContent = t('decks.card.edit_title');
       document.getElementById('cardDeckId').value = currentDeckId;
       document.getElementById('cardId').value = cardId;
       document.getElementById('cardIdInput').value = cardId;
@@ -987,6 +994,7 @@
       }
 
       document.getElementById('cardModal').classList.add('active');
+      applyTranslations();
     }
 
     // Close card modal
@@ -1002,7 +1010,7 @@
 
       // Check file size
       if (file.size > 5 * 1024 * 1024) {
-        showToast('圖片大小不能超過 5MB');
+        showToast(t('decks.error.too_large'));
         return;
       }
 
@@ -1063,7 +1071,7 @@
         const data = await response.json();
 
         if (!data.success) {
-          showToast('操作失敗：' + data.error);
+          showToast(t('decks.error.operation_fail') + data.error);
           return;
         }
 
@@ -1089,13 +1097,13 @@
 
           const imgData = await imgResponse.json();
           if (!imgData.success) {
-            showToast('卡牌已儲存，但圖片上傳失敗：' + imgData.error);
+            showToast(t('decks.toast.card_image_partial') + imgData.error);
           } else {
-            showToast('圖片上傳成功！');
+            showToast(t('decks.toast.card_image_success'));
           }
         }
 
-        showToast(isEdit ? '卡牌已更新！' : '卡牌已新增！');
+        showToast(isEdit ? t('decks.toast.card_updated') : t('decks.toast.card_saved'));
         closeCardModal();
 
         // Reload deck and refresh view
@@ -1105,13 +1113,13 @@
 
       } catch (err) {
         console.error('Failed to save card:', err);
-        showToast('儲存失敗');
+        showToast(t('decks.toast.save_fail'));
       }
     }
 
     // Delete card
     async function deleteCard(cardId) {
-      if (!confirm('確定要刪除這張卡牌嗎？')) return;
+      if (!confirm(t('decks.confirm.delete_card'))) return;
 
       const deckId = currentDeckId;
 
@@ -1123,16 +1131,16 @@
         const data = await response.json();
 
         if (data.success) {
-          showToast('卡牌已刪除');
+          showToast(t('decks.toast.card_deleted'));
           await loadDecks();
           const deck = decks.find(d => d.id === deckId);
           openDeckEditor(deck);
         } else {
-          showToast('刪除失敗：' + data.error);
+          showToast(t('decks.error.operation_fail') + data.error);
         }
       } catch (err) {
         console.error('Failed to delete card:', err);
-        showToast('刪除失敗');
+        showToast(t('decks.toast.save_fail'));
       }
     }
 

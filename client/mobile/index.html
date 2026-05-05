@@ -62,22 +62,27 @@
 
     .error { color: #ff6666; font-size: .85rem; margin-top: 12px; text-align: center; display: none; }
   </style>
+  <script src="../shared/config.js"></script>
 </head>
 <body>
-  <h1>🎮 進入遊戲</h1>
-  <p class="subtitle">輸入房間代碼和你的名稱</p>
+  <h1 data-i18n="mobile.join.title">🎮 進入遊戲</h1>
+  <p class="subtitle" data-i18n="mobile.join.subtitle">輸入房間代碼和你的名稱</p>
 
   <div class="card">
-    <label for="roomInput">房間代碼</label>
-    <input id="roomInput" type="text" maxlength="6" placeholder="XXXXXX" autocomplete="off">
+    <label for="roomInput" data-i18n="mobile.join.room_label">房間代碼</label>
+    <input id="roomInput" type="text" maxlength="6" data-i18n-ph="mobile.join.room_ph" placeholder="XXXXXX" autocomplete="off">
 
-    <label for="nameInput">玩家名稱</label>
-    <input id="nameInput" type="text" maxlength="12" placeholder="你的名字" autocomplete="off">
+    <label for="nameInput" data-i18n="mobile.join.name_label">玩家名稱</label>
+    <input id="nameInput" type="text" maxlength="12" data-i18n-ph="mobile.join.name_ph" placeholder="你的名字" autocomplete="off">
 
-    <button id="joinBtn" onclick="join()">加入遊戲</button>
+    <button id="joinBtn" onclick="join()" data-i18n="mobile.join.btn">加入遊戲</button>
     <p class="error" id="errMsg"></p>
   </div>
 
+  <script>
+    // Initialize i18n
+    Config.initUI();
+  </script>
   <script>
     // Pre-fill room and name from URL (e.g. when returning from game screen)
     const _params  = new URLSearchParams(window.location.search);
@@ -94,8 +99,8 @@
       const name = document.getElementById('nameInput').value.trim();
       const err  = document.getElementById('errMsg');
 
-      if (room.length < 4) { showErr('請輸入正確的房間代碼'); return; }
-      if (name.length < 1) { showErr('請輸入名稱'); return; }
+      if (room.length < 4) { showErr(t('mobile.join.error_room')); return; }
+      if (name.length < 1) { showErr(t('mobile.join.error_name')); return; }
 
       localStorage.setItem('playerName', name);
       window.location.href = `/mobile/game.html?room=${room}&name=${encodeURIComponent(name)}`;

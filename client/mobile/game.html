@@ -1718,6 +1718,9 @@
       return wrap;
     }
 
+    // Add sequence counter to ensure event ordering
+    let inputSeq = 0;
+
     function attachCtrlEvents(el, key) {
       const press = e => {
         e.preventDefault();
@@ -1742,7 +1745,8 @@
     }
 
     function sendControllerInput(key, state) {
-      client.playerAction('input', { key, state });
+      const seq = ++inputSeq;
+      client.playerAction('input', { key, state, seq });
     }
   </script>
 </body>

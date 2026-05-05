@@ -259,7 +259,7 @@
       <input id="filterInput" placeholder="🔍 搜尋模組…" data-i18n-ph="editor.search_placeholder" oninput="renderModuleList()">
       <button class="btn-add-mod" onclick="promptCreateModule()" title="建立新模組" data-i18n="btn.new_module">➕ 新增模組</button>
     </div>
-    <div class="side-list" id="modList"><div style="color:#555;font-size:.8rem;">載入中…</div></div>
+    <div class="side-list" id="modList"><div style="color:#555;font-size:.8rem;" data-i18n="host.loading">載入中…</div></div>
   </aside>
 
   <main class="main">
@@ -715,7 +715,7 @@
         </label>
         <span class="deck-header-name">${escapeH(deck.name || deck.ref || '未命名')}</span>
         <span class="deck-type-badge">${escapeH(typeLbl)}</span>
-        <span style="font-size:.65rem;color:#5566aa;">${deck.ref ? (selectedCardIds.length > 0 ? `已選 ${totalSelectedCards} 張` : cardCount + ' 張') : '⚠ 未選擇'}</span>
+        <span style="font-size:.65rem;color:#5566aa;">${deck.ref ? (selectedCardIds.length > 0 ? t('editor.deck_selected', { count: totalSelectedCards }) : cardCount + ' ' + t('editor.deck_count_suffix')) : t('editor.deck_not_selected')}</span>
         <span class="deck-toggle">▾</span>
       </div>
       <div class="deck-cards" id="deck_cards_${di}">
@@ -730,7 +730,7 @@
         </div>
         ${deck.ref ? `
           <div class="deck-meta-row" style="background:#1a2a3a;padding:6px 8px;border-radius:4px;margin:4px 0;font-size:.75rem;color:#88aaff;">
-            📦 ${escapeH(globalDeck?.name || deck.ref)}（${cardCount} 張卡牌）
+            📦 ${escapeH(globalDeck?.name || deck.ref)}（${t('editor.deck_card_count', { count: cardCount })}）
           </div>
           <div class="deck-meta-row">
             <div class="field-row" style="margin:0">
@@ -781,11 +781,11 @@
                           ${escapeH(card.name)}
                         </div>
                         ${card.description ? `<div style="font-size:.68rem;color:#7777aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeH(card.description)}</div>` : ''}
-                        ${card.value !== undefined ? `<div style="font-size:.65rem;color:#6688ff;">點數: ${card.value}</div>` : ''}
-                        ${card.team ? `<div style="font-size:.65rem;color:#8888cc;">陣營: ${card.team}</div>` : ''}
+                        ${card.value !== undefined ? `<div style="font-size:.65rem;color:#6688ff;">${t('editor.deck_value_prefix')} ${card.value}</div>` : ''}
+                        ${card.team ? `<div style="font-size:.65rem;color:#8888cc;">${t('editor.deck_team_prefix')} ${card.team}</div>` : ''}
                       </div>
                       <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
-                        <label style="font-size:.7rem;color:#8888bb;">張數</label>
+                        <label style="font-size:.7rem;color:#8888bb;">${t('editor.deck_card_count_label')}</label>
                         <input type="number" min="0" max="99" value="${count}"
                                style="width:48px;background:#0a0a1a;border:1px solid #2a2a4a;border-radius:4px;color:#ddddf0;font-size:.75rem;padding:3px 6px;text-align:center;"
                                onchange="setCardCount(${di},'${escapeH(cardId)}',this.value)"
@@ -797,8 +797,8 @@
               </div>
               <div style="margin-top:6px;font-size:.72rem;color:#6666aa;text-align:right;">
                 ${selectedCardIds.length > 0
-                  ? `已選 ${selectedCardIds.length} 種卡牌，共 ${totalSelectedCards} 張`
-                  : '尚未選擇任何卡牌（將使用完整牌組）'}
+                  ? t('editor.deck_selection_summary', { types: selectedCardIds.length, total: totalSelectedCards })
+                  : t('editor.deck_no_selection')}
               </div>
             ` : `
               <div style="color:#886644;font-size:.78rem;padding:12px 0;text-align:center;">

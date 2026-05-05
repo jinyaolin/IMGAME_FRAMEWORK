@@ -38,8 +38,24 @@ class ModuleLoader {
     return this.registry.get(moduleId) || null;
   }
 
-  async load(moduleName, session, hostConfig) {
+  // Read engine source code for a module without executing it (for forking into sessions)
+  readEngineCode(moduleName) {
     const manifest = this.registry.get(moduleName);
+    if (!manifest) return null;
+    let engineId = manifest.engine || moduleName;
+    let serverPath = path.join(this.modulesDir, engineId, 'server.js');
+    if (!fs.existsSync(serverPath)) {
+      const ownPath = path.join(this.modulesDir, moduleName, 'server.js');
+      serverPath = fs.existsSync(ownPath) ? ownPath : null;
+    }
+    return serverPath ? fs.readFileSync(serverPath, 'utf8') : null;
+  }
+
+  // snapshot: { manifest, engineCode } — forked copies stored on the session at room creation.
+  // If provided they take priority over the on-disk registry, isolating the session from
+  // subsequent editor saves.
+  async load(moduleName, session, hostConfig, snapshot = {}) {
+    const manifest = snapshot.manifest || this.registry.get(moduleName);
     if (!manifest) throw new Error(`Module "${moduleName}" not found`);
 
     // Engine resolution:
@@ -49,9 +65,8 @@ class ModuleLoader {
     let engineId = manifest.engine || moduleName;
     let serverPath = path.join(this.modulesDir, engineId, 'server.js');
 
-    // Check if custom server.js exists
-    if (!fs.existsSync(serverPath)) {
-      // Fallback: try own dir even if engine field said otherwise (graceful degrade)
+    // Check if custom server.js exists on disk (used only when no snapshot)
+    if (!snapshot.engineCode && !fs.existsSync(serverPath)) {
       const ownPath = path.join(this.modulesDir, moduleName, 'server.js');
       if (fs.existsSync(ownPath)) {
         serverPath = ownPath;
@@ -66,26 +81,45 @@ class ModuleLoader {
     const resolvedManifest = this._resolveDecks(manifest);
 
     let instance;
+    const engineCode = snapshot.engineCode;
 
-    if (fs.existsSync(serverPath)) {
-      // Use custom server.js
+    if (engineCode) {
+      // Use forked engine code: write to a unique temp path so require() can load it
+      const tmpPath = path.join(this.modulesDir, `.tmp_${moduleName}_${Date.now()}.js`);
+      try {
+        fs.writeFileSync(tmpPath, engineCode, 'utf8');
+        const absoluteTmp = path.resolve(tmpPath);
+        delete require.cache[require.resolve(absoluteTmp)];
+        const ModuleClass = require(absoluteTmp);
+        if (typeof ModuleClass !== 'function' || !ModuleClass.prototype) {
+          console.error(`[ModuleLoader] Forked engine invalid, falling back to BaseModule`);
+          instance = new BaseModule(resolvedManifest, session, config);
+        } else {
+          instance = new ModuleClass(resolvedManifest, session, config);
+        }
+        console.log(`[ModuleLoader] Loaded forked engine for: ${moduleName}`);
+      } finally {
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        // Also clear temp from require cache
+        try {
+          const abs = path.resolve(tmpPath);
+          delete require.cache[abs];
+        } catch (_) {}
+      }
+    } else if (fs.existsSync(serverPath)) {
+      // Use on-disk server.js (no forked snapshot available)
       console.log(`[ModuleLoader] Using custom server.js: ${serverPath}`);
-      // Resolve to absolute path for require
       const absolutePath = path.resolve(serverPath);
       delete require.cache[require.resolve(absolutePath)];
       const ModuleClass = require(absolutePath);
 
-      // Validate that ModuleClass is actually a constructor
       if (typeof ModuleClass !== 'function' || !ModuleClass.prototype) {
         console.error(`[ModuleLoader] Invalid server.js: ${serverPath} - must export a constructor/class`);
-        console.error(`[ModuleLoader] Export type: ${typeof ModuleClass}`);
-        console.error(`[ModuleLoader] Falling back to BaseModule`);
         instance = new BaseModule(resolvedManifest, session, config);
       } else {
         instance = new ModuleClass(resolvedManifest, session, config);
       }
     } else {
-      // Use BaseModule directly (no file generation!)
       console.log(`[ModuleLoader] Using BaseModule for: ${moduleName}`);
       instance = new BaseModule(resolvedManifest, session, config);
     }

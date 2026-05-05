@@ -62,8 +62,11 @@ app.post('/api/rooms', (req, res) => {
   if (moduleId) {
     const manifest = moduleLoader.getManifest(moduleId);
     if (!manifest) return res.status(400).json({ error: `Module "${moduleId}" not found` });
-    session.manifest = manifest;
+    // Fork: deep-clone manifest so this session is isolated from future editor saves
+    session.manifest = JSON.parse(JSON.stringify(manifest));
     session.moduleName = moduleId;
+    // Snapshot server.js source at room creation so edits don't affect this session
+    session.engineCode = moduleLoader.readEngineCode(moduleId);
   }
 
   sessions.set(roomId, session);
@@ -113,7 +116,7 @@ app.post('/api/modules/:id/server', (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
-    if (moduleInUse(id))      return res.status(409).json({ error: '此模組正在遊戲中，無法修改' });
+    // No in-use lock: sessions hold forked snapshots so disk edits are safe
 
     const moduleDir = path.join(__dirname, 'modules', id);
     const serverJsPath = path.join(moduleDir, 'server.js');
@@ -228,7 +231,7 @@ app.delete('/api/modules/:id/server', (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
-    if (moduleInUse(id))      return res.status(409).json({ error: '此模組正在遊戲中，無法刪除' });
+    // No in-use lock: sessions hold forked snapshots so deleting server.js won't affect them
 
     const serverJsPath = path.join(__dirname, 'modules', id, 'server.js');
     if (!fs.existsSync(serverJsPath)) {
@@ -408,7 +411,7 @@ app.put('/api/modules/:id/manifest', (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
-    if (moduleInUse(id))      return res.status(409).json({ error: '此模組正在遊戲中，無法儲存。請先結束遊戲。' });
+    // No in-use lock: each session holds a forked snapshot so disk edits are safe
 
     const moduleDir = path.join(__dirname, 'modules', id);
     const manifestPath = path.join(moduleDir, 'manifest.json');
@@ -715,7 +718,8 @@ io.on('connection', (socket) => {
     const session = sessions.get(roomId);
     if (!session || session.hostSocketId !== socket.id) return;
     try {
-      const manifest = moduleLoader.registry.get(moduleName);
+      // Use the session's forked snapshot; fall back to live registry only if no snapshot
+      const manifest = session.manifest || moduleLoader.registry.get(moduleName);
       if (manifest) {
         const readyCount = session.players.all().filter(p => p.isReady).length;
         if (readyCount < manifest.minPlayers) {
@@ -727,7 +731,10 @@ io.on('connection', (socket) => {
           return;
         }
       }
-      const moduleInstance = await moduleLoader.load(moduleName, session, config);
+      const moduleInstance = await moduleLoader.load(moduleName, session, config, {
+        manifest: session.manifest,
+        engineCode: session.engineCode,
+      });
       await session.startModule(moduleInstance, moduleName);
     } catch (err) {
       socket.emit('error', { message: err.message });

@@ -306,6 +306,108 @@ module.exports = MyGame;
 
 ---
 
+## Mobile Overlay Screens (Priority System)
+
+The mobile interface uses a **priority-based overlay system** to prevent players from taking actions when they shouldn't. When multiple conditions apply, only the highest-priority overlay is shown.
+
+### Priority Levels (Highest to Lowest)
+
+| Priority | Screen | Player State | Reason |
+|----------|-------|--------------|--------|
+| **1 (Highest)** | ⏳ Waiting Screen | `phase='waiting'` | Player didn't ready in time — not in the game at all |
+| **2** | 💀 Eliminated Screen | `myIsAlive=false` | Player was eliminated — can only spectate |
+| **3 (Lowest)** | ⏸️ Intermission Screen | `phase='playing'` & `myIsAlive=true` | Game is paused — temporary wait |
+
+### Implementation Details
+
+**Waiting Screen** (`#waitingScreen`)
+- **Trigger**: `game_started_wait` event
+- **Shown to**: Players who didn't press Ready before game started
+- **Behavior**:
+  - Hides all other overlay screens
+  - Blocks all game interaction
+  - Message: "Game has started. Please wait for the next round."
+  - Auto-returns to lobby when game ends
+
+**Eliminated Screen** (`#eliminatedScreen`)
+- **Trigger**: `players_eliminated` event or manual elimination by host
+- **Shown to**: Players who have been eliminated from the game
+- **Behavior**:
+  - Hides intermission screen (eliminated state persists through pauses)
+  - Shows elimination reason with optional vote results
+  - Blocks all game controls
+  - Players can still watch the game (spectator mode)
+
+**Intermission Screen** (`#intermissionScreen`)
+- **Trigger**: `stage_started` with `stageType='intermission'`
+- **Shown to**: Active players (in game and not eliminated) during pause stages
+- **Behavior**:
+  - Checks priority: won't show if waiting or eliminated
+  - Blocks all game interaction during pause
+  - Shows stage description
+  - Auto-hides when next stage starts
+
+### Code Reference
+
+The priority logic is implemented in `client/mobile/game.html`:
+
+```javascript
+// Priority 1: Waiting Screen
+function showWaitingScreen() {
+  hideEliminatedScreen();    // Hide priority 2
+  hideIntermissionScreen();   // Hide priority 3
+  document.getElementById('waitingScreen').style.display = 'flex';
+}
+
+// Priority 2: Eliminated Screen
+function showEliminatedScreen(subText) {
+  hideIntermissionScreen();   // Hide priority 3
+  // ... show eliminated screen
+}
+
+// Priority 3: Intermission Screen
+function showIntermissionScreen(subText) {
+  if (phase === 'waiting') return;        // Priority 1 check
+  if (!myIsAlive) return;                 // Priority 2 check
+  // ... show intermission screen
+}
+```
+
+### Player State Flow
+
+```
+Player in Lobby
+    ↓ [doesn't press Ready]
+    ↓
+Game Started → ⏳ Waiting Screen (Priority 1)
+    ↓ [Game ends → Auto-back to lobby]
+
+Player in Lobby
+    ↓ [presses Ready]
+    ↓
+Game Started → 🎮 In Game
+    ↓ [gets eliminated during game]
+    ↓
+Eliminated → 💀 Eliminated Screen (Priority 2)
+    ↓ [elimination persists through intermission]
+    ↓ [stays eliminated even during ⏸️ pause]
+    ↓ [only sees game content, no controls]
+
+Player in Game
+    ↓ [presses Ready, not eliminated]
+    ↓
+Game Started → 🎮 In Game
+    ↓ [intermission stage starts]
+    ↓
+Intermission → ⏸️ Intermission Screen (Priority 3)
+    ↓ [next stage starts → hides]
+    ↓ [back to 🎮 In Game]
+```
+
+This ensures players only see and interact with what's appropriate for their current game state.
+
+---
+
 ## Reconnection Recovery
 
 When players disconnect and reconnect, server automatically pushes complete state restoration packet:

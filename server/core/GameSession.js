@@ -49,10 +49,14 @@ class GameSession {
     if (timer) { clearTimeout(timer); this._disconnectTimers.delete(playerId); }
     const player = this.players.reconnect(playerId, newSocketId);
     if (player && this.currentModule) {
+      const inCurrentGame = this.currentModule
+        ? this.currentModule.players.some(p => p.id === playerId)
+        : false;
       this.sendToPlayer(playerId, 'reconnected', {
         phase: this.phase,
         sharedState: this.sharedState,
         playerState: player.toPrivate(),
+        inCurrentGame,
       });
       // Re-send module private state (hand, identity) held in BaseModule maps
       if (typeof this.currentModule.onReconnect === 'function') {
@@ -94,7 +98,8 @@ class GameSession {
     this.broadcastDisplay('module_loaded', { module: moduleName });
 
     try {
-      await this.currentModule.onStart(this.players.all(), this);
+      const readyPlayers = this.players.all().filter(p => p.isReady);
+      await this.currentModule.onStart(readyPlayers, this);
     } catch (e) {
       console.error('[GameSession] onStart error:', e);
       this.broadcastAll('module_error', { message: e.message });
@@ -154,7 +159,13 @@ class GameSession {
     this.moduleName    = null;
     this.phase         = 'lobby';
     this.sharedState   = {};
+    // Keep player ready states - players can quickly start next game
+    // for (const p of this.players.all()) {
+    //   p.isReady = false;
+    // }
     this.broadcastAll('back_to_lobby', {});
+	    // Broadcast current player states so clients can sync ready status
+	    this.broadcastAll('player_ready', { players: this.players.publicList() });
   }
 
   // ── Broadcast helpers ─────────────────────────────────────────

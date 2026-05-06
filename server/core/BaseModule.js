@@ -105,7 +105,7 @@ class BaseModule {
 
     if (!stage) {
       console.log('[BaseModule] All stages completed');
-      session.broadcastAll('game_complete', {});
+      session.resetToLobby();
       return;
     }
 
@@ -170,7 +170,7 @@ class BaseModule {
 
       const frame = this._currentFrame();
       if (!frame) {
-        session.broadcastAll('game_complete', {});
+        session.resetToLobby();
         return;
       }
 
@@ -199,7 +199,7 @@ class BaseModule {
       } else {
         // Top-level exhausted
         console.log('[BaseModule] All top-level stages completed');
-        session.broadcastAll('game_complete', {});
+        session.resetToLobby();
       }
     } finally {
       this._isAdvancing = false;
@@ -252,7 +252,7 @@ class BaseModule {
 
     const frame = this._currentFrame();
     if (!frame) {
-      session.broadcastAll('game_complete', {});
+      session.resetToLobby();
       return;
     }
 
@@ -265,7 +265,7 @@ class BaseModule {
       await this._handleIterationEnd(session);
     } else {
       console.log('[BaseModule] All top-level stages completed after loop exit');
-      session.broadcastAll('game_complete', {});
+      session.resetToLobby();
     }
   }
 
@@ -356,7 +356,38 @@ class BaseModule {
       attributes: p.attributes || {}
     }));
     console.log('[BaseModule] Broadcasting game_started with players:', JSON.stringify(playersData, null, 2));
-    session.broadcastAll('game_started', {
+
+    // Separate game_started for ready players and game_started_wait for non-ready players
+    const allPlayers = session.players.all();
+    const readyPlayerIds = new Set(this.players.map(p => p.id));
+
+    for (const player of allPlayers) {
+      if (!player.isConnected) continue;
+
+      if (readyPlayerIds.has(player.id)) {
+        // Ready players: send game_started to enter the game
+        session.sendToPlayer(player.id, 'game_started', {
+          module: this.manifest.id,
+          players: playersData,
+          sharedState: {}
+        });
+      } else {
+        // Non-ready players: send game_started_wait to show waiting screen
+        session.sendToPlayer(player.id, 'game_started_wait', {
+          module: this.manifest.id,
+          players: playersData,
+          sharedState: {}
+        });
+      }
+    }
+
+    // Always send game_started to display and host (they need to show the game)
+    session.broadcastDisplay('game_started', {
+      module: this.manifest.id,
+      players: playersData,
+      sharedState: {}
+    });
+    session.sendToHost('game_started', {
       module: this.manifest.id,
       players: playersData,
       sharedState: {}
@@ -370,7 +401,7 @@ class BaseModule {
 
     if (!stage) {
       console.log('[BaseModule] All stages completed');
-      session.broadcastAll('game_complete', {});
+      session.resetToLobby();
       return;
     }
 
@@ -397,6 +428,11 @@ class BaseModule {
       iteration: this._loopIterations.get(innerFrame.loopStage.id) || 0
     } : null;
 
+    // ════════════════════════════════════════════════════════════════
+    //   NEW: Generate actionConfig for unified Action Button Manager
+    // ════════════════════════════════════════════════════════════════
+    const actionConfig = this._generateActionConfig(stage, session);
+
     // Notify all clients that stage started
     session.broadcastAll('stage_started', {
       stageId: stage.id,
@@ -406,7 +442,8 @@ class BaseModule {
       stageIndex: this.stageIndex,
       roundNumber: this.roundNumber,
       loopContext,
-      ...(stage.gameConfig ? { gameConfig: stage.gameConfig } : {})
+      ...(stage.gameConfig ? { gameConfig: stage.gameConfig } : {}),
+      ...(actionConfig ? { actionConfig } : {})
     });
 
     // Handle identity_draw stage - assign identities
@@ -751,19 +788,51 @@ class BaseModule {
 
     console.log('[BaseModule] Game state reset, starting from stage 0');
 
-    session.broadcastAll('game_started', {
+    const playersData = this.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      score: 0,
+      handCount: 0,
+      isReady: false,
+      isConnected: p.isConnected,
+      isAlive: true,
+      isEliminated: false,
+      attributes: p.attributes || {}
+    }));
+
+    // Separate game_started for restarting players and game_started_wait for others
+    const allPlayers = session.players.all();
+    const restartingPlayerIds = new Set(this.players.map(p => p.id));
+
+    for (const player of allPlayers) {
+      if (!player.isConnected) continue;
+
+      if (restartingPlayerIds.has(player.id)) {
+        // Restarting players: send game_started
+        session.sendToPlayer(player.id, 'game_started', {
+          module: this.manifest.id,
+          players: playersData,
+          sharedState: {}
+        });
+      } else {
+        // New players who joined during game: send game_started_wait
+        session.sendToPlayer(player.id, 'game_started_wait', {
+          module: this.manifest.id,
+          players: playersData,
+          sharedState: {}
+        });
+      }
+    }
+
+    // Always send game_started to display and host
+    session.broadcastDisplay('game_started', {
       module: this.manifest.id,
-      players: this.players.map(p => ({
-        id: p.id,
-        name: p.name,
-        score: 0,
-        handCount: 0,
-        isReady: false,
-        isConnected: p.isConnected,
-        isAlive: true,
-        isEliminated: false,
-        attributes: p.attributes || {}
-      })),
+      players: playersData,
+      sharedState: {}
+    });
+    session.sendToHost('game_started', {
+      module: this.manifest.id,
+      players: playersData,
       sharedState: {}
     });
 
@@ -897,17 +966,20 @@ class BaseModule {
 
   _getAvailableActions() {
     const stage = this._currentStage();
+
+    // Result stage: only show back_to_lobby button
+    if (stage?.type === 'result') {
+      return ['back_to_lobby'];
+    }
+
     const actions = ['end_game'];
 
     if (stage?.type === 'identity_draw') {
       actions.unshift('advance_identity');
     } else if (stage?.type === 'card_play') {
       actions.unshift('next_round', 'force_reveal');
-    } else if (stage?.type === 'intermission') {
+    } else if (stage?.type === 'intermission' || stage?.type === 'game') {
       actions.unshift('next_stage');
-    } else if (stage?.type === 'result') {
-      // Only show restart button in result stage
-      actions.push('restart');
     }
 
     return actions;
@@ -934,6 +1006,9 @@ class BaseModule {
         // Reset to single top-level frame pointing at result stage
         this._stageStack = [{ stages: this.enabledStages, index: resultIndex }];
         await this._startCurrentStage(session);
+      } else {
+        // No result stage — go straight back to lobby
+        session.resetToLobby();
       }
     } else if (action === 'restart') {
       console.log('[BaseModule] Restarting game');
@@ -982,22 +1057,55 @@ class BaseModule {
         }
       }
 
-      session.broadcastAll('game_started', {
+      const playersData = this.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        playerNumber: p.playerNumber,
+        score: p.score,
+        handCount: (this.playerHands.get(p.id) || []).length,
+        isReady: false,
+        isConnected: p.isConnected,
+        isAlive: p.isAlive,
+        isEliminated: p.isEliminated,
+        attributes: p.attributes || {}
+      }));
+
+      // Separate game_started for restarting players and game_started_wait for others
+      const allPlayers = session.players.all();
+      const restartingPlayerIds = new Set(this.players.map(p => p.id));
+
+      for (const player of allPlayers) {
+        if (!player.isConnected) continue;
+
+        if (restartingPlayerIds.has(player.id)) {
+          // Restarting players: send game_started
+          session.sendToPlayer(player.id, 'game_started', {
+            module: this.manifest.id,
+            players: playersData,
+            sharedState: {}
+          });
+        } else {
+          // New players who joined during game: send game_started_wait
+          session.sendToPlayer(player.id, 'game_started_wait', {
+            module: this.manifest.id,
+            players: playersData,
+            sharedState: {}
+          });
+        }
+      }
+
+      // Always send game_started to display and host
+      session.broadcastDisplay('game_started', {
         module: this.manifest.id,
-        players: this.players.map(p => ({
-          id: p.id,
-          name: p.name,
-          playerNumber: p.playerNumber,
-          score: p.score,
-          handCount: (this.playerHands.get(p.id) || []).length,
-          isReady: false,
-          isConnected: p.isConnected,
-          isAlive: p.isAlive,
-          isEliminated: p.isEliminated,
-          attributes: p.attributes || {}
-        })),
+        players: playersData,
         sharedState: {}
       });
+      session.sendToHost('game_started', {
+        module: this.manifest.id,
+        players: playersData,
+        sharedState: {}
+      });
+
       await this._enterStageOrLoop(session);
     } else if (action === 'back_to_lobby') {
       session.resetToLobby();
@@ -1493,6 +1601,249 @@ class BaseModule {
     // 'host' trigger: wait for host_next_phase
   }
 
+  // ═════════════════════════════════════════════════════════════════════
+  //   Unified Action Config Generator (支援新的 ActionButtonManager)
+  // ═════════════════════════════════════════════════════════════════════
+
+  /**
+   * 為當前 stage 生成統一的 actionConfig
+   * 支援新的 ActionButtonManager 客戶端架構，同時保持向後兼容
+   */
+  _generateActionConfig(stage, session) {
+    // 如果 stage 已經有 actionConfig，直接使用
+    if (stage.actionConfig) {
+      console.log('[BaseModule] Using existing actionConfig for stage:', stage.id);
+      return stage.actionConfig;
+    }
+
+    console.log('[BaseModule] Generating actionConfig for stage type:', stage.type);
+
+    // 根據 stage type 生成對應的 actionConfig
+    let actionConfig = null;
+
+    switch (stage.type) {
+      case 'vote':
+        actionConfig = this._generateVoteActionConfig(stage, session);
+        break;
+
+      case 'card_play':
+        actionConfig = this._generateCardPlayActionConfig(stage, session);
+        break;
+
+      case 'identity_draw':
+        actionConfig = this._generateIdentityDrawActionConfig(stage, session);
+        break;
+
+      case 'game':
+        actionConfig = this._generateGameActionConfig(stage, session);
+        break;
+
+      case 'intermission':
+        actionConfig = {
+          uiMode: 'none',
+          selection: { source: 'none', multiSelect: false },
+          actions: []
+        };
+        break;
+
+      case 'result':
+        actionConfig = {
+          uiMode: 'overlay',
+          selection: { source: 'none', multiSelect: false },
+          actions: [
+            {
+              id: 'leave_room',
+              type: 'secondary',
+              label: '離開房間',
+              position: 'bottom',
+              behavior: {
+                action: 'leave_room',
+                requireSelection: false
+              },
+              states: {
+                idle: { text: '離開房間', disabled: false }
+              }
+            }
+          ]
+        };
+        break;
+
+      default:
+        console.log('[BaseModule] No actionConfig for stage type:', stage.type);
+        break;
+    }
+
+    return actionConfig;
+  }
+
+  /**
+   * 生成投票階段的 actionConfig
+   */
+  _generateVoteActionConfig(stage, session) {
+    const voteConfig = stage.voteConfig || {};
+
+    return {
+      uiMode: 'overlay',
+      selection: {
+        source: 'players',
+        multiSelect: voteConfig.multiSelect || false,
+        minSelect: 1,
+        maxSelect: voteConfig.multiSelectMax || 1
+      },
+      actions: [
+        {
+          id: 'submit_vote',
+          type: 'primary',
+          label: '送出投票',
+          position: 'bottom',
+          behavior: {
+            action: 'cast_vote',
+            requireSelection: true,
+            serverEvent: 'player_action'
+          },
+          states: {
+            idle: { text: '請選擇投票對象', disabled: true },
+            ready: { text: '送出投票', disabled: false },
+            submitting: { text: '送出中…', disabled: true },
+            submitted: { text: '已送出 ✓', disabled: true }
+          }
+        }
+      ],
+      voteConfig: voteConfig,
+      // 投票選項會在 _startVoteStage 中生成並附加到這裡
+      voteOptions: [],
+      eligibleVoters: []
+    };
+  }
+
+  /**
+   * 生成卡牌出牌階段的 actionConfig
+   */
+  _generateCardPlayActionConfig(stage, session) {
+    return {
+      uiMode: 'inline',
+      selection: {
+        source: 'cards',
+        multiSelect: false,
+        minSelect: 1,
+        maxSelect: 1
+      },
+      actions: [
+        {
+          id: 'play_card',
+          type: 'primary',
+          label: '出牌',
+          position: 'inline',
+          behavior: {
+            action: 'play_card',
+            requireSelection: true,
+            serverEvent: 'play_card'
+          },
+          states: {
+            idle: { text: '請選擇一張牌', disabled: true },
+            ready: { text: '出牌', disabled: false },
+            submitting: { text: '出牌中…', disabled: true },
+            submitted: { text: '已出牌', disabled: true }
+          }
+        }
+      ]
+    };
+  }
+
+  /**
+   * 生成身份確認階段的 actionConfig
+   */
+  _generateIdentityDrawActionConfig(stage, session) {
+    return {
+      uiMode: 'overlay',
+      selection: {
+        source: 'none',
+        multiSelect: false
+      },
+      actions: [
+        {
+          id: 'confirm_identity',
+          type: 'primary',
+          label: '確認身份',
+          position: 'bottom',
+          behavior: {
+            action: 'confirm_identity',
+            requireSelection: false,
+            serverEvent: 'player_action'
+          },
+          states: {
+            idle: { text: '確認身份', disabled: false },
+            submitting: { text: '確認中…', disabled: true },
+            submitted: { text: '已確認 ✓', disabled: true }
+          }
+        }
+      ]
+    };
+  }
+
+  /**
+   * 生成遊戲控制器階段的 actionConfig
+   */
+  _generateGameActionConfig(stage, session) {
+    const gameConfig = stage.gameConfig || {};
+    const layout = gameConfig.layout || 'pad-4';
+    const buttonLabels = gameConfig.buttonLabels || {};
+
+    // 根據 layout 生成對應的按鈕
+    let actions = [];
+
+    if (layout === 'pad-4' || layout === 'pad-8') {
+      const buttonIds = layout === 'pad-8'
+        ? ['btn1','btn2','btn3','btn4','btn5','btn6','btn7','btn8']
+        : ['btn1','btn2','btn3','btn4'];
+
+      buttonIds.forEach(btnId => {
+        actions.push({
+          id: btnId,
+          type: btnId === 'btn1' ? 'primary' : 'secondary',
+          label: buttonLabels[btnId] || btnId.replace('btn', ''),
+          position: 'controller',
+          behavior: {
+            action: 'game',
+            serverEvent: 'player_action'
+          },
+          states: {
+            idle: { text: buttonLabels[btnId] || btnId.replace('btn', ''), disabled: false }
+          }
+        });
+      });
+    } else if (layout === 'dpad-2btn') {
+      actions = [
+        {
+          id: 'btn1',
+          type: 'primary',
+          label: buttonLabels['btn1'] || 'A',
+          position: 'controller',
+          behavior: { action: 'game', serverEvent: 'player_action' },
+          states: { idle: { text: buttonLabels['btn1'] || 'A', disabled: false } }
+        },
+        {
+          id: 'btn2',
+          type: 'secondary',
+          label: buttonLabels['btn2'] || 'B',
+          position: 'controller',
+          behavior: { action: 'game', serverEvent: 'player_action' },
+          states: { idle: { text: buttonLabels['btn2'] || 'B', disabled: false } }
+        }
+      ];
+    }
+
+    return {
+      uiMode: 'controller',
+      controllerLayout: layout,
+      selection: {
+        source: 'none',
+        multiSelect: false
+      },
+      actions: actions
+    };
+  }
+
   // ── Vote System Methods ────────────────────────────────────────────────
 
   async _startVoteStage(session, stage) {
@@ -1606,6 +1957,16 @@ class BaseModule {
       } else if (player.isAlive !== false && player.isConnected !== false) {
         player.status = 'waiting'; // Can't vote in this round
       }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //   NEW: 將投票選項添加到 actionConfig (支援新的 ActionButtonManager)
+    // ════════════════════════════════════════════════════════════════
+    if (stage.actionConfig) {
+      // 如果有預設的 actionConfig，添加投票選項
+      stage.actionConfig.voteOptions = voteOptions;
+      stage.actionConfig.eligibleVoters = eligibleVoters.map(p => p.id);
+      stage.actionConfig.voteConfig = voteConfig;
     }
 
     this._activeVotePayload = {

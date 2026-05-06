@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
-    "start:lan": "HOST=$(ipconfig getifaddr en0) node server/index.js"
+    "start:lan": "HOST=$(ipconfig getifaddr en0) node server/index.js",
+    "restart": "./restart-server.sh",
+    "kill": "./kill-server.sh"
   },
   "dependencies": {
     "express": "^4.18.2",

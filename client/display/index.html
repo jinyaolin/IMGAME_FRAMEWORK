@@ -388,6 +388,12 @@
 
       // Update players with new data (including player numbers)
       if (data.players) {
+        // Sync player numbers from server
+        data.players.forEach(p => {
+          if (p.playerNumber) {
+            playerNumberMap[p.id] = p.playerNumber;
+          }
+        });
         renderPlayers(data.players);
       }
 
@@ -403,6 +409,13 @@
     });
 
     client.on('player_joined', (data) => {
+      // Assign player number when joining (same logic as host)
+      if (data.player && !playerNumberMap[data.player.id]) {
+        const nextNumber = Object.keys(playerNumberMap).length + 1;
+        playerNumberMap[data.player.id] = nextNumber;
+        console.log('[Display] Assigned player number', nextNumber, 'to', data.player.name);
+      }
+
       if (data.players) renderPlayers(data.players);
       else if (data.player) addOrUpdatePlayer(data.player);
       toast(`${data.player?.name || '玩家'} 加入`);
@@ -410,6 +423,7 @@
 
     client.on('player_left', d => {
       players.delete(d.playerId);
+      delete playerNumberMap[d.playerId];
       redrawStrip();
       toast(`玩家離開`);
     });
@@ -545,6 +559,16 @@
     client.on('all_played', (data) => {
       console.log('[Display] All players played');
       toast('✅ 全員已出牌');
+    });
+
+    client.on('back_to_lobby', (data) => {
+      console.log('[Display] Back to lobby');
+      setPhase('lobby');
+      setModule(null);
+      exitGameView();
+      // Clear player number map when returning to lobby
+      playerNumberMap = {};
+      toast('← 返回 Lobby');
     });
 
     // ── Vote Events ────────────────────────────────────────────────
@@ -731,6 +755,7 @@
     // ── Helpers ────────────────────────────────────────────────
     const players = new Map();
     let displayOrder = []; // host-controlled display order (array of player IDs)
+    let playerNumberMap = {}; // playerId → playerNumber (assigned in lobby)
 
     client.on('player_order_changed', (data) => {
       displayOrder = data.order || [];
@@ -750,7 +775,13 @@
 
     function renderPlayers(list) {
       players.clear();
-      list.forEach(p => players.set(p.id, p));
+      list.forEach(p => {
+        // Assign player number from local map if not already set
+        if (!p.playerNumber && playerNumberMap[p.id]) {
+          p.playerNumber = playerNumberMap[p.id];
+        }
+        players.set(p.id, p);
+      });
       redrawStrip();
     }
 
@@ -799,6 +830,13 @@
     function enterGameView() {
       document.getElementById('lobbyView').style.display = 'none';
       document.getElementById('gameView').style.display  = 'block';
+    }
+
+    function exitGameView() {
+      document.getElementById('gameView').style.display = 'none';
+      document.getElementById('lobbyView').style.display = '';
+      // Clear any game content
+      document.getElementById('moduleDisplay').innerHTML = '';
     }
 
     function toast(msg) {

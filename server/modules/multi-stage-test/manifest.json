@@ -3,7 +3,7 @@
   "name": "狼人殺",
   "version": "1.0.0",
   "minPlayers": 3,
-  "maxPlayers": 3,
+  "maxPlayers": 4,
   "description": "測試多階段遊戲流程：投票 → 結果",
   "stages": [
     {

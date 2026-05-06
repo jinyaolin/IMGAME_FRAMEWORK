@@ -305,6 +305,7 @@ const TRANSLATIONS = {
     'mobile.waiting':          '等待遊戲…',
     'mobile.ready':            '我準備好了',
     'mobile.ready_done':       '✓ 已準備',
+    'mobile.cancel_ready':     '取消準備',
     'mobile.confirm_identity': '確認身份',
     'mobile.identity_label':   '你的身份',
     'mobile.waiting_identity': '等待身份分配...',
@@ -316,6 +317,8 @@ const TRANSLATIONS = {
     'mobile.eliminated_sub':   '遊戲繼續進行中，你可以繼續觀看。',
     'mobile.eliminated_watch': '觀戰模式',
     'mobile.waiting_game':     '⏳ 遊戲進行中，請等待下一輪…',
+    'mobile.game_in_progress': '遊戲進行中',
+    'mobile.waiting_to_join':  '等待本局結束後可加入下一局',
 
     // Decks — general
     'decks.title':             '🃏 卡牌管理器',
@@ -726,6 +729,7 @@ const TRANSLATIONS = {
     'mobile.waiting':          'Waiting for game…',
     'mobile.ready':            "I'm Ready",
     'mobile.ready_done':       '✓ Ready',
+    'mobile.cancel_ready':     'Cancel Ready',
     'mobile.confirm_identity': 'Confirm Identity',
     'mobile.identity_label':   'Your Identity',
     'mobile.waiting_identity': 'Waiting for identity…',
@@ -737,6 +741,8 @@ const TRANSLATIONS = {
     'mobile.eliminated_sub':   'The game continues. You can keep watching.',
     'mobile.eliminated_watch': 'Spectator Mode',
     'mobile.waiting_game':     '⏳ Game in progress — please wait for the next round…',
+    'mobile.game_in_progress': 'Game in Progress',
+    'mobile.waiting_to_join':  'Waiting for this round to end before joining',
 
     // Decks — general
     'decks.title':             '🃏 Card Manager',

@@ -686,8 +686,7 @@
       <div class="rp-sub" id="rpWinners"></div>
       <div class="rp-leaderboard" id="rpLeaderboard"></div>
       <hr class="divider">
-      <button class="btn btn-success btn-full" onclick="hostAction('restart')" data-i18n="host.restart">重新開始（同模組）</button>
-      <button class="btn btn-danger btn-full" onclick="closeRoom()" data-i18n="host.end_room">結束房間</button>
+      <div class="rp-actions" id="rpActions"></div>
     </div>
 
     <!-- PANEL D: Vote -->
@@ -742,6 +741,7 @@
   let availableModules= [];
   let currentPhase    = 'lobby';   // lobby | playing | result
   let currentGamePhase = null;     // Current game phase (identity_draw, card_play, vote, etc.)
+  let currentAvailableActions = []; // Current available host actions
   let voteSubmissions = new Set(); // Track which players have submitted votes
   let playerNumberMap = {};        // playerId → playerNumber mapping (assigned when player joins, never changes)
   const client = new GameClient();
@@ -1439,6 +1439,7 @@
 
   function renderGamePanel(state) {
     currentGamePhase = state.phase; // Store current game phase for use in renderPlayers
+    currentAvailableActions = state.availableActions || []; // Store available actions for use in renderResultPanel
     console.log('[Host] renderGamePanel called with phase:', state.phase, 'playerStates:', state.playerStates?.length);
 
     // Update currentPlayers with playerStates from game panel
@@ -1581,6 +1582,13 @@
         <div class="rp-bar-wrap"><div class="rp-bar"><div class="rp-bar-fill" style="width:${barPct}%"></div></div></div>
         <span class="rp-score">${p.score} 分</span>
       </div>`;
+    }).join('');
+
+    // Render action buttons from availableActions
+    const actions = currentAvailableActions || [];
+    document.getElementById('rpActions').innerHTML = actions.map(a => {
+      const def = ACTION_DEFS[a] || { label: a, cls: 'btn-neutral' };
+      return `<button class="btn ${def.cls} btn-full" onclick="hostAction('${a}')">${def.label}</button>`;
     }).join('');
   }
 

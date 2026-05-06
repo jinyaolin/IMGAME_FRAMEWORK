@@ -306,6 +306,108 @@ module.exports = MyGame;
 
 ---
 
+## 手機端強佔畫面（優先順序系統）
+
+手機介面使用**優先順序式的強佔畫面系統**，防止玩家在不該操作的時候進行互動。當多個條件同時滿足時，只顯示最高優先級的畫面。
+
+### 優先順序（從高到低）
+
+| 優先級 | 畫面 | 玩家狀態 | 原因 |
+|--------|------|----------|------|
+| **1（最高）** | ⏳ 等待畫面 | `phase='waiting'` | 玩家沒有及時 ready — 根本沒加入遊戲 |
+| **2** | 💀 淘汰畫面 | `myIsAlive=false` | 玩家已被淘汰 — 只能觀戰 |
+| **3（最低）** | ⏸️ 暫停畫面 | `phase='playing'` & `myIsAlive=true` | 遊戲暫停中 — 暫時等待 |
+
+### 實作細節
+
+**等待畫面** (`#waitingScreen`)
+- **觸發時機**：`game_started_wait` 事件
+- **顯示對象**：遊戲開始前沒有按 Ready 的玩家
+- **行為**：
+  - 隱藏所有其他強佔畫面
+  - 阻擋所有遊戲互動
+  - 顯示訊息：「遊戲已開始。請等待下一局。」
+  - 遊戲結束後自動返回 lobby
+
+**淘汰畫面** (`#eliminatedScreen`)
+- **觸發時機**：`players_eliminated` 事件或 host 手動淘汰
+- **顯示對象**：已被淘汰的玩家
+- **行為**：
+  - 隱藏暫停畫面（淘汰狀態在暫停期間持續）
+  - 顯示淘汰原因，可選顯示投票結果
+  - 阻擋所有遊戲控制
+  - 玩家仍可觀看遊戲（觀戰模式）
+
+**暫停畫面** (`#intermissionScreen`)
+- **觸發時機**：`stage_started` 且 `stageType='intermission'`
+- **顯示對象**：遊戲中且未被淘汰的玩家（暫停階段）
+- **行為**：
+  - 檢查優先級：如果在等待或被淘汰則不顯示
+  - 暫停期間阻擋所有遊戲互動
+  - 顯示階段說明
+  - 下一階段開始時自動隱藏
+
+### 程式碼參考
+
+優先順序邏輯實作於 `client/mobile/game.html`：
+
+```javascript
+// 優先級 1：等待畫面
+function showWaitingScreen() {
+  hideEliminatedScreen();    // 隱藏優先級 2
+  hideIntermissionScreen();   // 隱藏優先級 3
+  document.getElementById('waitingScreen').style.display = 'flex';
+}
+
+// 優先級 2：淘汰畫面
+function showEliminatedScreen(subText) {
+  hideIntermissionScreen();   // 隱藏優先級 3
+  // ... 顯示淘汰畫面
+}
+
+// 優先級 3：暫停畫面
+function showIntermissionScreen(subText) {
+  if (phase === 'waiting') return;        // 優先級 1 檢查
+  if (!myIsAlive) return;                 // 優先級 2 檢查
+  // ... 顯示暫停畫面
+}
+```
+
+### 玩家狀態流程圖
+
+```
+玩家在 Lobby
+    ↓ [沒按 Ready]
+    ↓
+遊戲開始 → ⏳ 等待畫面（優先級 1）
+    ↓ [遊戲結束 → 自動返回 Lobby]
+
+玩家在 Lobby
+    ↓ [按了 Ready]
+    ↓
+遊戲開始 → 🎮 遊戲中
+    ↓ [遊戲中被淘汰]
+    ↓
+被淘汰 → 💀 淘汰畫面（優先級 2）
+    ↓ [淘汰狀態持續到暫停階段]
+    ↓ [即使在 ⏸️ 暫停期間仍顯示]
+    ↓ [只能看遊戲內容，沒有控制權]
+
+玩家在遊戲中
+    ↓ [按了 Ready，沒被淘汰]
+    ↓
+遊戲開始 → 🎮 遊戲中
+    ↓ [進入暫停階段]
+    ↓
+暫停階段 → ⏸️ 暫停畫面（優先級 3）
+    ↓ [下一階段開始 → 隱藏]
+    ↓ [回到 🎮 遊戲中]
+```
+
+這確保玩家只看到和互動符合他們目前遊戲狀態的內容。
+
+---
+
 ## 重連恢復 (Reconnect Recovery)
 
 玩家斷線後重連，server 會自動推送完整狀態還原封包：

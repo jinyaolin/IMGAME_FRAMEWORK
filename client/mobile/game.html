@@ -448,6 +448,71 @@
       flex: 1; display: none; flex-direction: column; align-items: center; justify-content: center;
       padding: 28px; text-align: center;
     }
+
+    /* ───── WAITING SCREEN ─────────────────────────────────── */
+    #waitingScreen {
+      position: fixed; inset: 0; z-index: 500;
+      background: #0a0a1a;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 32px;
+    }
+    #waitingScreen .wait-icon { font-size: 4rem; margin-bottom: 16px; }
+    #waitingScreen .wait-title {
+      font-size: 1.6rem; font-weight: 800; color: #ffaa44;
+      margin-bottom: 8px; letter-spacing: .04em;
+    }
+    #waitingScreen .wait-sub {
+      font-size: .95rem; color: #8888bb; margin-bottom: 32px; line-height: 1.5;
+    }
+    #waitingScreen .wait-info {
+      background: #12121f;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 320px;
+      width: 100%;
+      font-size: .85rem;
+      color: #aaaacc;
+      line-height: 1.6;
+    }
+    #waitingScreen .wait-info-icon {
+      font-size: 2rem;
+      margin-bottom: 12px;
+    }
+
+    /* ───── INTERMISSION SCREEN ─────────────────────────────── */
+    #intermissionScreen {
+      position: fixed; inset: 0; z-index: 500;
+      background: #0a0a1a;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 32px;
+    }
+    #intermissionScreen .intermission-icon { font-size: 4rem; margin-bottom: 16px; }
+    #intermissionScreen .intermission-title {
+      font-size: 1.6rem; font-weight: 800; color: #ffaa44;
+      margin-bottom: 8px; letter-spacing: .04em;
+    }
+    #intermissionScreen .intermission-sub {
+      font-size: .95rem; color: #8888bb; margin-bottom: 32px; line-height: 1.5;
+    }
+    #intermissionScreen .intermission-info {
+      background: #12121f;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 320px;
+      width: 100%;
+      font-size: .85rem;
+      color: #aaaacc;
+      line-height: 1.6;
+    }
+    #intermissionScreen .intermission-info-icon {
+      font-size: 2rem;
+      margin-bottom: 12px;
+    }
+
     #resultScreen .trophy { font-size: 3rem; margin-bottom: 8px; }
     #resultScreen h2 { font-size: 1.3rem; color: var(--gold); margin-bottom: 6px; }
     #resultWinners { font-size: .85rem; color: var(--text-dim); margin-bottom: 28px; }
@@ -615,6 +680,36 @@
     <div class="vote-results" id="elimVoteResults"></div>
   </div>
 
+  <!-- ════════ WAITING SCREEN ════════ -->
+  <div id="waitingScreen">
+    <div class="wait-icon">⏳</div>
+    <div class="wait-title">遊戲已開始</div>
+    <div class="wait-sub">你沒有及時準備，請等待下一局遊戲</div>
+    <div class="wait-info">
+      <div class="wait-info-icon">💡</div>
+      <div>
+        遊戲進行中，請稍候...<br><br>
+        遊戲結束後會自動返回 Lobby<br>
+        到時記得按 Ready 參加下一局！
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ INTERMISSION SCREEN ════════ -->
+  <div id="intermissionScreen">
+    <div class="intermission-icon">⏸️</div>
+    <div class="intermission-title">遊戲暫停中</div>
+    <div class="intermission-sub" id="intermissionSubText">請稍候，遊戲即將繼續...</div>
+    <div class="intermission-info">
+      <div class="intermission-info-icon">💡</div>
+      <div>
+        遊戲已經暫停<br><br>
+        主持人正在準備下一階段<br>
+        請耐心等待
+      </div>
+    </div>
+  </div>
+
   <!-- ════════ VOTE OVERLAY ════════ -->
   <div id="voteOverlay" class="overlay hidden">
     <div class="vote-box">
@@ -674,6 +769,9 @@
 
     function showEliminatedScreen(subText) {
       console.log('[Mobile] showEliminatedScreen called with:', subText);
+      // Hide intermission screen (eliminated has higher priority than paused)
+      hideIntermissionScreen();
+
       const screen = document.getElementById('eliminatedScreen');
       console.log('[Mobile] eliminatedScreen element:', screen);
       if (subText) document.getElementById('elimSubText').textContent = subText;
@@ -683,6 +781,9 @@
 
     function showEliminatedWithVoteResults(eliminationType = 'exile') {
       console.log('[Mobile] showEliminatedWithVoteResults called with type:', eliminationType);
+      // Hide intermission screen (eliminated has higher priority than paused)
+      hideIntermissionScreen();
+
       const screen = document.getElementById('eliminatedScreen');
       console.log('[Mobile] eliminatedScreen element:', screen);
 
@@ -744,6 +845,47 @@
       document.getElementById('eliminatedScreen').style.display = 'none';
     }
 
+    function showWaitingScreen() {
+      console.log('[Mobile] showWaitingScreen called');
+      // Hide all other overlay screens (waiting has highest priority)
+      hideEliminatedScreen();
+      hideIntermissionScreen();
+
+      document.getElementById('lobbyScreen').style.display = 'none';
+      document.getElementById('gameScreen').style.display = 'none';
+      document.getElementById('waitingScreen').style.display = 'flex';
+    }
+
+    function hideWaitingScreen() {
+      console.log('[Mobile] hideWaitingScreen called');
+      document.getElementById('waitingScreen').style.display = 'none';
+    }
+
+    function showIntermissionScreen(subText) {
+      console.log('[Mobile] showIntermissionScreen called with:', subText);
+
+      // Priority check: waiting screen has highest priority
+      if (phase === 'waiting') {
+        console.log('[Mobile] In waiting phase, not showing intermission screen');
+        return;
+      }
+
+      // Priority check: eliminated screen has higher priority
+      if (!myIsAlive) {
+        console.log('[Mobile] Player is eliminated, not showing intermission screen');
+        return;
+      }
+
+      // Only show if player is in game and alive
+      if (subText) document.getElementById('intermissionSubText').textContent = subText;
+      document.getElementById('intermissionScreen').style.display = 'flex';
+    }
+
+    function hideIntermissionScreen() {
+      console.log('[Mobile] hideIntermissionScreen called');
+      document.getElementById('intermissionScreen').style.display = 'none';
+    }
+
     // Layout: 'strip' | 'fan' | 'grid' — persisted per-device
     let cardLayout = localStorage.getItem('mobile.cardLayout') || 'strip';
 
@@ -786,6 +928,13 @@
       }
     });
     client.on('player_ready', d => renderPlayers(d.players || []));
+
+    client.on('game_started_wait', (data) => {
+      console.log('[Mobile] ========== GAME STARTED (WAITING) ==========');
+      console.log('[Mobile] You did not ready in time, showing waiting screen');
+      phase = 'waiting';
+      showWaitingScreen();
+    });
 
     client.on('game_started', (data) => {
       console.log('[Mobile] ========== GAME STARTED ==========');
@@ -876,13 +1025,16 @@
       phase = 'lobby';
       myIsAlive = true;
       hideEliminatedScreen();
+      hideWaitingScreen();
+      hideIntermissionScreen();
       hideResultScreen();
       hideIdentityOverlay();
       document.getElementById('gameScreen').classList.add('hidden');
       document.getElementById('lobbyScreen').style.display = 'flex';
-      isReady = false;
+      // Keep ready state - players can stay ready for next game
+      // isReady = false;
       const btn = document.getElementById('readyBtn');
-      btn.textContent = t('mobile.ready');
+      btn.textContent = isReady ? t('mobile.cancel_ready') : t('mobile.ready');
       btn.classList.remove('is-ready');
     });
 
@@ -1124,12 +1276,13 @@
     client.on('stage_started', (data) => {
       console.log('[Mobile] Stage started:', data.stageName, 'type:', data.stageType);
 
+      // Hide intermission screen when entering any new stage
+      hideIntermissionScreen();
+
       // Handle different stage types
       if (data.stageType === 'intermission') {
-        const statusText = data.stageDescription
-          ? `⏸️ ${data.stageName}：${data.stageDescription}`
-          : `⏸️ ${data.stageName}`;
-        setStatus(statusText);
+        // Show intermission overlay screen to prevent any player actions
+        showIntermissionScreen(data.stageDescription || '請稍候，遊戲即將繼續...');
         hideIdentityOverlay();
         hideControllerZone();
       } else if (data.stageType === 'identity_draw') {

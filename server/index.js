@@ -616,6 +616,9 @@ io.on('connection', (socket) => {
     socket.join(upperRoomId);
     const player = session.addPlayer(playerId, playerName, socket.id);
 
+    const currentStage = (session.phase === 'playing' && session.currentModule)
+      ? session.currentModule.getCurrentStageInfo?.() ?? null
+      : null;
     socket.emit('room_joined', {
       roomId,
       playerId: player.id,
@@ -624,6 +627,7 @@ io.on('connection', (socket) => {
       players: session.players.publicList(),
       sharedState: session.sharedState,
       playerState: player.toPrivate(),
+      currentStage,
     });
 
     console.log(`[Room:${roomId}] Player joined: ${playerName} (${playerId})`);

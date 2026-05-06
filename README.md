@@ -49,6 +49,10 @@ After starting, you'll see:
 | `/editor` | Designer — create/modify/delete game modules, supports card selection | Desktop |
 | `/decks` | Designer — manage shared card decks (card content + image upload) | Desktop |
 
+### Custom IP / LAN config
+
+The host page has a ⚙️ config button. Set a custom IP to make QR codes and mobile links point to the right address on your LAN — useful when the server runs on a machine other than the one displaying the host UI.
+
 ---
 
 ## Game Flow
@@ -61,6 +65,8 @@ After starting, you'll see:
 6. After ending, host can restart or close room
 
 Players get 30-second grace window for reconnection. Upon reconnecting, hand cards, identities, voting status, and current stage are automatically restored.
+
+**Late joiners**: If a player joins mid-game during a `game` stage, they see a "Game in progress — please wait for the next round" message. When the game restarts, they are automatically included as active players.
 
 ---
 
@@ -91,6 +97,14 @@ When creating game modules in the editor, you can select specific cards from glo
 - Uses full deck when no cards selected
 - Automatically clears selected cards when switching global decks
 
+### 🔒 Module Snapshot Isolation
+
+When a room is created, the server takes a deep-clone snapshot of the module manifest and engine code. This means:
+
+- The editor can be freely modified while a game is in progress
+- Multiple rooms running the same module are fully independent
+- Changes saved in the editor only affect newly created rooms
+
 ---
 
 ## Framework Core Concepts
@@ -120,7 +134,7 @@ Stages are the skeleton of game flow. Currently supported types:
 | `card_play` | Multi-round card play → reveal → settle → next round |
 | `vote` | Public or anonymous voting, supports countdown, single/multi-select, vote changing |
 | `intermission` | Pause wait, only shows description text, triggers no game logic |
-| `input` | Transform mobile into real-time game controller, button signals sent to display canvas immediately |
+| `game` | Transform mobile into a real-time game controller; button signals sent to display canvas immediately; supports custom `gameCode` for fully custom canvas games |
 | `loop` | Loop through a set of child stages N times (for multi-round voting, multi-round story, etc.) |
 | `result` | Calculate final rankings, broadcast `game_ended` |
 
@@ -175,13 +189,13 @@ Stages are the skeleton of game flow. Currently supported types:
 }
 ```
 
-#### Input Stage Config
+#### Game Stage Config
 
 ```jsonc
 {
-  "type": "input",
+  "type": "game",
   "name": "Multiplayer Controller",
-  "inputConfig": {
+  "gameConfig": {
     "layout": "dpad-2btn",     // see table below
     "buttonLabels": {          // custom labels for each button (optional)
       "btn1": "A",
@@ -277,13 +291,6 @@ Two sources:
 
 Global decks stored in `server/decks/*.json`, managed via `/decks` UI (includes card image upload).
 
-**Select specific cards from global decks** (new feature):
-- After referencing global deck in editor, can select desired cards from it
-- Each card can have independent quantity setting
-- Use "Select All" or "Clear" buttons for quick operations
-- Uses full deck if no cards selected
-- Card selection saved in module's `selectedCards` field
-
 ### 4. Engine
 All modules share `server/core/BaseModule.js` universal engine. For custom logic, place `server.js` in module directory inheriting from `BaseModule`:
 
@@ -313,6 +320,8 @@ When players disconnect and reconnect, server automatically pushes complete stat
 | `vote_cast` | If player voted, restore "voted" status |
 | `players_eliminated` | If player eliminated |
 
+If the display reloads or opens late during a `game` stage, the canvas code restarts automatically from the current stage state.
+
 ---
 
 ## Directory Structure
@@ -324,7 +333,7 @@ immersive-game/
 │   ├── index.js                    ← Express + Socket.IO main entry
 │   ├── core/
 │   │   ├── BaseModule.js           ← Universal game engine (stage traversal, vote, loop, reconnect)
-│   │   ├── ModuleLoader.js         ← Scan/load manifests
+│   │   ├── ModuleLoader.js         ← Scan/load manifests; supports snapshot loading
 │   │   ├── DeckManager.js          ← Global deck CRUD
 │   │   ├── GameSession.js          ← Room state machine
 │   │   └── PlayerManager.js        ← Player management
@@ -332,6 +341,8 @@ immersive-game/
 │   │   └── decks.js                ← /api/decks REST routes
 │   ├── modules/
 │   │   ├── card-battle/            ← Built-in example: Card battle
+│   │   ├── input-test/             ← Test: Game controller (pad-4 layout)
+│   │   ├── multiuser-game/         ← Example: Multiplayer real-time card game
 │   │   ├── multi-stage-test/       ← Test: Multi-stage flow
 │   │   ├── public-vote-test/       ← Test: Public voting
 │   │   └── vote-demo/             ← Test: Voting demo
@@ -342,7 +353,9 @@ immersive-game/
 │   ├── display/index.html          ← Large screen public interface
 │   ├── editor/index.html           ← Module editor
 │   ├── decks/                      ← Global deck management
-│   └── shared/socket.js            ← Shared socket wrapper
+│   └── shared/
+│       ├── socket.js               ← Shared socket wrapper
+│       └── config.js               ← Language toggle + IP config (zh/en i18n)
 └── public/uploads/                 ← Card images (not in git)
 ```
 
@@ -354,7 +367,10 @@ immersive-game/
 2–8 players, 5 cards each, play cards for set rounds comparing values, highest value gets 1 point, highest total score wins. Supports identity draw, refill mode settings.
 
 ### `input-test` — Controller Test
-1–8 players, single `input` stage with `pad-4` layout, to verify controller input and display reception works correctly.
+1–8 players, single `game` stage with `pad-4` layout, to verify controller input and display reception works correctly.
+
+### `multiuser-game` — Multiplayer Real-time Game
+2–8 players. Includes an identity draw phase followed by a `game` stage with a custom `gameCode` canvas — floating button labels fly up on press, each player gets a colored grid zone. Demonstrates how to build a fully custom interactive game on top of the framework.
 
 ---
 
@@ -366,6 +382,8 @@ npm run start:lan
 ```
 Auto-grabs `en0` IP, QR code lets same-WiFi phones connect directly.
 
+Alternatively, start with `npm start` and set the IP manually in the host page config (⚙️).
+
 ### Editor Usage Guide
 `/editor` provides visual interface to design game modules without manual JSON editing:
 
@@ -376,10 +394,11 @@ Auto-grabs `en0` IP, QR code lets same-WiFi phones connect directly.
    - Set quantity for each card
    - Adjust default draw count and duplicate allowance
 3. **Stages** tab:
-   - Add different stage types (identity draw, card play, voting, pause, loop, result)
+   - Add different stage types (identity draw, card play, voting, pause, game controller, loop, result)
    - Set stage advance conditions (manual, auto, countdown)
    - Configure voting parameters (anonymous, self-vote, multi-select)
    - Set card play round refill mode and round count
+   - Configure `game` stage layout and optional `gameCode`
 4. **Advanced** tab:
    - Direct edit manifest JSON and fieldConfig structure descriptions
    - **Edit server.js**: Inherit BaseModule to implement custom game logic

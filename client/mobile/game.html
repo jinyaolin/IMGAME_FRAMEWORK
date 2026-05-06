@@ -766,7 +766,14 @@
       renderPlayers(data.players);
       if (data.playerState) updateMyState(data.playerState);
       if (data.sharedState) updateStatus(data.sharedState);
-      if (data.phase === 'playing') enterGameScreen();
+      if (data.phase === 'playing') {
+        enterGameScreen();
+        if (data.currentStage?.stageType === 'game') {
+          // Joined mid-game during a game stage — show waiting message, not controller
+          hideControllerZone();
+          setStatus(t('mobile.waiting_game'));
+        }
+      }
     });
 
     client.on('player_joined', d => renderPlayers(d.players || []));

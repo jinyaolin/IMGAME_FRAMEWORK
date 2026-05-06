@@ -49,6 +49,10 @@ npm run dev                               # nodemon
 | `/editor` | 設計師 — 建立／修改／刪除遊戲模組，支援卡牌挑選 | 桌機 |
 | `/decks` | 設計師 — 管理共用牌組（卡牌內容＋圖片上傳） | 桌機 |
 
+### 自訂 IP / LAN 設定
+
+Host 頁面有 ⚙️ 設定按鈕，可以輸入自訂 IP，讓 QR code 和 mobile 連結指向正確的 LAN 位址 — 適合 server 跑在不同機器上的場景。
+
 ---
 
 ## 一場遊戲的流程
@@ -61,6 +65,8 @@ npm run dev                               # nodemon
 6. 結束後 host 可重新開始或關閉房間
 
 玩家斷線給 30 秒寬限重連，重連後手牌、身份、投票狀態、目前階段全部自動還原。
+
+**中途加入**：如果玩家在 `game` 階段進行中才加入房間，手機會顯示「遊戲進行中，請等待下一輪」提示。遊戲重新開始時，該玩家會自動加入成為正式玩家。
 
 ---
 
@@ -91,6 +97,14 @@ npm run dev                               # nodemon
 - 未選擇任何卡牌時，使用完整牌組
 - 切換全域牌組時會自動清空已選擇的卡牌
 
+### 🔒 模組快照隔離
+
+建立房間時，server 會對模組的 manifest 和引擎程式碼做深層複製（deep-clone snapshot）。效果：
+
+- 遊戲進行中可以自由修改編輯器內容，不影響進行中的房間
+- 多個房間使用同一個模組時完全獨立互不干擾
+- 在編輯器儲存的變更只對之後新建的房間生效
+
 ---
 
 ## 框架核心概念
@@ -120,7 +134,7 @@ npm run dev                               # nodemon
 | `card_play` | 多回合出牌 → 翻牌 → 結算 → 下一回合 |
 | `vote` | 公開或匿名投票，支援倒數計時、單選／多選、換票 |
 | `intermission` | 暫停等待，僅顯示說明文字，不觸發任何遊戲邏輯 |
-| `input` | 將 mobile 變成即時遊戲控制器，按鍵訊號即時傳送到 display canvas |
+| `game` | 將 mobile 變成即時遊戲控制器，按鍵訊號即時傳送到 display canvas；支援自訂 `gameCode` 打造完整 canvas 互動遊戲 |
 | `loop` | 循環執行一組子階段 N 次（可用於多輪投票、多輪劇情等） |
 | `result` | 計算最終排名、廣播 `game_ended` |
 
@@ -142,6 +156,14 @@ npm run dev                               # nodemon
 | `vote_ended` | 投票結果出來後自動 |
 | `auto` | 固定延遲後自動（不顯示倒數） |
 | `timer` | 倒數結束後自動，三端都看到秒數 |
+| `identity_timer` | 全員確認後倒數 |
+| `auto_next` | 翻牌後立即推進下一階段 |
+| `round_timer` | 翻牌後倒數推進 |
+| `host_reveal` | Host 手動翻牌 |
+| `play_timer` | 全員出牌後倒數翻牌 |
+| `all_submitted` | 全員提交後自動 |
+| `auto_restart` | 立即重新開始遊戲 |
+| `restart_timer` | 倒數後重新開始 |
 
 `fallback: 'host'` 表示就算是自動推進，host 仍保留強制推進按鈕。
 
@@ -167,13 +189,13 @@ npm run dev                               # nodemon
 }
 ```
 
-#### input 階段設定
+#### game 階段設定
 
 ```jsonc
 {
-  "type": "input",
+  "type": "game",
   "name": "多人控制器",
-  "inputConfig": {
+  "gameConfig": {
     "layout": "dpad-2btn",     // 見下表
     "buttonLabels": {          // 各按鍵自訂標籤（選填）
       "btn1": "A",
@@ -269,13 +291,6 @@ GameAPI.update(ts => {
 
 全域牌組存在 `server/decks/*.json`，用 `/decks` UI 管理（含卡牌圖片上傳）。
 
-**從全域牌組挑選特定卡牌**（新功能）：
-- 在編輯器中引用全域牌組後，可以從中挑選想要的卡牌
-- 每張卡牌都可以設定獨立的張數
-- 使用「全選」或「清除」按鈕快速操作
-- 若未選擇任何卡牌，則使用完整牌組
-- 卡牌選擇會保存在模組的 `selectedCards` 欄位中
-
 ### 4. 引擎 (Engine)
 所有模組共用 `server/core/BaseModule.js` 通用引擎。若需客製邏輯，在模組目錄放 `server.js` 繼承 `BaseModule`：
 
@@ -305,6 +320,8 @@ module.exports = MyGame;
 | `vote_cast` | 如果玩家已投票，恢復「已投票」狀態 |
 | `players_eliminated` | 如果玩家已被淘汰 |
 
+Display 端如果在 `game` 階段進行中重新整理或後來才開，canvas 程式碼會從目前階段狀態自動重新啟動。
+
 ---
 
 ## 目錄結構
@@ -316,7 +333,7 @@ immersive-game/
 │   ├── index.js                    ← Express + Socket.IO 主入口
 │   ├── core/
 │   │   ├── BaseModule.js           ← 通用遊戲引擎（stage traversal、vote、loop、reconnect）
-│   │   ├── ModuleLoader.js         ← 掃描／載入 manifest
+│   │   ├── ModuleLoader.js         ← 掃描／載入 manifest；支援快照載入
 │   │   ├── DeckManager.js          ← 全域牌組 CRUD
 │   │   ├── GameSession.js          ← 房間狀態機
 │   │   └── PlayerManager.js        ← 玩家管理
@@ -324,6 +341,8 @@ immersive-game/
 │   │   └── decks.js                ← /api/decks REST 路由
 │   ├── modules/
 │   │   ├── card-battle/            ← 內建範例：卡牌對戰
+│   │   ├── input-test/             ← 測試：遊戲控制器（pad-4 佈局）
+│   │   ├── multiuser-game/         ← 範例：多人即時卡牌遊戲
 │   │   ├── multi-stage-test/       ← 測試：多階段流程
 │   │   ├── public-vote-test/       ← 測試：公開投票
 │   │   └── vote-demo/             ← 測試：投票示範
@@ -334,7 +353,9 @@ immersive-game/
 │   ├── display/index.html          ← 大螢幕公共介面
 │   ├── editor/index.html           ← 模組編輯器
 │   ├── decks/                      ← 全域牌組管理
-│   └── shared/socket.js            ← 共用 socket wrapper
+│   └── shared/
+│       ├── socket.js               ← 共用 socket wrapper
+│       └── config.js               ← 語言切換 + IP 設定（zh/en i18n）
 └── public/uploads/                 ← 卡牌圖片（不進 git）
 ```
 
@@ -346,7 +367,10 @@ immersive-game/
 2–8 人，每人手牌 5 張，依設定回合數出牌比點數，最高 value 者得 1 分，最後總分高者勝。支援身份抽取、補牌模式設定。
 
 ### `input-test` — 控制器測試
-1–8 人，單一 `input` 階段搭配 `pad-4` 佈局，用來驗證控制器輸入與 display 接收是否正常。
+1–8 人，單一 `game` 階段搭配 `pad-4` 佈局，用來驗證控制器輸入與 display 接收是否正常。
+
+### `multiuser-game` — 多人即時遊戲
+2–8 人。包含身份抽取階段，接著進入一個帶有自訂 `gameCode` canvas 的 `game` 階段 — 按鍵時會有飄字動畫，每個玩家有自己的彩色格子區域。示範如何在框架上打造完整的即時互動遊戲。
 
 ---
 
@@ -358,6 +382,8 @@ npm run start:lan
 ```
 自動抓 `en0` IP，QR code 讓同 WiFi 手機直接連。
 
+也可以用 `npm start` 啟動，在 host 頁面的設定（⚙️）手動填入 IP。
+
 ### 編輯器使用指南
 `/editor` 提供視覺化介面來設計遊戲模組，無需手動編輯 JSON：
 
@@ -368,10 +394,11 @@ npm run start:lan
    - 設定每張卡牌的張數
    - 調整預設抽牌數和是否允許重複
 3. **階段**分頁：
-   - 新增不同類型的階段（身份抽取、出牌回合、投票、暫停、循環、結算）
+   - 新增不同類型的階段（身份抽取、出牌回合、投票、暫停、遊戲控制器、循環、結算）
    - 設定階段推進條件（手動、自動、倒數）
    - 配置投票參數（匿名、可否投自己、多選等）
    - 設定出牌回合的補牌模式和回合數
+   - 設定 `game` 階段的佈局與 `gameCode`
 4. **進階**分頁：
    - 直接編輯 manifest JSON 和 fieldConfig 結構描述
    - **編輯 server.js**：繼承 BaseModule 來實現自訂遊戲邏輯

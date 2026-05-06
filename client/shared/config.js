@@ -315,6 +315,7 @@ const TRANSLATIONS = {
     'mobile.eliminated_title': '你已被淘汰',
     'mobile.eliminated_sub':   '遊戲繼續進行中，你可以繼續觀看。',
     'mobile.eliminated_watch': '觀戰模式',
+    'mobile.waiting_game':     '⏳ 遊戲進行中，請等待下一輪…',
 
     // Decks — general
     'decks.title':             '🃏 卡牌管理器',
@@ -735,6 +736,7 @@ const TRANSLATIONS = {
     'mobile.eliminated_title': 'You have been eliminated',
     'mobile.eliminated_sub':   'The game continues. You can keep watching.',
     'mobile.eliminated_watch': 'Spectator Mode',
+    'mobile.waiting_game':     '⏳ Game in progress — please wait for the next round…',
 
     // Decks — general
     'decks.title':             '🃏 Card Manager',

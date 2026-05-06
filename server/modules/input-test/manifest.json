@@ -15,6 +15,15 @@
       "advance": {
         "trigger": "host"
       }
+    },
+    {
+      "id": "stage_mota81xd_rixc0",
+      "name": "新階段",
+      "type": "result",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      }
     }
   ]
 }

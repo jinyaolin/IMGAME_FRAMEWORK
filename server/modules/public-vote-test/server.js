@@ -4,7 +4,7 @@
  * 測試公開投票功能，驗證投票結果顯示正確
  */
 
-const BaseModule = require('../../core/BaseModule');
+const BaseModule = require('../core/BaseModule');
 
 class PublicVoteTestModule extends BaseModule {
   constructor(manifest, session, config) {

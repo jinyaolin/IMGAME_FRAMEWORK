@@ -5,7 +5,7 @@
  * 這是一個簡化的實作，依賴 BaseModule 的階段管理和投票功能
  */
 
-const BaseModule = require('../../core/BaseModule');
+const BaseModule = require('../core/BaseModule');
 
 class VoteDemoModule extends BaseModule {
   constructor(manifest, session, config) {

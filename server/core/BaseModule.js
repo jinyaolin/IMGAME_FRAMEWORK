@@ -56,6 +56,7 @@ class BaseModule {
     this.voteSubmissions = new Set(); // Track which players have submitted votes
     this._activeVotePayload = null;   // Full vote_started payload, kept for reconnect
     this._voteCountdownRemaining = null; // Remaining seconds, updated each tick
+    this._stageEndExecuted = false; // Track if onStageEnd paramActions were executed (to avoid duplicate execution)
 
     // Timers
     this._countdownTimer = null;
@@ -155,6 +156,15 @@ class BaseModule {
     this._lastAdvanceTime = now;
 
     try {
+      // 🆕 執行當前階段的 onStageEnd paramActions（如果還沒執行過）
+      const currentStage = this._currentStage();
+      if (currentStage && !this._stageEndExecuted) {
+        console.log(`[BaseModule] Executing onStageEnd paramActions for stage: ${currentStage.id}`);
+        await this._executeParamActions(currentStage, 'onStageEnd', session, {});
+      }
+      // 重置標記
+      this._stageEndExecuted = false;
+
       // Cancel any in-progress timers so stale callbacks don't fire into the next stage
       if (this._countdownTimer) {
         clearTimeout(this._countdownTimer);
@@ -410,6 +420,12 @@ class BaseModule {
     this.stageIndex = this._stageStack[0]?.index ?? 0;
 
     console.log('[BaseModule] Starting stage:', stage.id, '-', stage.name, '(' + stage.type + ')');
+
+    // 🆕 重置階段結束標記
+    this._stageEndExecuted = false;
+
+    // 🆕 執行 onStageStart 的 paramActions
+    await this._executeParamActions(stage, 'onStageStart', session);
 
     // Reset playedCards for new stage (set to null for each player, not clear)
     for (const player of this.players) {
@@ -978,6 +994,9 @@ class BaseModule {
       actions.unshift('advance_identity');
     } else if (stage?.type === 'card_play') {
       actions.unshift('next_round', 'force_reveal');
+    } else if (stage?.type === 'vote') {
+      // 投票階段：提供結束投票按鈕
+      actions.unshift('end_vote');
     } else if (stage?.type === 'intermission' || stage?.type === 'game') {
       actions.unshift('next_stage');
     }
@@ -1109,6 +1128,23 @@ class BaseModule {
       await this._enterStageOrLoop(session);
     } else if (action === 'back_to_lobby') {
       session.resetToLobby();
+    } else if (action === 'end_vote') {
+      // 結束投票階段：清除倒數計時器並執行 onStageEnd paramActions
+      const currentStage = this._currentStage();
+      if (currentStage?.type === 'vote' && this.isVotingActive) {
+        console.log('[BaseModule] Host ended vote manually');
+        // 清除倒數計時器
+        if (this._countdownTimer) {
+          clearTimeout(this._countdownTimer);
+          this._countdownTimer = null;
+        }
+        // 結束投票階段（會執行 onStageEnd paramActions）
+        await this._endVoteStage(session);
+      } else {
+        // 不在投票階段或投票已結束，直接跳到下一階段
+        console.log('[BaseModule] Not in vote stage or vote already ended, advancing to next stage');
+        await this.onHostNextStage(session);
+      }
     } else {
       console.log('[BaseModule] Unknown action, advancing to next stage');
       await this.onHostNextStage(session);
@@ -2100,6 +2136,9 @@ class BaseModule {
     this._activeVotePayload = null;
     this._voteCountdownRemaining = null;
 
+    // 🆕 標記已經執行了 onStageEnd，避免 _advanceStage 重複執行
+    this._stageEndExecuted = true;
+
     const stage = this._currentStage();
     if (!stage) {
       console.log('[BaseModule] _endVoteStage: no current stage, ignoring');
@@ -2109,10 +2148,36 @@ class BaseModule {
 
     const results = this._calculateVoteResults(voteConfig);
 
+    // 檢查是否需要等待 Host 推進
+    const stageAdvance = stage.advance || {};
+    const voteAdvance = voteConfig.advance || {};
+    const advanceConfig = {
+      trigger: voteAdvance.trigger || stageAdvance.trigger,
+      fallback: voteAdvance.fallback || stageAdvance.fallback,
+      duration: voteAdvance.duration !== undefined ? voteAdvance.duration : stageAdvance.duration
+    };
+
+    // 判斷是否需要等待 Host 推進
+    const trigger = advanceConfig.trigger;
+    const fallback = advanceConfig.fallback;
+    let waitingForHost = false;
+
+    if (trigger === 'vote_ended') {
+      if (fallback === 'host') {
+        waitingForHost = true;
+      }
+    } else if (trigger === 'host') {
+      waitingForHost = true;
+    }
+
     session.broadcastAll('vote_ended', {
       results: results,
-      anonymous: voteConfig.anonymous !== false
+      anonymous: voteConfig.anonymous !== false,
+      waitingForHost: waitingForHost  // 🆕 告訴前端是否需要等待 Host
     });
+
+    // 🆕 執行 onStageEnd 的 paramActions（投票階段特殊處理，傳遞 voteResults）
+    await this._executeParamActions(stage, 'onStageEnd', session, { voteResults: results });
 
     if (voteConfig.resultAction === 'eliminate') {
       await this._executeVoteElimination(results, voteConfig, session, 'exile');
@@ -2135,22 +2200,24 @@ class BaseModule {
 
     session.sendHostGameState();
 
-    // Determine advance behavior: properly merge voteConfig.advance and stage.advance
-    // voteConfig.advance can override specific settings, but stage.advance provides defaults
-    const stageAdvance = stage.advance || {};
-    const voteAdvance = voteConfig.advance || {};
-
-    // Merge: voteConfig takes priority for explicit settings, stage.advance fills in the rest
-    const advanceConfig = {
-      trigger: voteAdvance.trigger || stageAdvance.trigger,
-      duration: voteAdvance.duration !== undefined ? voteAdvance.duration : stageAdvance.duration,
-      fallback: voteAdvance.fallback || stageAdvance.fallback
-    };
-
-    const trigger = advanceConfig.trigger;
-    const fallback = advanceConfig.fallback;
-
-    if (trigger === 'host') {
+    // 支援 vote_ended trigger（投票結束後直接結束）
+    if (trigger === 'vote_ended') {
+      if (fallback === 'host') {
+        console.log('[BaseModule] vote_ended, awaiting host to advance');
+        session.broadcastAll('vote_can_advance', {
+          canAdvance: true,
+          message: '投票結束，等待主持人推進到下一階段'
+        });
+      } else if (fallback === 'auto') {
+        await this.onHostNextStage(session);
+      } else {
+        const duration = advanceConfig.duration || 3;
+        this._startCountdown(session, duration, async () => {
+          this._autoAdvanceTimer = null;
+          await this.onHostNextStage(session);
+        });
+      }
+    } else if (trigger === 'host') {
       console.log('[BaseModule] Vote ended, waiting for host to advance to next stage');
       session.broadcastAll('vote_can_advance', {
         canAdvance: true,
@@ -2355,6 +2422,286 @@ class BaseModule {
     };
 
     broadcast();
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //   🆕 ParamActions System - 執行階段參數動作
+  // ════════════════════════════════════════════════════════════════
+
+  async _executeParamActions(stage, trigger, session, context = {}) {
+    if (!stage.paramActions || !Array.isArray(stage.paramActions)) {
+      return;
+    }
+
+    const actions = stage.paramActions.filter(pa => pa.trigger === trigger);
+
+    if (actions.length === 0) {
+      return;
+    }
+
+    console.log(`[BaseModule] Executing ${trigger} paramActions (${actions.length})`);
+
+    // 🆕 使用共享的 context，讓 action 之間可以傳遞資料
+    const sharedContext = { ...context };
+
+    for (const action of actions) {
+      try {
+        await this._executeSingleAction(action, session, sharedContext);
+      } catch (err) {
+        console.error(`[BaseModule] Error executing paramAction:`, err);
+      }
+    }
+  }
+
+  async _executeSingleAction(action, session, context) {
+    const { action: actionType, targetParam, value, targetPlayerParam, description } = action;
+
+    console.log(`[BaseModule] Action: ${actionType} target=${targetParam}`);
+
+    switch (actionType) {
+      case 'setValue':
+        await this._actionSetValue(targetParam, value, session, context);
+        break;
+
+      case 'addValue':
+        await this._actionAddValue(targetParam, value, session, context);
+        break;
+
+      case 'subtractValue':
+        await this._actionSubtractValue(targetParam, value, session, context);
+        break;
+
+      case 'multiplyValue':
+        await this._actionMultiplyValue(targetParam, value, session, context);
+        break;
+
+      case 'resetParam':
+        await this._actionResetParam(targetParam, session);
+        break;
+
+      case 'storeVoteWinner':
+        await this._actionStoreVoteWinner(targetParam, session, context);
+        break;
+
+      case 'eliminatePlayer':
+        await this._actionEliminatePlayer(targetPlayerParam, session, context);
+        break;
+
+      default:
+        console.warn(`[BaseModule] Unknown action type: ${actionType}`);
+    }
+  }
+
+  // Action: setValue - 設定參數值
+  async _actionSetValue(targetParam, value, session, context) {
+    if (!targetParam) return;
+
+    const resolvedValue = this._resolveActionValue(value, context);
+    if (resolvedValue === undefined) return;
+
+    if (targetParam.startsWith('player.') || targetParam.includes('${playerId}')) {
+      const playerId = context.playerId || context.currentPlayer;
+      if (!playerId) {
+        console.warn('[BaseModule] setValue: player scope but no playerId in context');
+        return;
+      }
+
+      const paramId = targetParam.replace('player.', '').replace('${playerId}', playerId);
+      session.setPlayerParam(playerId, paramId, resolvedValue);
+    } else {
+      session.setGlobalParam(targetParam, resolvedValue);
+    }
+  }
+
+  // Helper: resolve value with session context and null-check
+  _resolveActionValue(value, context) {
+    const contextWithSession = { ...context, session: context.session };
+    const resolved = this._resolveValue(value, contextWithSession);
+    if (resolved === null && value !== null) {
+      console.warn(`[BaseModule] Failed to resolve value: ${value}`);
+      return undefined;
+    }
+    return resolved;
+  }
+
+  // Helper: apply arithmetic operation on global or player param
+  _applyParamOp(targetParam, opName, op, resolvedValue, session, context) {
+    if (targetParam.startsWith('player.') || targetParam.includes('${playerId}')) {
+      const playerId = context.playerId || context.currentPlayer;
+      if (!playerId) {
+        console.warn(`[BaseModule] ${opName}: player scope but no playerId in context`);
+        return;
+      }
+      const paramId = targetParam.replace('player.', '').replace('${playerId}', playerId);
+      const current = session.getPlayerParam(playerId, paramId) || 0;
+      session.setPlayerParam(playerId, paramId, op(current, resolvedValue));
+    } else {
+      const current = session.getGlobalParam(targetParam) || 0;
+      session.setGlobalParam(targetParam, op(current, resolvedValue));
+    }
+  }
+
+  // Action: addValue - 加值
+  async _actionAddValue(targetParam, value, session, context) {
+    if (!targetParam) return;
+    const resolvedValue = this._resolveActionValue(value, context);
+    if (resolvedValue === undefined) return;
+    this._applyParamOp(targetParam, 'addValue', (a, b) => a + b, resolvedValue, session, context);
+  }
+
+  // Action: subtractValue - 減值
+  async _actionSubtractValue(targetParam, value, session, context) {
+    if (!targetParam) return;
+    const resolvedValue = this._resolveActionValue(value, context);
+    if (resolvedValue === undefined) return;
+    this._applyParamOp(targetParam, 'subtractValue', (a, b) => a - b, resolvedValue, session, context);
+  }
+
+  // Action: multiplyValue - 乘值
+  async _actionMultiplyValue(targetParam, value, session, context) {
+    if (!targetParam) return;
+    const resolvedValue = this._resolveActionValue(value, context);
+    if (resolvedValue === undefined) return;
+    this._applyParamOp(targetParam, 'multiplyValue', (a, b) => a * b, resolvedValue, session, context);
+  }
+
+  // Action: resetParam - 重置參數
+  async _actionResetParam(targetParam, session) {
+    if (!targetParam) {
+      console.warn('[BaseModule] resetParam: missing targetParam');
+      return;
+    }
+
+    // 從 manifest 中取得初始值
+    const globalParamDef = session.manifest?.globalParams?.find(p => p.id === targetParam);
+    const playerAttrDef = session.manifest?.playerAttributes?.find(p => p.id === targetParam);
+
+    if (globalParamDef) {
+      const initialValue = session._getParamInitialValue(globalParamDef);
+      session.setGlobalParam(targetParam, initialValue);
+    } else if (playerAttrDef) {
+      // 重置所有玩家的此參數
+      for (const player of session.players.all()) {
+        const initialValue = session._getPlayerAttributeInitialValue(playerAttrDef);
+        session.setPlayerParam(player.id, targetParam, initialValue);
+      }
+    } else {
+      console.warn(`[BaseModule] resetParam: unknown param: ${targetParam}`);
+    }
+  }
+
+  // Action: storeVoteWinner - 存儲投票勝者
+  async _actionStoreVoteWinner(targetParam, session, context) {
+    if (!targetParam) {
+      console.warn('[BaseModule] storeVoteWinner: missing targetParam');
+      return;
+    }
+
+    if (!context.voteResults || !context.voteResults.length) {
+      console.warn('[BaseModule] storeVoteWinner: no voteResults in context');
+      return;
+    }
+
+    const winner = context.voteResults[0].targetId;
+    session.setGlobalParam(targetParam, winner);
+
+    // 將 winner 存入 context，供後續 action 使用
+    context.voteWinner = winner;
+
+    console.log(`[BaseModule] Stored vote winner: ${winner} → ${targetParam}`);
+  }
+
+  // Action: eliminatePlayer - 淘汰玩家
+  async _actionEliminatePlayer(targetPlayerParam, session, context) {
+    if (!targetPlayerParam) {
+      console.warn('[BaseModule] eliminatePlayer: missing targetPlayerParam');
+      return;
+    }
+
+    // 從參數取得要淘汰的玩家ID
+    const playerId = session.getGlobalParam(targetPlayerParam);
+
+    if (!playerId) {
+      console.warn(`[BaseModule] eliminatePlayer: param ${targetPlayerParam} is empty or null`);
+      return;
+    }
+
+    const player = session.players.get(playerId);
+    if (!player) {
+      console.warn(`[BaseModule] eliminatePlayer: player not found: ${playerId}`);
+      return;
+    }
+
+    // 🆕 檢查玩家是否已經被淘汰
+    if (!player.isAlive) {
+      console.log(`[BaseModule] Player ${playerId} is already eliminated, skipping`);
+      return;
+    }
+
+    player.isAlive = false;
+
+    session.broadcastAll('players_eliminated', {
+      players: [{ id: playerId, name: player.name, reason: 'eliminated_by_param_action' }]
+    });
+
+    console.log(`[BaseModule] Eliminated player: ${playerId} (${player.name})`);
+  }
+
+  // 解析值（支援變數和表達式）
+  _resolveValue(value, context) {
+    if (value === undefined || value === null) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      let resolved = value;
+
+      // ${playerId} → context.playerId
+      if (resolved.includes('${playerId}')) {
+        const playerId = context.playerId || context.currentPlayer;
+        if (playerId) {
+          resolved = resolved.replace(/\$\{playerId\}/g, playerId);
+        } else {
+          console.warn('[BaseModule] ${playerId} used but no playerId in context');
+          return null;
+        }
+      }
+
+      // ${voteWinner} → context.voteWinner (由 storeVoteWinner 設定)
+      if (resolved.includes('${voteWinner}')) {
+        if (context.voteWinner) {
+          resolved = resolved.replace(/\$\{voteWinner\}/g, context.voteWinner);
+        } else if (context.voteResults?.length > 0) {
+          resolved = resolved.replace(/\$\{voteWinner\}/g, context.voteResults[0].targetId);
+        } else if (context.session) {
+          const voteWinner = context.session.getGlobalParam('voteWinner');
+          if (voteWinner) {
+            resolved = resolved.replace(/\$\{voteWinner\}/g, voteWinner);
+          } else {
+            console.warn('[BaseModule] ${voteWinner} used but no voteWinner in context or globalParams');
+            return null;
+          }
+        } else {
+          console.warn('[BaseModule] ${voteWinner} used but no context or session');
+          return null;
+        }
+      }
+
+      // 檢查是否還有未解析的變數
+      if (resolved.includes('${')) {
+        console.warn(`[BaseModule] Unresolved variable in: ${value}`);
+        return null;
+      }
+
+      // 嘗試解析為數字
+      if (!isNaN(resolved) && resolved !== '') {
+        return Number(resolved);
+      }
+
+      return resolved;
+    }
+
+    return value;
   }
 }
 

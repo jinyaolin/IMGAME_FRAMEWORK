@@ -1,0 +1,122 @@
+{
+  "id": "test-params",
+  "name": "參數系統測試",
+  "version": "1.0.0",
+  "minPlayers": 2,
+  "maxPlayers": 8,
+  "description": "測試新的 globalParams 和 playerAttributes 系統",
+  "globalParams": [
+    {
+      "id": "voteWinner",
+      "label": "投票獲勝者",
+      "type": "player",
+      "description": "儲存投票最高票的玩家ID",
+      "initialValue": null
+    },
+    {
+      "id": "cardPool",
+      "label": "公共牌池",
+      "type": "card",
+      "description": "玩家丟棄的卡片會進入這裡",
+      "initialValue": []
+    },
+    {
+      "id": "roundCount",
+      "label": "回合數",
+      "type": "number",
+      "subType": "integer",
+      "min": 0,
+      "max": 99,
+      "initialValue": 1,
+      "description": "當前遊戲回合"
+    },
+    {
+      "id": "gameStatus",
+      "label": "遊戲狀態",
+      "type": "string",
+      "initialValue": "waiting",
+      "description": "遊戲當前狀態"
+    },
+    {
+      "id": "isPaused",
+      "label": "是否暫停",
+      "type": "boolean",
+      "initialValue": false,
+      "description": "遊戲是否暫停"
+    },
+    {
+      "id": "votedPlayers",
+      "label": "被投票玩家列表",
+      "type": "array",
+      "itemType": "player",
+      "initialValue": [],
+      "description": "所有被投票的玩家ID"
+    }
+  ],
+  "playerAttributes": [
+    {
+      "id": "team",
+      "label": "隊伍",
+      "type": "select",
+      "options": [
+        { "value": "red",  "label": "紅隊", "icon": "🔴" },
+        { "value": "blue", "label": "藍隊", "icon": "🔵" },
+        { "value": "none", "label": "無",   "icon": "⬜" }
+      ]
+    },
+    {
+      "id": "playerHP",
+      "label": "生命值",
+      "type": "number",
+      "subType": "integer",
+      "min": 0,
+      "max": 100,
+      "initialValue": 100,
+      "description": "每個玩家的生命值"
+    },
+    {
+      "id": "score",
+      "label": "分數",
+      "type": "number",
+      "subType": "float",
+      "min": 0,
+      "max": 9999.99,
+      "initialValue": 0,
+      "description": "玩家分數"
+    },
+    {
+      "id": "isProtected",
+      "label": "是否受保護",
+      "type": "boolean",
+      "initialValue": false,
+      "description": "玩家本回合是否受保護"
+    },
+    {
+      "id": "playerRole",
+      "label": "角色",
+      "type": "string",
+      "initialValue": "villager",
+      "description": "玩家的角色身份"
+    },
+    {
+      "id": "handCards",
+      "label": "手牌",
+      "type": "array",
+      "itemType": "card",
+      "initialValue": [],
+      "description": "玩家手牌列表"
+    }
+  ],
+  "decks": [],
+  "stages": [
+    {
+      "id": "test-stage",
+      "name": "測試階段",
+      "type": "intermission",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      }
+    }
+  ]
+}

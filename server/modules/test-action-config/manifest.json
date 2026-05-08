@@ -1,0 +1,130 @@
+{
+  "id": "test-action-config",
+  "name": "ActionButtonManager 測試",
+  "version": "1.0.0",
+  "minPlayers": 2,
+  "maxPlayers": 8,
+  "description": "測試新的 ActionButtonManager 伺服器端支援，驗證各種 stage 類型的 actionConfig 生成",
+  "stages": [
+    {
+      "id": "test_vote_stage",
+      "name": "投票階段測試",
+      "type": "vote",
+      "enabled": true,
+      "voteConfig": {
+        "voteTitle": "測試投票",
+        "voteDescription": "請選擇要投票的玩家",
+        "optionSource": "players",
+        "playerFilter": {
+          "excludeSelf": false
+        },
+        "anonymous": true,
+        "multiSelect": false,
+        "resultAction": "eliminate",
+        "eliminateCount": 1,
+        "countdownSeconds": 30,
+        "endWhenAllVoted": true
+      },
+      "advance": {
+        "trigger": "timer",
+        "duration": 10,
+        "fallback": "host"
+      }
+    },
+    {
+      "id": "test_card_play_stage",
+      "name": "卡牌出牌測試",
+      "type": "card_play",
+      "enabled": true,
+      "deckId": "test_deck",
+      "maxRounds": 2,
+      "advance": {
+        "trigger": "host",
+        "fallback": "host"
+      }
+    },
+    {
+      "id": "test_identity_stage",
+      "name": "身份確認測試",
+      "type": "identity_draw",
+      "enabled": true,
+      "deckId": "test_deck",
+      "advance": {
+        "trigger": "all_confirmed",
+        "fallback": "host"
+      }
+    },
+    {
+      "id": "test_game_stage",
+      "name": "遊戲控制器測試",
+      "type": "game",
+      "enabled": true,
+      "gameConfig": {
+        "layout": "pad-4",
+        "buttonLabels": {
+          "btn1": "A",
+          "btn2": "B",
+          "btn3": "X",
+          "btn4": "Y"
+        }
+      },
+      "advance": {
+        "trigger": "timer",
+        "duration": 5,
+        "fallback": "host"
+      }
+    },
+    {
+      "id": "test_intermission_stage",
+      "name": "中場休息測試",
+      "type": "intermission",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      }
+    },
+    {
+      "id": "test_result_stage",
+      "name": "結果測試",
+      "type": "result",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      }
+    }
+  ],
+  "decks": [
+    {
+      "id": "test_deck",
+      "name": "測試牌組",
+      "type": "action",
+      "visibility": "private",
+      "drawCount": 3,
+      "allowDuplicate": true,
+      "enabled": true,
+      "cards": [
+        {
+          "id": "card_1",
+          "name": "測試卡A",
+          "description": "這是一張測試卡",
+          "image": "",
+          "value": "1"
+        },
+        {
+          "id": "card_2",
+          "name": "測試卡B",
+          "description": "這也是一張測試卡",
+          "image": "",
+          "value": "2"
+        },
+        {
+          "id": "card_3",
+          "name": "測試卡C",
+          "description": "這是第三張測試卡",
+          "image": "",
+          "value": "3"
+        }
+      ]
+    }
+  ]
+}

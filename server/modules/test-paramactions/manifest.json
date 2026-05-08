@@ -1,0 +1,143 @@
+{
+  "id": "test-paramactions",
+  "name": "ParamActions 測試",
+  "version": "1.0.0",
+  "minPlayers": 2,
+  "maxPlayers": 8,
+  "description": "測試 paramActions 系統功能",
+  "globalParams": [
+    {
+      "id": "voteWinner",
+      "label": "投票獲勝者",
+      "type": "player",
+      "initialValue": null,
+      "description": "儲存投票最高票的玩家ID"
+    },
+    {
+      "id": "roundCount",
+      "label": "回合數",
+      "type": "number",
+      "subType": "integer",
+      "min": 0,
+      "max": 99,
+      "initialValue": 1,
+      "description": "當前遊戲回合"
+    },
+    {
+      "id": "eliminatedPlayer",
+      "label": "被淘汰玩家",
+      "type": "player",
+      "initialValue": null,
+      "description": "被淘汰的玩家ID"
+    }
+  ],
+  "playerAttributes": [
+    {
+      "id": "score",
+      "label": "分數",
+      "type": "number",
+      "subType": "integer",
+      "min": 0,
+      "max": 999,
+      "initialValue": 0,
+      "description": "玩家分數"
+    },
+    {
+      "id": "voteCount",
+      "label": "被投票次數",
+      "type": "number",
+      "subType": "integer",
+      "min": 0,
+      "initialValue": 0,
+      "description": "玩家被投票的次數"
+    }
+  ],
+  "decks": [],
+  "stages": [
+    {
+      "id": "stage1",
+      "name": "投票階段測試",
+      "type": "intermission",
+      "enabled": true,
+      "description": "測試 onStageStart - 設定回合數",
+      "paramActions": [
+        {
+          "trigger": "onStageStart",
+          "action": "setValue",
+          "targetParam": "roundCount",
+          "value": 1,
+          "description": "設定回合數為 1"
+        }
+      ],
+      "advance": {
+        "trigger": "host"
+      }
+    },
+    {
+      "id": "vote-stage",
+      "name": "投票階段",
+      "type": "vote",
+      "enabled": true,
+      "description": "測試 onStageEnd - 存儲投票勝者（此時還不淘汰）",
+      "voteConfig": {
+        "voteTitle": "投票測試",
+        "voteDescription": "測試投票並存儲結果",
+        "optionSource": "players",
+        "playerFilter": {
+          "excludeSelf": false
+        },
+        "anonymous": false,
+        "multiSelect": false,
+        "resultAction": "none",
+        "countdownSeconds": 30,
+        "endWhenAllVoted": true
+      },
+      "paramActions": [
+        {
+          "trigger": "onStageEnd",
+          "action": "storeVoteWinner",
+          "targetParam": "voteWinner",
+          "description": "將投票勝者存入全局參數（還不淘汰）"
+        }
+      ],
+      "advance": {
+        "trigger": "vote_ended",
+        "fallback": "host"
+      }
+    },
+    {
+      "id": "elimination-stage",
+      "name": "淘汰階段",
+      "type": "intermission",
+      "enabled": true,
+      "description": "測試 onStageStart - 淘汰投票勝者",
+      "paramActions": [
+        {
+          "trigger": "onStageStart",
+          "action": "setValue",
+          "targetParam": "eliminatedPlayer",
+          "value": "${voteWinner}",
+          "description": "設定要淘汰的玩家"
+        },
+        {
+          "trigger": "onStageStart",
+          "action": "eliminatePlayer",
+          "targetPlayerParam": "eliminatedPlayer",
+          "description": "淘汰投票勝者"
+        }
+      ],
+      "advance": {
+        "trigger": "host"
+      }
+    },
+    {
+      "id": "result",
+      "name": "結果",
+      "type": "result",
+      "enabled": true,
+      "advance": {
+        "trigger": "host"
+      }
+    }
+  ]
+}

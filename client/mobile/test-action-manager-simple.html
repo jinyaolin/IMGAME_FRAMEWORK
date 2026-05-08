@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>行動按鈕測試</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 20px; background: #0a0a1a; color: #e0e0ff; }
+    .test { margin: 20px 0; padding: 15px; background: #14142a; border-radius: 8px; }
+    button { padding: 10px 20px; margin: 5px; background: #2a2a5a; color: #aaaaff; border: 1px solid #4444aa; border-radius: 6px; cursor: pointer; }
+    .result { margin: 10px 0; padding: 10px; background: #0a0a18; border-radius: 6px; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h1>🧪 ActionButtonManager 測試</h1>
+
+  <div class="test">
+    <h3>基礎測試</h3>
+    <button onclick="testActionManager()">測試 ActionManager</button>
+    <button onclick="testSetupStage()">測試 setupStage</button>
+  </div>
+
+  <div class="test">
+    <h3>結果</h3>
+    <div class="result" id="result">等待測試...</div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/ActionButtonManager.js"></script>
+  <script>
+    function log(message) {
+      const result = document.getElementById('result');
+      result.innerHTML += message + '<br>';
+    }
+
+    function testActionManager() {
+      try {
+        log('✅ ActionManager 已載入: ' + (typeof actionManager !== 'undefined'));
+        log('ActionManager 類型: ' + (actionManager instanceof ActionButtonManager ? '是' : '否'));
+        log('ActionManager 方法: ' + Object.getOwnPropertyNames(Object.getPrototypeOf(actionManager)).join(', '));
+      } catch (error) {
+        log('❌ ActionManager 測試失敗: ' + error.message);
+      }
+    }
+
+    function testSetupStage() {
+      try {
+        const mockClient = {
+          socket: {
+            emit: (event, data, callback) => {
+              log('📤 Mock emit: ' + event);
+              if (callback) setTimeout(() => callback({ success: true }), 100);
+            }
+          }
+        };
+
+        actionManager.setClient(mockClient);
+
+        const mockStage = {
+          stageId: 'test_stage',
+          stageName: '測試階段',
+          stageType: 'vote'
+        };
+
+        actionManager.setupStage(mockStage);
+        log('✅ setupStage 成功');
+      } catch (error) {
+        log('❌ setupStage 失敗: ' + error.message);
+        log('錯誤堆疊: ' + error.stack);
+      }
+    }
+  </script>
+</body>
+</html>

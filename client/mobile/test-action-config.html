@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ActionConfig 伺服器端測試</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a1a;
+      color: #e0e0ff;
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 20px;
+    }
+
+    h1 { color: #6688ff; margin-bottom: 10px; }
+    .subtitle { color: #8888bb; margin-bottom: 30px; }
+
+    .test-section {
+      background: #14142a;
+      border: 1px solid #2a2a5a;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .test-section h2 {
+      color: #ffdd44;
+      font-size: 1.1rem;
+      margin-bottom: 15px;
+    }
+
+    .status-display {
+      background: #0a0a18;
+      border: 1px solid #1a1a3a;
+      border-radius: 8px;
+      padding: 15px;
+      font-family: monospace;
+      font-size: 0.85rem;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .status-item {
+      margin: 8px 0;
+      padding: 8px;
+      border-left: 3px solid #6688ff;
+      padding-left: 10px;
+    }
+
+    .status-item.valid {
+      border-left-color: #44cc88;
+    }
+
+    .status-item.invalid {
+      border-left-color: #ff6666;
+    }
+
+    .config-display {
+      background: #1a1a2e;
+      border: 1px solid #3a3a5a;
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 10px;
+    }
+
+    .config-display pre {
+      color: #aaaaff;
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    button {
+      background: #2a2a5a;
+      border: 1px solid #4444aa;
+      border-radius: 8px;
+      color: #aaaaff;
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
+    button:hover { background: #3a3a6a; }
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .player-info {
+      background: #1a1a2e;
+      border: 1px solid #3a3a5a;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+
+    .player-info p {
+      margin: 5px 0;
+      font-size: 0.9rem;
+    }
+
+    .test-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 ActionConfig 伺服器端測試</h1>
+  <p class="subtitle">測試新的 ActionButtonManager 伺服器端支援</p>
+
+  <div class="player-info">
+    <p><strong>測試模組:</strong> ActionConfig 測試模組</p>
+    <p><strong>測試階段:</strong> 投票、卡牌、身份確認、遊戲控制器、中場休息、結果</p>
+    <p><strong>驗證項目:</strong> actionConfig 生成、格式驗證、客戶端接收</p>
+  </div>
+
+  <div class="test-section">
+    <h2>測試控制</h2>
+    <div class="test-controls">
+      <button onclick="joinTestRoom()">加入測試房間</button>
+      <button onclick="startTestModule()">啟動測試模組</button>
+      <button onclick="printResults()">顯示測試結果</button>
+      <button onclick="clearResults()">清除結果</button>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>接收的 ActionConfig</h2>
+    <div class="status-display" id="statusDisplay">
+      <div class="status-item">等待測試開始...</div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/socket.js"></script>
+  <script src="/shared/ActionButtonManager.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const roomId = params.get('room') || 'action-test';
+    const playerName = '測試玩家_' + Math.floor(Math.random() * 1000);
+    const playerId = getOrCreatePlayerId();
+
+    let client;
+    let receivedConfigs = [];
+    let testModuleStarted = false;
+
+    // 初始化
+    function init() {
+      client = new GameClient();
+      actionManager.setClient(client);
+
+      // 設置事件監聽器
+      setupEventListeners();
+
+      // 自動加入房間
+      joinTestRoom();
+    }
+
+    function setupEventListeners() {
+      client.on('room_joined', (data) => {
+        log(`✅ 已加入房間: ${data.roomId}`, 'valid');
+        updatePlayerInfo(data);
+      });
+
+      client.on('player_joined', (data) => {
+        log(`👤 玩家加入: ${data.player.name}`, 'valid');
+      });
+
+      client.on('stage_started', (data) => {
+        log(`🎬 階段開始: ${data.stageName} (${data.stageType})`, 'valid');
+
+        // 檢查是否有 actionConfig
+        if (data.actionConfig) {
+          log(`✅ 收到 actionConfig (UI模式: ${data.actionConfig.uiMode})`, 'valid');
+
+          // 驗證 actionConfig 格式
+          const validation = validateActionConfig(data.stageType, data.actionConfig);
+          if (validation.valid) {
+            log(`✅ actionConfig 格式正確`, 'valid');
+          } else {
+            log(`❌ actionConfig 格式錯誤: ${validation.errors.join(', ')}`, 'invalid');
+          }
+
+          // 保存配置
+          receivedConfigs.push({
+            stageId: data.stageId,
+            stageName: data.stageName,
+            stageType: data.stageType,
+            actionConfig: data.actionConfig,
+            validation: validation
+          });
+
+          // 顯示配置
+          displayConfig(data);
+
+          // 使用 ActionButtonManager 處理
+          actionManager.setupStage(data);
+
+        } else {
+          log(`⚠️ 沒有 actionConfig (向後兼容模式)`, 'invalid');
+        }
+      });
+
+      client.on('vote_started', (data) => {
+        log(`🗳️ 投票階段開始: ${data.voteTitle}`, 'valid');
+        if (data.actionConfig) {
+          log(`✅ 投票階段包含 actionConfig`, 'valid');
+        }
+      });
+
+      client.on('error', (data) => {
+        log(`❌ 錯誤: ${data.message}`, 'invalid');
+      });
+    }
+
+    function joinTestRoom() {
+      log(`🔗 正在加入房間: ${roomId}...`);
+      client.joinRoom(roomId, playerName);
+    }
+
+    function startTestModule() {
+      if (!client || !client.isConnected) {
+        log('❌ 請先加入房間', 'invalid');
+        return;
+      }
+
+      log('🚀 正在啟動測試模組...');
+
+      // 發送自定義事件來測試模組載入
+      client.socket.emit('load_module', {
+        roomId: roomId,
+        moduleId: 'test-action-config'
+      }, (response) => {
+        if (response && response.success) {
+          log('✅ 測試模組已載入', 'valid');
+          testModuleStarted = true;
+        } else {
+          log(`❌ 模組載入失敗: ${response?.error || '未知錯誤'}`, 'invalid');
+        }
+      });
+    }
+
+    function printResults() {
+      log(`\n========== 測試結果總結 ==========`);
+      log(`總共接收到 ${receivedConfigs.length} 個階段的 actionConfig`);
+
+      let validCount = 0;
+      let invalidCount = 0;
+
+      receivedConfigs.forEach((config, index) => {
+        const status = config.validation.valid ? '✅' : '❌';
+        const statusClass = config.validation.valid ? 'valid' : 'invalid';
+
+        log(`${status} 階段 ${index + 1}: ${config.stageName} (${config.stageType})`, statusClass);
+
+        if (config.validation.valid) {
+          validCount++;
+        } else {
+          invalidCount++;
+          config.validation.errors.forEach(error => {
+            log(`  - ${error}`, 'invalid');
+          });
+        }
+      });
+
+      log(`\n總計: ${validCount} 個正確, ${invalidCount} 個錯誤`);
+
+      if (invalidCount === 0) {
+        log('🎉 所有測試通過！', 'valid');
+      } else {
+        log('⚠️ 有測試失敗，請檢查錯誤訊息', 'invalid');
+      }
+
+      log(`======================================\n`);
+    }
+
+    function clearResults() {
+      receivedConfigs = [];
+      document.getElementById('statusDisplay').innerHTML = '<div class="status-item">結果已清除</div>';
+      log('🧹 測試結果已清除');
+    }
+
+    function validateActionConfig(stageType, actionConfig) {
+      const errors = [];
+
+      if (!actionConfig) {
+        errors.push('actionConfig is null or undefined');
+        return { valid: false, errors };
+      }
+
+      if (!actionConfig.uiMode) {
+        errors.push('Missing uiMode');
+      }
+
+      if (!actionConfig.selection) {
+        errors.push('Missing selection config');
+      }
+
+      if (!actionConfig.actions || !Array.isArray(actionConfig.actions)) {
+        errors.push('Missing or invalid actions array');
+      }
+
+      if (stageType === 'vote') {
+        if (!actionConfig.voteConfig) {
+          errors.push('Vote stage missing voteConfig');
+        }
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors
+      };
+    }
+
+    function displayConfig(data) {
+      const statusDisplay = document.getElementById('statusDisplay');
+      const configDiv = document.createElement('div');
+      configDiv.className = 'config-display';
+
+      const configText = JSON.stringify(data.actionConfig, null, 2);
+      configDiv.innerHTML = `
+        <div class="status-item">
+          <strong>Stage:</strong> ${data.stageName}<br>
+          <strong>Type:</strong> ${data.stageType}<br>
+          <strong>UI Mode:</strong> ${data.actionConfig?.uiMode || 'N/A'}<br>
+          <strong>Actions:</strong> ${data.actionConfig?.actions?.length || 0} 個
+        </div>
+        <pre>${configText}</pre>
+      `;
+
+      statusDisplay.appendChild(configDiv);
+      statusDisplay.scrollTop = statusDisplay.scrollHeight;
+    }
+
+    function log(message, type = 'info') {
+      const statusDisplay = document.getElementById('statusDisplay');
+      const item = document.createElement('div');
+      item.className = `status-item ${type}`;
+      item.textContent = message;
+      statusDisplay.appendChild(item);
+      statusDisplay.scrollTop = statusDisplay.scrollHeight;
+    }
+
+    function updatePlayerInfo(data) {
+      // 可以在這裡更新玩家資訊顯示
+    }
+
+    function getOrCreatePlayerId() {
+      let id = localStorage.getItem('playerId');
+      if (!id) {
+        id = 'player_' + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem('playerId', id);
+      }
+      return id;
+    }
+
+    // 頁面加載時初始化
+    window.onload = function() {
+      log('🚀 ActionConfig 測試頁面已載入');
+      log('準備開始測試...');
+
+      setTimeout(() => {
+        init();
+      }, 500);
+    };
+  </script>
+</body>
+</html>

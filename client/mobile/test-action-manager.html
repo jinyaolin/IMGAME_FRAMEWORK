@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ActionButtonManager 測試</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a1a;
+      color: #e0e0ff;
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 20px;
+    }
+
+    h1 { color: #6688ff; margin-bottom: 20px; }
+    .test-section {
+      background: #14142a;
+      border: 1px solid #2a2a5a;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .test-section h2 {
+      color: #ffdd44;
+      font-size: 1.1rem;
+      margin-bottom: 15px;
+    }
+    button {
+      background: #2a2a5a;
+      border: 1px solid #4444aa;
+      border-radius: 8px;
+      color: #aaaaff;
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover { background: #3a3a6a; }
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .log {
+      background: #0a0a18;
+      border: 1px solid #1a1a3a;
+      border-radius: 8px;
+      padding: 15px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 10px;
+    }
+    .log-entry { margin: 3px 0; }
+    .log-entry.success { color: #44cc88; }
+    .log-entry.error { color: #ff6666; }
+    .log-entry.info { color: #6688ff; }
+
+    /* 模擬 action overlay */
+    #actionOverlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    #actionOverlay.active { display: flex; }
+    .action-box {
+      background: #14142a;
+      border: 1px solid #3a3a7a;
+      border-radius: 16px;
+      padding: 24px;
+      width: 90%;
+      max-width: 400px;
+    }
+    .action-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .action-header h2 {
+      color: #fff;
+      font-size: 1.3rem;
+      margin-bottom: 6px;
+    }
+    .action-header p {
+      color: #8888bb;
+      font-size: 0.85rem;
+    }
+    .action-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .action-btn {
+      width: 100%;
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .action-btn.action-primary {
+      background: linear-gradient(135deg, #4a9eff 0%, #357abd 100%);
+    }
+    .action-btn.action-secondary {
+      background: #2a2a5a;
+      border: 1px solid #4444aa;
+    }
+    .action-btn.action-idle {
+      background: #3a3a5a;
+      color: #8888aa;
+    }
+    .action-btn.action-ready {
+      background: linear-gradient(135deg, #4a9eff 0%, #357abd 100%);
+    }
+    .action-btn.action-submitting {
+      background: #555577;
+      cursor: wait;
+    }
+    .action-btn.action-submitted {
+      background: linear-gradient(135deg, #44cc77 0%, #339955 100%);
+      cursor: default;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 ActionButtonManager 測試</h1>
+
+  <div class="test-section">
+    <h2>基礎測試</h2>
+    <button onclick="testInit()">初始化 Manager</button>
+    <button onclick="testVoteStage()">測試投票階段</button>
+    <button onclick="testCardPlayStage()">測試卡牌階段</button>
+    <button onclick="testIdentityStage()">測試身份確認</button>
+    <button onclick="testGameStage()">測試遊戲控制器</button>
+    <button onclick="clearStage()">清除階段</button>
+  </div>
+
+  <div class="test-section">
+    <h2>狀態測試</h2>
+    <button onclick="testSelectionChange()">模擬選擇變更</button>
+    <button onclick="testExecuteAction()">執行 Action</button>
+    <button onclick="testCountdown()">測試倒數計時</button>
+  </div>
+
+  <div class="test-section">
+    <h2>日誌</h2>
+    <div class="log" id="log"></div>
+  </div>
+
+  <!-- 模擬的 action overlay -->
+  <div id="actionOverlay">
+    <div class="action-box">
+      <div class="action-header">
+        <h2 id="actionTitle">請確認</h2>
+        <p id="actionDescription">請選擇選項並確認</p>
+      </div>
+      <div class="action-options" id="actionOptions"></div>
+      <div class="action-buttons" id="actionButtons"></div>
+      <div class="action-status" id="actionStatus"></div>
+      <div class="action-timer" id="actionTimer"></div>
+    </div>
+  </div>
+
+  <script src="/client/shared/ActionButtonManager.js"></script>
+  <script>
+    // 模擬 client
+    const mockClient = {
+      socket: {
+        emit: function(event, data, callback) {
+          log(`[Mock Socket] Emit: ${event}`, 'info');
+          log(`  Data: ${JSON.stringify(data)}`, 'info');
+
+          // 模擬伺服器回應
+          setTimeout(() => {
+            if (callback) {
+              callback({ success: true });
+            }
+          }, 500);
+        }
+      },
+      playerAction: function(action, data) {
+        log(`[Mock Client] playerAction: ${action}`, 'info');
+        log(`  Data: ${JSON.stringify(data)}`, 'info');
+      }
+    };
+
+    // 設置 action manager
+    actionManager.setClient(mockClient);
+
+    // 日誌函數
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    // 測試初始化
+    function testInit() {
+      log('=== 初始化 ActionButtonManager ===', 'info');
+      log('Manager 已設置 mock client', 'success');
+    }
+
+    // 測試投票階段
+    function testVoteStage() {
+      log('=== 測試投票階段 ===', 'info');
+
+      const voteData = {
+        stageId: 'test_vote_stage',
+        stageType: 'vote',
+        stageName: '投票測試',
+        voteConfig: {
+          voteTitle: '請投票給玩家',
+          voteDescription: '選擇一個玩家進行投票',
+          countdownSeconds: 30
+        },
+        options: [
+          { id: 'player1', name: '玩家A', type: 'player' },
+          { id: 'player2', name: '玩家B', type: 'player' },
+          { id: 'player3', name: '玩家C', type: 'player' }
+        ],
+        eligibleVoters: ['test_player']
+      };
+
+      actionManager.setupStage(voteData);
+      log('投票階段已設置', 'success');
+    }
+
+    // 測試卡牌階段
+    function testCardPlayStage() {
+      log('=== 測試卡牌階段 ===', 'info');
+
+      const cardData = {
+        stageId: 'test_card_stage',
+        stageType: 'card_play',
+        stageName: '出牌測試'
+      };
+
+      actionManager.setupStage(cardData);
+      log('卡牌階段已設置', 'success');
+    }
+
+    // 測試身份確認
+    function testIdentityStage() {
+      log('=== 測試身份確認 ===', 'info');
+
+      const identityData = {
+        stageId: 'test_identity_stage',
+        stageType: 'identity_draw',
+        stageName: '身份確認'
+      };
+
+      actionManager.setupStage(identityData);
+      log('身份確認階段已設置', 'success');
+    }
+
+    // 測試遊戲控制器
+    function testGameStage() {
+      log('=== 測試遊戲控制器 ===', 'info');
+
+      const gameData = {
+        stageId: 'test_game_stage',
+        stageType: 'game',
+        stageName: '遊戲控制測試',
+        gameConfig: {
+          layout: 'pad-4',
+          buttonLabels: {
+            btn1: 'A',
+            btn2: 'B',
+            btn3: 'X',
+            btn4: 'Y'
+          }
+        }
+      };
+
+      actionManager.setupStage(gameData);
+      log('遊戲控制器階段已設置', 'success');
+    }
+
+    // 清除階段
+    function clearStage() {
+      log('=== 清除階段 ===', 'info');
+      actionManager.clearCurrentStage();
+      log('階段已清除', 'success');
+    }
+
+    // 測試選擇變更
+    function testSelectionChange() {
+      log('=== 測試選擇變更 ===', 'info');
+      actionManager.onSelectionChanged(['player1']);
+      log('選擇已變更為 player1', 'success');
+    }
+
+    // 測試執行 action
+    function testExecuteAction() {
+      log('=== 測試執行 Action ===', 'info');
+
+      const actionId = prompt('輸入要執行的 action ID (例如: submit_vote, play_card):');
+      if (!actionId) return;
+
+      actionManager.executeAction(actionId)
+        .then(() => {
+          log(`Action ${actionId} 執行成功`, 'success');
+        })
+        .catch((error) => {
+          log(`Action ${actionId} 執行失敗: ${error.message}`, 'error');
+        });
+    }
+
+    // 測試倒數計時
+    function testCountdown() {
+      log('=== 測試倒數計時 ===', 'info');
+
+      const seconds = parseInt(prompt('輸入倒數秒數:', '10'));
+      if (isNaN(seconds)) return;
+
+      actionManager.startCountdown(seconds, () => {
+        log('倒數計時結束', 'success');
+      });
+    }
+
+    // 頁面加載完成
+    window.onload = function() {
+      log('ActionButtonManager 測試頁面已加載', 'success');
+      log('可以開始測試各種功能', 'info');
+    };
+  </script>
+</body>
+</html>

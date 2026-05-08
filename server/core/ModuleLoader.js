@@ -84,13 +84,16 @@ class ModuleLoader {
     const engineCode = snapshot.engineCode;
 
     if (engineCode) {
-      // Use forked engine code: write to a unique temp path so require() can load it
+      // Use forked engine code: create temp file in modules dir to preserve require paths
       const tmpPath = path.join(this.modulesDir, `.tmp_${moduleName}_${Date.now()}.js`);
       try {
         fs.writeFileSync(tmpPath, engineCode, 'utf8');
         const absoluteTmp = path.resolve(tmpPath);
         delete require.cache[require.resolve(absoluteTmp)];
+
+        // 🆕 直接使用 require，路徑會正確解析因為 tmpPath 在 modules 目錄下
         const ModuleClass = require(absoluteTmp);
+
         if (typeof ModuleClass !== 'function' || !ModuleClass.prototype) {
           console.error(`[ModuleLoader] Forked engine invalid, falling back to BaseModule`);
           instance = new BaseModule(resolvedManifest, session, config);
@@ -100,7 +103,6 @@ class ModuleLoader {
         console.log(`[ModuleLoader] Loaded forked engine for: ${moduleName}`);
       } finally {
         try { fs.unlinkSync(tmpPath); } catch (_) {}
-        // Also clear temp from require cache
         try {
           const abs = path.resolve(tmpPath);
           delete require.cache[abs];

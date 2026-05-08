@@ -14,6 +14,7 @@ class GameSession {
     this.manifest = null;     // set at room creation when moduleId is provided
     this.phase = 'lobby';           // lobby | playing | result
     this.sharedState = {};
+    this.globalParams = {};         // 🆕 全局參數定義
     this.createdAt = Date.now();
     this.reconnectWindow = 30000;   // 30s reconnect grace period
     this._disconnectTimers = new Map();
@@ -32,16 +33,47 @@ class GameSession {
     }
 
     const player = this.players.add(playerId, name, socketId);
-    // Initialize player attributes from manifest definition (first option as default)
+
+    // 🆕 初始化玩家屬性（支援新類型）
     if (this.manifest?.playerAttributes) {
       for (const def of this.manifest.playerAttributes) {
         if (!(def.id in player.attributes)) {
-          player.attributes[def.id] = def.options?.[0]?.value ?? '';
+          player.attributes[def.id] = this._getPlayerAttributeInitialValue(def);
         }
       }
     }
+
     this.io.to(this.roomId).emit('player_joined', { player: player.toPublic(), players: this.players.publicList() });
     return player;
+  }
+
+  // 🆕 取得玩家屬性初始值
+  _getPlayerAttributeInitialValue(attrDef) {
+    // select 類型：用第一個選項
+    if (attrDef.type === 'select' && attrDef.options?.length > 0) {
+      return attrDef.options[0].value;
+    }
+
+    // 其他類型：用 initialValue 或預設值
+    if (attrDef.initialValue !== undefined) {
+      return attrDef.initialValue;
+    }
+
+    switch (attrDef.type) {
+      case 'number':
+        return attrDef.subType === 'float' ? 0.0 : 0;
+      case 'boolean':
+        return false;
+      case 'string':
+        return '';
+      case 'array':
+        return [];
+      case 'player':
+      case 'card':
+        return null;
+      default:
+        return '';
+    }
   }
 
   reconnectPlayer(playerId, newSocketId) {
@@ -95,6 +127,9 @@ class GameSession {
     this.moduleName = moduleName;
     this.phase = 'playing';
 
+    // 🆕 初始化全局參數
+    this.initializeGlobalParams();
+
     this.broadcastDisplay('module_loaded', { module: moduleName });
 
     try {
@@ -146,6 +181,151 @@ class GameSession {
     this.broadcastAll('state_update', { sharedState: this.sharedState });
   }
 
+  // 🆕 初始化全局參數（從 manifest.globalParams）
+  initializeGlobalParams() {
+    if (!this.manifest?.globalParams) return;
+
+    for (const param of this.manifest.globalParams) {
+      const initialValue = this._getParamInitialValue(param);
+
+      // 存入 sharedState（向後相容）
+      this.sharedState[param.id] = initialValue;
+
+      // 同時存入 globalParams 定義映射
+      this.globalParams[param.id] = {
+        ...param,
+        currentValue: initialValue
+      };
+    }
+
+    console.log('[GameSession] Initialized globalParams:', Object.keys(this.globalParams).length);
+  }
+
+  // 🆕 取得參數初始值（處理不同類型）
+  _getParamInitialValue(param) {
+    if (param.initialValue !== undefined) {
+      return param.initialValue;
+    }
+
+    // 根據類型給預設值
+    switch (param.type) {
+      case 'number':
+        return param.subType === 'float' ? 0.0 : 0;
+      case 'boolean':
+        return false;
+      case 'string':
+        return '';
+      case 'array':
+        return [];
+      case 'player':
+      case 'card':
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  // 🆕 全局參數 API
+  setGlobalParam(paramId, value) {
+    if (!(paramId in this.globalParams)) {
+      console.warn(`[GameSession] Unknown globalParam: ${paramId}`);
+      return;
+    }
+
+    const param = this.globalParams[paramId];
+
+    // 驗證
+    if (param.type === 'number') {
+      if (param.min !== undefined && value < param.min) {
+        console.warn(`[GameSession] Value ${value} below min ${param.min}`);
+        value = param.min;
+      }
+      if (param.max !== undefined && value > param.max) {
+        console.warn(`[GameSession] Value ${value} above max ${param.max}`);
+        value = param.max;
+      }
+    }
+
+    // 更新
+    this.globalParams[paramId].currentValue = value;
+    this.sharedState[paramId] = value;  // 同步到 sharedState
+
+    // 廣播更新
+    this.updateSharedState({ [paramId]: value });
+  }
+
+  getGlobalParam(paramId) {
+    if (!(paramId in this.globalParams)) {
+      console.warn(`[GameSession] Unknown globalParam: ${paramId}`);
+      return undefined;
+    }
+    return this.globalParams[paramId].currentValue;
+  }
+
+  // 🆕 玩家參數 API
+  setPlayerParam(playerId, paramId, value) {
+    const player = this.players.get(playerId);
+    if (!player) {
+      console.warn(`[GameSession] Player not found: ${playerId}`);
+      return;
+    }
+
+    const paramDef = this.manifest?.playerAttributes?.find(p => p.id === paramId);
+    if (!paramDef) {
+      console.warn(`[GameSession] Unknown playerAttribute: ${paramId}`);
+      return;
+    }
+
+    // 驗證
+    if (paramDef.type === 'number') {
+      if (paramDef.min !== undefined && value < paramDef.min) {
+        console.warn(`[GameSession] Value ${value} below min ${paramDef.min}`);
+        value = paramDef.min;
+      }
+      if (paramDef.max !== undefined && value > paramDef.max) {
+        console.warn(`[GameSession] Value ${value} above max ${paramDef.max}`);
+        value = paramDef.max;
+      }
+    }
+
+    // 更新玩家屬性
+    player.attributes[paramId] = value;
+
+    // 廣播更新
+    this.broadcastAll('player_param_updated', {
+      playerId,
+      paramId,
+      value,
+      attributes: player.attributes
+    });
+  }
+
+  getPlayerParam(playerId, paramId) {
+    const player = this.players.get(playerId);
+    if (!player) {
+      console.warn(`[GameSession] Player not found: ${playerId}`);
+      return undefined;
+    }
+
+    if (!(paramId in player.attributes)) {
+      console.warn(`[GameSession] Player ${playerId} has no attribute ${paramId}`);
+      return undefined;
+    }
+
+    return player.attributes[paramId];
+  }
+
+  // 🆕 取得所有玩家的某個參數值
+  getAllPlayerParams(paramId) {
+    const result = {};
+    for (const player of this.players.all()) {
+      if (paramId in player.attributes) {
+        result[player.id] = player.attributes[paramId];
+      }
+    }
+    return result;
+  }
+
   // Push detailed game state to host only (called by modules after every change)
   sendHostGameState() {
     if (!this.hostSocketId || !this.currentModule?.getHostState) return;
@@ -159,6 +339,7 @@ class GameSession {
     this.moduleName    = null;
     this.phase         = 'lobby';
     this.sharedState   = {};
+    this.globalParams  = {};  // 🆕 清空全局參數
     // Keep player ready states - players can quickly start next game
     // for (const p of this.players.all()) {
     //   p.isReady = false;

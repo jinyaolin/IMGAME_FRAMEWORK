@@ -20,6 +20,8 @@ const sessions = new Map();       // roomId → GameSession
 // DeckManager (global deck library) and ModuleLoader (game modules) — initialised by startServer()
 const DeckManager = require('./core/DeckManager');
 const deckManager = new DeckManager(path.join(__dirname, 'decks'));
+const { ActionsAPI, createRouter: createActionsRouter } = require('./api/actions');
+const actionsAPI = new ActionsAPI(path.join(__dirname, 'actions'));
 let moduleLoader;
 
 async function initializeServer() {
@@ -38,6 +40,7 @@ app.use('/display', express.static(path.join(__dirname, '../client/display')));
 app.use('/host',    express.static(path.join(__dirname, '../client/host')));
 app.use('/editor',  express.static(path.join(__dirname, '../client/editor')));
 app.use('/decks',   express.static(path.join(__dirname, '../client/decks')));
+app.use('/actions', express.static(path.join(__dirname, '../client/actions')));
 app.use('/shared',  express.static(path.join(__dirname, '../client/shared')));
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
 
@@ -50,6 +53,13 @@ app.use('/api/decks', (req, res, next) => {
   req.deckManager = deckManager;
   next();
 }, decksRouter);
+
+// ── Actions API ─────────────────────────────────────────────────────
+const actionsRouter = createActionsRouter(actionsAPI);
+app.use('/api/actions', (req, res, next) => {
+  req.actionsAPI = actionsAPI;
+  next();
+}, actionsRouter);
 
 // ── HTTP API ──────────────────────────────────────────────────────
 
@@ -297,6 +307,91 @@ function validateManifest(m) {
     });
   }
 
+  // 🆕 globalParams 驗證
+  if (m.globalParams && Array.isArray(m.globalParams)) {
+    const paramIds = new Set();
+    m.globalParams.forEach((p, i) => {
+      if (!p.id) push(`globalParams[${i}].id`, '全局參數需要 id');
+      else if (paramIds.has(p.id)) push(`globalParams[${i}].id`, `參數 id 重複：${p.id}`);
+      else paramIds.add(p.id);
+
+      if (!p.label) push(`globalParams[${i}].label`, '全局參數需要 label');
+      if (!p.type) push(`globalParams[${i}].type`, '全局參數需要 type');
+
+      // 驗證 type
+      const validTypes = ['number', 'string', 'boolean', 'player', 'card', 'array'];
+      if (p.type && !validTypes.includes(p.type)) {
+        push(`globalParams[${i}].type`, `type 必須是 ${validTypes.join(', ')}`);
+      }
+
+      // number 類型驗證
+      if (p.type === 'number') {
+        if (p.subType && !['integer', 'float'].includes(p.subType)) {
+          push(`globalParams[${i}].subType`, 'subType 必須是 integer 或 float');
+        }
+        if (p.min !== undefined && typeof p.min !== 'number') {
+          push(`globalParams[${i}].min`, 'min 必須是數字');
+        }
+        if (p.max !== undefined && typeof p.max !== 'number') {
+          push(`globalParams[${i}].max`, 'max 必須是數字');
+        }
+        if (p.min !== undefined && p.max !== undefined && p.min > p.max) {
+          push(`globalParams[${i}].min`, 'min 不可大於 max');
+        }
+      }
+
+      // array 類型驗證
+      if (p.type === 'array' && !p.itemType) {
+        push(`globalParams[${i}].itemType`, 'array 類型需要 itemType');
+      }
+    });
+  }
+
+  // 🆕 playerAttributes 擴展驗證（支援新類型）
+  if (m.playerAttributes && Array.isArray(m.playerAttributes)) {
+    const attrIds = new Set();
+    m.playerAttributes.forEach((attr, i) => {
+      if (!attr.id) push(`playerAttributes[${i}].id`, '玩家屬性需要 id');
+      else if (attrIds.has(attr.id)) push(`playerAttributes[${i}].id`, `屬性 id 重複：${attr.id}`);
+      else attrIds.add(attr.id);
+
+      if (!attr.label) push(`playerAttributes[${i}].label`, '玩家屬性需要 label');
+      if (!attr.type) push(`playerAttributes[${i}].type`, '玩家屬性需要 type');
+
+      // 驗證 type（擴展支援）
+      const validTypes = ['select', 'number', 'string', 'boolean', 'player', 'card', 'array'];
+      if (attr.type && !validTypes.includes(attr.type)) {
+        push(`playerAttributes[${i}].type`, `type 必須是 ${validTypes.join(', ')}`);
+      }
+
+      // select 類型需要 options
+      if (attr.type === 'select' && (!Array.isArray(attr.options) || !attr.options.length)) {
+        push(`playerAttributes[${i}].options`, 'select 類型需至少一個選項');
+      }
+
+      // number 類型驗證
+      if (attr.type === 'number') {
+        if (attr.subType && !['integer', 'float'].includes(attr.subType)) {
+          push(`playerAttributes[${i}].subType`, 'subType 必須是 integer 或 float');
+        }
+        if (attr.min !== undefined && typeof attr.min !== 'number') {
+          push(`playerAttributes[${i}].min`, 'min 必須是數字');
+        }
+        if (attr.max !== undefined && typeof attr.max !== 'number') {
+          push(`playerAttributes[${i}].max`, 'max 必須是數字');
+        }
+        if (attr.min !== undefined && attr.max !== undefined && attr.min > attr.max) {
+          push(`playerAttributes[${i}].min`, 'min 不可大於 max');
+        }
+      }
+
+      // array 類型驗證
+      if (attr.type === 'array' && !attr.itemType) {
+        push(`playerAttributes[${i}].itemType`, 'array 類型需要 itemType');
+      }
+    });
+  }
+
   // Decks
   const deckIds = new Set();
   if (Array.isArray(m.decks)) {
@@ -345,7 +440,7 @@ function validateManifest(m) {
         const validTriggers = ['host','all_played','all_confirmed','all_voted','all_submitted','all_ready',
                                'auto','timer','identity_timer','play_timer','generic_timer',
                                'auto_restart','restart_timer',
-                               'host_reveal','auto_next','round_timer'];
+                               'host_reveal','auto_next','round_timer','vote_ended'];
         if (adv.trigger && !validTriggers.includes(adv.trigger))
           push(`stages[${si}].${label}.trigger`, `不支援的 trigger：${adv.trigger}`);
         // Check duration requirement for timer-based triggers
@@ -390,6 +485,43 @@ function validateManifest(m) {
             push(`stages[${si}].refillThreshold`, '補牌門檻必須小於補到幾張');
           }
         }
+      }
+
+      // 🆕 驗證 paramActions
+      if (s.paramActions && Array.isArray(s.paramActions)) {
+        s.paramActions.forEach((pa, pai) => {
+          if (!pa.trigger) push(`stages[${si}].paramActions[${pai}].trigger`, '需要 trigger');
+          if (!pa.action) push(`stages[${si}].paramActions[${pai}].action`, '需要 action');
+
+          // 驗證 trigger
+          const validTriggers = ['onStageStart', 'onStageEnd'];
+          if (pa.trigger && !validTriggers.includes(pa.trigger)) {
+            push(`stages[${si}].paramActions[${pai}].trigger`, `trigger 必須是 ${validTriggers.join(', ')}`);
+          }
+
+          // 驗證 action
+          const validActions = ['setValue', 'addValue', 'subtractValue', 'multiplyValue', 'resetParam', 'storeVoteWinner', 'eliminatePlayer'];
+          if (pa.action && !validActions.includes(pa.action)) {
+            push(`stages[${si}].paramActions[${pai}].action`, `action 必須是 ${validActions.join(', ')}`);
+          }
+
+          // 驗證特定 action 的必需欄位
+          if (pa.action === 'storeVoteWinner' || pa.action === 'eliminatePlayer') {
+            if (!pa.targetParam && !pa.targetPlayerParam) {
+              push(`stages[${si}].paramActions[${pai}]`, `${pa.action} 需要 targetParam 或 targetPlayerParam`);
+            }
+          }
+
+          if (['setValue', 'addValue', 'subtractValue', 'multiplyValue'].includes(pa.action)) {
+            if (!pa.targetParam) {
+              push(`stages[${si}].paramActions[${pai}]`, `${pa.action} 需要 targetParam`);
+            }
+          }
+
+          if (pa.action === 'resetParam' && !pa.targetParam) {
+            push(`stages[${si}].paramActions[${pai}]`, 'resetParam 需要 targetParam');
+          }
+        });
       }
     });
   }
@@ -675,6 +807,12 @@ io.on('connection', (socket) => {
       sharedState: session.sharedState,
     });
     console.log(`[Room:${roomId}] Host connected`);
+
+    // 🆕 如果遊戲已經開始，發送當前遊戲狀態給重連的host
+    if (session.phase === 'playing' && session.currentModule) {
+      console.log(`[Room:${roomId}] Sending current game state to reconnected host`);
+      session.sendHostGameState();
+    }
   });
 
   // ── Host: toggle QR display ──────────────────────────────────
@@ -864,6 +1002,56 @@ io.on('connection', (socket) => {
     console.log(`[Room:${roomId}] Player renamed: ${oldName} → ${newName}`);
     session.broadcastAll('player_renamed', { playerId, oldName, newName: player.name });
     session.sendHostGameState();
+  });
+
+  // ── Actions API (Creator Hub) ─────────────────────────────────
+  socket.on('actions:list', async () => {
+    try {
+      const configs = await actionsAPI.listActions();
+      socket.emit('actions:list', configs);
+    } catch (err) {
+      socket.emit('error', { message: 'Failed to list actions: ' + err.message });
+    }
+  });
+
+  socket.on('actions:get', async ({ id }) => {
+    try {
+      const config = await actionsAPI.getAction(id);
+      if (!config) {
+        socket.emit('error', { message: 'Action config not found' });
+        return;
+      }
+      socket.emit('actions:get', config);
+    } catch (err) {
+      socket.emit('error', { message: 'Failed to get action: ' + err.message });
+    }
+  });
+
+  socket.on('actions:create', async (config) => {
+    try {
+      const newConfig = await actionsAPI.createAction(config);
+      socket.emit('actions:created', newConfig);
+    } catch (err) {
+      socket.emit('error', { message: 'Failed to create action: ' + err.message });
+    }
+  });
+
+  socket.on('actions:update', async ({ id, ...updates }) => {
+    try {
+      const updatedConfig = await actionsAPI.updateAction(id, updates);
+      socket.emit('actions:updated', updatedConfig);
+    } catch (err) {
+      socket.emit('error', { message: 'Failed to update action: ' + err.message });
+    }
+  });
+
+  socket.on('actions:delete', async ({ id }) => {
+    try {
+      await actionsAPI.deleteAction(id);
+      socket.emit('actions:deleted', id);
+    } catch (err) {
+      socket.emit('error', { message: 'Failed to delete action: ' + err.message });
+    }
   });
 
   // ── Disconnect ──────────────────────────────────────────────

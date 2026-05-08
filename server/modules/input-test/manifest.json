@@ -10,7 +10,7 @@
       "name": "遊戲控制",
       "enabled": true,
       "gameConfig": {
-        "layout": "pad-4"
+        "layout": "dpad-2btn"
       },
       "advance": {
         "trigger": "host"

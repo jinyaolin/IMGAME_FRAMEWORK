@@ -512,7 +512,15 @@
     client.on('vote_ended', (data) => {
       console.log('[Display] Vote ended:', data);
       console.log('[Display] Results:', JSON.stringify(data.results, null, 2));
-      toast('📊 投票結束');
+
+      // 🆕 檢查是否需要等待 Host 推進，如果是則隱藏倒數
+      if (data.waitingForHost) {
+        console.log('[Display] Vote ended, waiting for host - hiding countdown');
+        document.getElementById('countdownOverlay').classList.remove('visible');
+        toast('⏳ 投票結束，等待主持人推進');
+      } else {
+        toast('📊 投票結束');
+      }
 
       // Display vote results
       if (data.results && data.results.length > 0) {
@@ -625,6 +633,17 @@
         setTimeout(() => {
           overlay.classList.remove('visible');
         }, 500);
+      }
+    });
+
+    // 🆕 監聽 vote_can_advance 事件（投票結束且需要等待 Host 推進）
+    client.on('vote_can_advance', (data) => {
+      console.log('[Display] Vote can advance:', data);
+      // 隱藏倒數計時器
+      document.getElementById('countdownOverlay').classList.remove('visible');
+      // 顯示等待訊息
+      if (data.message) {
+        toast('⏳ ' + data.message);
       }
     });
 
@@ -822,9 +841,8 @@
       const el = document.getElementById('moduleDisplay');
       if (state.displayHtml) {
         el.innerHTML = state.displayHtml;
-      } else if (typeof state === 'object') {
-        el.textContent = JSON.stringify(state, null, 2);
       }
+      // 🆕 移除 JSON 顯示邏輯 - 避免顯示 globalParams 等內部數據
     }
 
     function enterGameView() {

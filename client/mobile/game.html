@@ -578,6 +578,84 @@
     .dpad-right { top:33.3%; right:0;    width:33.4%; height:33.4%; border-radius:0 8px 8px 0; }
     .dpad-center { top:33.3%; left:33.3%; width:33.4%; height:33.4%;
       background:#0d0d22; border:2px solid #2a2a50; pointer-events:none; }
+
+    /* ───── VIRTUAL JOYSTICK (for dpad-2btn layout) ───────────────── */
+    .joystick-container {
+      position: relative;
+      width: 180px;
+      height: 180px;
+      flex-shrink: 0;
+    }
+
+    .joystick-base {
+      position: absolute;
+      width: 160px;
+      height: 160px;
+      top: 10px;
+      left: 10px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #1a1a3a 0%, #0d0d22 100%);
+      border: 3px solid #3a3a6a;
+      box-shadow: inset 0 4px 12px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+      touch-action: none;
+    }
+
+    .joystick-stick {
+      position: absolute;
+      width: 70px;
+      height: 70px;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #6688ff 0%, #4444aa 100%);
+      border: 2px solid #8888ff;
+      box-shadow: 0 4px 12px rgba(102, 136, 255, 0.4), inset 0 2px 8px rgba(255, 255, 255, 0.2);
+      touch-action: none;
+      transition: transform 0.1s ease-out;
+      pointer-events: none;
+    }
+
+    .joystick-stick.active {
+      background: radial-gradient(circle at 30% 30%, #8888ff 0%, #5555aa 100%);
+      box-shadow: 0 6px 16px rgba(136, 136, 255, 0.6), inset 0 2px 8px rgba(255, 255, 255, 0.3);
+    }
+
+    .joystick-base::after {
+      /* Direction indicators */
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80px;
+      height: 80px;
+      background-image:
+        linear-gradient(to right, transparent 45%, rgba(102, 136, 255, 0.15) 45%, rgba(102, 136, 255, 0.15) 55%, transparent 55%),
+        linear-gradient(to bottom, transparent 45%, rgba(102, 136, 255, 0.15) 45%, rgba(102, 136, 255, 0.15) 55%, transparent 55%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .joystick-indicator {
+      /* Active direction indicator */
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(102, 136, 255, 0.3);
+      border: 2px solid rgba(136, 136, 255, 0.5);
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+
+    .joystick-base.active .joystick-indicator {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -1835,7 +1913,8 @@
         container.classList.add('layout-pad-2');
         container.appendChild(buildPadGrid(['btn1','btn2'], labels, 2));
       } else if (layout === 'dpad-2btn') {
-        container.appendChild(buildDpad(''));
+        // 🆕 Use virtual joystick instead of D-pad
+        container.appendChild(buildJoystick());
         const col = document.createElement('div');
         col.className = 'ctrl-action-col';
         col.appendChild(buildCtrlBtn('btn1', labels['btn1'] || 'A'));
@@ -1860,6 +1939,181 @@
       btn.textContent = label;
       attachCtrlEvents(btn, key);
       return btn;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //   VIRTUAL JOYSTICK (replaces D-pad for better mobile UX)
+    // ════════════════════════════════════════════════════════════════
+    function buildJoystick() {
+      const container = document.createElement('div');
+      container.className = 'joystick-container';
+
+      const base = document.createElement('div');
+      base.className = 'joystick-base';
+
+      const stick = document.createElement('div');
+      stick.className = 'joystick-stick';
+
+      const indicator = document.createElement('div');
+      indicator.className = 'joystick-indicator';
+
+      base.appendChild(stick);
+      base.appendChild(indicator);
+      container.appendChild(base);
+
+      // Joystick touch/mouse event handling
+      let isDragging = false;
+      let currentKey = null;
+      const maxDistance = 65; // Maximum stick movement from center
+      const deadZone = 15;    // Minimum distance to register input
+
+      const handleStart = (clientX, clientY) => {
+        isDragging = true;
+        base.classList.add('active');
+        stick.classList.add('active');
+        handleMove(clientX, clientY);
+      };
+
+      const handleMove = (clientX, clientY) => {
+        if (!isDragging) return;
+
+        const rect = base.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        let deltaX = clientX - centerX;
+        let deltaY = clientY - centerY;
+
+        // Calculate distance and angle
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        const angle = Math.atan2(deltaY, deltaX);
+
+        // Clamp to max distance
+        const clampedDistance = Math.min(distance, maxDistance);
+
+        // Calculate new stick position
+        const stickX = Math.cos(angle) * clampedDistance;
+        const stickY = Math.sin(angle) * clampedDistance;
+
+        stick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
+
+        // Determine direction if outside dead zone
+        if (clampedDistance > deadZone) {
+          const key = angleToKey(angle);
+          if (key !== currentKey) {
+            // Release previous key
+            if (currentKey) {
+              sendControllerInput(currentKey, 'up');
+              pressedKeys.delete(currentKey);
+            }
+            // Press new key
+            currentKey = key;
+            sendControllerInput(currentKey, 'down');
+            pressedKeys.add(currentKey);
+          }
+
+          // Show indicator in direction of movement
+          const indicatorDistance = 30;
+          const indicatorX = Math.cos(angle) * indicatorDistance;
+          const indicatorY = Math.sin(angle) * indicatorDistance;
+          indicator.style.transform = `translate(calc(-50% + ${indicatorX}px), calc(-50% + ${indicatorY}px))`;
+        } else {
+          // Inside dead zone - release key
+          if (currentKey) {
+            sendControllerInput(currentKey, 'up');
+            pressedKeys.delete(currentKey);
+            currentKey = null;
+          }
+          indicator.style.transform = 'translate(-50%, -50%)';
+        }
+      };
+
+      const handleEnd = () => {
+        if (!isDragging) return;
+        isDragging = false;
+        base.classList.remove('active');
+        stick.classList.remove('active');
+
+        // Reset stick position
+        stick.style.transform = 'translate(-50%, -50%)';
+        indicator.style.transform = 'translate(-50%, -50%)';
+
+        // Release current key
+        if (currentKey) {
+          sendControllerInput(currentKey, 'up');
+          pressedKeys.delete(currentKey);
+          currentKey = null;
+        }
+      };
+
+      // Touch events
+      base.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handleStart(touch.clientX, touch.clientY);
+      }, { passive: false });
+
+      base.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handleMove(touch.clientX, touch.clientY);
+      }, { passive: false });
+
+      base.addEventListener('touchend', handleEnd);
+      base.addEventListener('touchcancel', handleEnd);
+
+      // Mouse events (for desktop testing)
+      const onMouseMove = (e) => { handleMove(e.clientX, e.clientY); };
+      const onMouseUp = () => { handleEnd(); };
+
+      base.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        handleStart(e.clientX, e.clientY);
+      });
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+
+      // Cleanup document listeners when joystick is removed from DOM
+      const observer = new MutationObserver(() => {
+        if (!document.contains(base)) {
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      return container;
+    }
+
+    // Convert angle to direction key (8 directions)
+    function angleToKey(angle) {
+      // Normalize angle to 0-2π
+      let normalizedAngle = angle;
+      if (normalizedAngle < 0) normalizedAngle += Math.PI * 2;
+
+      // Convert to degrees for easier mapping
+      const degrees = normalizedAngle * (180 / Math.PI);
+
+      // 8-way D-pad mapping
+      // Up: 337.5° - 22.5° (and 0° - 22.5°)
+      // Right: 22.5° - 67.5°
+      // Down: 67.5° - 112.5°
+      // Left: 112.5° - 157.5°
+      // (and so on for the diagonals)
+
+      const slice = 360 / 8; // 45 degrees per direction
+      const offset = slice / 2; // 22.5 degrees
+
+      // Adjust so 0° is right, 90° is down, etc.
+      // We want: 0°=right, 90°=down, 180°=left, 270°=up
+      const adjustedAngle = (degrees + offset) % 360;
+
+      const direction = Math.floor(adjustedAngle / slice) % 8;
+
+      const directionKeys = ['right', 'down-right', 'down', 'down-left', 'left', 'up-left', 'up', 'up-right'];
+      return directionKeys[direction];
     }
 
     function buildDpad(suffix) {

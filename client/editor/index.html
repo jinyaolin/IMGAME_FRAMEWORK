@@ -205,6 +205,75 @@
     input:checked + .toggle-slider { background: #5555ff; }
     input:checked + .toggle-slider:before { transform: translateX(15px); background: #fff; }
 
+    /* Parameters tab — globalParams + playerAttributes editor */
+    .param-row {
+      background: #0e0e22;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .param-row .param-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .param-row .param-id-input {
+      width: 140px;
+      background: #0a0a1a;
+      border: 1px solid #2a2a4a;
+      border-radius: 4px;
+      color: #ddddf0;
+      font-size: .82rem;
+      padding: 4px 8px;
+      font-family: monospace;
+    }
+    .param-row .param-type-select {
+      background: #0a0a1a;
+      border: 1px solid #2a2a4a;
+      border-radius: 4px;
+      color: #ddddf0;
+      font-size: .82rem;
+      padding: 4px 8px;
+    }
+    .param-row .param-label-input {
+      flex: 1;
+      background: #0a0a1a;
+      border: 1px solid #2a2a4a;
+      border-radius: 4px;
+      color: #ddddf0;
+      font-size: .82rem;
+      padding: 4px 8px;
+    }
+    .param-row .param-details {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .param-row .param-detail {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .param-row .param-detail label {
+      font-size: .7rem;
+      color: #8888aa;
+    }
+    .param-row .param-detail input {
+      background: #0a0a1a;
+      border: 1px solid #2a2a4a;
+      border-radius: 4px;
+      color: #ddddf0;
+      font-size: .8rem;
+      padding: 4px 6px;
+    }
+    .param-row .param-detail input:focus {
+      outline: none;
+      border-color: #5555ff;
+    }
+
     /* Advanced tab — fieldConfig schema editor */
     .fc-row {
       background: #0e0e22; border: 1px solid #2a2a4a; border-radius: 8px;
@@ -318,13 +387,13 @@
       <!-- Tabs -->
       <div id="configEditor">
         <div class="cfg-tabs">
-          <button class="cfg-tab active" onclick="switchCfgTab('basic')"    data-i18n="tab.basic">基本參數</button>
-          <button class="cfg-tab"        onclick="switchCfgTab('decks')"    data-i18n="tab.decks">牌組</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('params')"   data-i18n="tab.params">參數</button>
+          <button class="cfg-tab active" onclick="switchCfgTab('decks')"    data-i18n="tab.decks">牌組</button>
           <button class="cfg-tab"        onclick="switchCfgTab('stages')"   data-i18n="tab.stages">階段</button>
           <button class="cfg-tab"        onclick="switchCfgTab('advanced')" data-i18n="tab.advanced">進階</button>
         </div>
-        <div id="cfgBasic"    class="cfg-tab-content active"></div>
-        <div id="cfgDecks"    class="cfg-tab-content"></div>
+        <div id="cfgParams"   class="cfg-tab-content"></div>
+        <div id="cfgDecks"    class="cfg-tab-content active"></div>
         <div id="cfgStages"   class="cfg-tab-content"></div>
         <div id="cfgAdvanced" class="cfg-tab-content"></div>
       </div>
@@ -551,7 +620,7 @@
 
   function rerenderAll() {
     renderHeader();
-    renderBasicTab();
+    renderParamsTab();
     renderDecksTab();
     renderStagesTab();
     renderAdvancedTab();
@@ -597,83 +666,213 @@
   function switchCfgTab(name) {
     activeTab = name;
     document.querySelectorAll('.cfg-tab').forEach((t, i) => {
-      t.classList.toggle('active', ['basic','decks','stages','advanced'][i] === name);
+      t.classList.toggle('active', ['params','decks','stages','advanced'][i] === name);
     });
     document.querySelectorAll('.cfg-tab-content').forEach(el => el.classList.remove('active'));
     document.getElementById('cfg' + name[0].toUpperCase() + name.slice(1)).classList.add('active');
+
+    // Render the activated tab content
+    if (name === 'params') renderParamsTab();
+    else if (name === 'decks') renderDecksTab();
+    else if (name === 'stages') renderStagesTab();
+    else if (name === 'advanced') renderAdvancedTab();
   }
 
   // ═══════════════════════════════════════════════════════════════
-  //  TAB: BASIC (fieldConfig defaults)
+  //  TAB: PARAMS (globalParams + playerAttributes)
   // ═══════════════════════════════════════════════════════════════
-  function renderBasicTab() {
-    const fc = manifest.fieldConfig || {};
-    const el = document.getElementById('cfgBasic');
-    if (!Object.keys(fc).length) {
-      el.innerHTML = '<div class="help-text">這個模組沒有可調參數。可在「進階」分頁新增 fieldConfig 條目。</div>';
-      return;
-    }
-    el.innerHTML = Object.entries(fc).map(([key, def]) => renderBasicField(key, def)).join('');
-    updateFieldVisibility();
+  function renderParamsTab() {
+    const el = document.getElementById('cfgParams');
+    const globalParams = manifest.globalParams || [];
+    const playerAttributes = manifest.playerAttributes || [];
+
+    el.innerHTML = `
+      <div class="section-title">全域參數 (globalParams)</div>
+      <div class="help-text" style="margin-bottom:10px">
+        全域參數是整個遊戲共享的變數，例如：投票勝者、回合數等。
+      </div>
+      <div id="globalParamsList">
+        ${globalParams.map((p, i) => renderGlobalParamRow(p, i)).join('')}
+      </div>
+      <button class="add-card-btn" onclick="addGlobalParam()">+ 新增全域參數</button>
+
+      <div class="section-title" style="margin-top:30px;">玩家屬性 (playerAttributes)</div>
+      <div class="help-text" style="margin-bottom:10px">
+        玩家屬性是每個玩家獨立的變數，例如：分數、票數等。
+      </div>
+      <div id="playerAttributesList">
+        ${playerAttributes.map((p, i) => renderPlayerAttributeRow(p, i)).join('')}
+      </div>
+      <button class="add-card-btn" onclick="addPlayerAttribute()">+ 新增玩家屬性</button>
+    `;
   }
 
-  function renderBasicField(key, def) {
-    const showWhen = def.showWhen
-      ? `data-show-when-field="${escapeH(def.showWhen.field)}" data-show-when-value="${escapeH(def.showWhen.value)}"`
-      : '';
+  function renderGlobalParamRow(param, index) {
+    const typeOptions = ['player', 'number', 'string', 'boolean', 'array']
+      .map(t => `<option value="${t}" ${param.type === t ? 'selected' : ''}>${t}</option>`).join('');
 
-    // 特殊處理 handSize：加入說明
-    const isHandSize = key === 'handSize';
-    const labelSuffix = isHandSize ? ' 🎯' : '';
-    const labelTitle = isHandSize ? ' title="實際抽牌數，留白則使用牌組預設抽牌數"' : '';
-
-    let input = '';
-    const cur = def.default;
-    if (def.type === 'number') {
-      input = `<input class="field-input" type="number" id="fv_${escapeH(key)}"
-        value="${cur ?? ''}" min="${def.min ?? ''}" max="${def.max ?? ''}"
-        oninput="onBasicChange('${escapeH(key)}','number')">`;
-    } else if (def.type === 'select') {
-      const opts = (def.options || []).map(o =>
-        `<option value="${escapeH(o.value)}" ${cur === o.value ? 'selected' : ''}>${escapeH(o.label)}</option>`
-      ).join('');
-      input = `<select class="field-input" id="fv_${escapeH(key)}" onchange="onBasicChange('${escapeH(key)}','select')">${opts}</select>`;
-    }
-
-    // 特殊說明文字（僅 handSize）
-    const helpText = isHandSize
-      ? `<div class="help-text" style="margin-top:4px;font-size:.7rem;color:#7777aa;">
-           留白或 0 = 使用牌組預設抽牌數
-         </div>`
-      : '';
-
-    return `<div class="field-row" id="frow_${escapeH(key)}" ${showWhen}>
-      <label class="field-label"${labelTitle}>${escapeH(def.label || key)}${labelSuffix}</label>${input}
-      ${helpText}
-    </div>`;
+    return `
+      <div class="param-row">
+        <div class="param-head">
+          <input type="text" class="param-id-input" value="${escapeH(param.id || '')}"
+                 placeholder="參數 ID" onchange="updateGlobalParam(${index}, 'id', this.value)">
+          <select class="param-type-select" onchange="updateGlobalParam(${index}, 'type', this.value)">
+            ${typeOptions}
+          </select>
+          <input type="text" class="param-label-input" value="${escapeH(param.label || '')}"
+                 placeholder="顯示名稱" onchange="updateGlobalParam(${index}, 'label', this.value)">
+          <button class="btn btn-danger btn-sm" onclick="deleteGlobalParam(${index})">刪除</button>
+        </div>
+        <div class="param-details">
+          ${param.type === 'number' ? `
+            <div class="param-detail">
+              <label>子類型：</label>
+              <select onchange="updateGlobalParam(${index}, 'subType', this.value)">
+                <option value="">無</option>
+                <option value="integer" ${param.subType === 'integer' ? 'selected' : ''}>整數</option>
+                <option value="float" ${param.subType === 'float' ? 'selected' : ''}>浮點數</option>
+              </select>
+            </div>
+            <div class="param-detail">
+              <label>最小值：</label>
+              <input type="number" value="${param.min ?? ''}" placeholder="無限制"
+                     onchange="updateGlobalParam(${index}, 'min', this.value === '' ? null : Number(this.value))">
+            </div>
+            <div class="param-detail">
+              <label>最大值：</label>
+              <input type="number" value="${param.max ?? ''}" placeholder="無限制"
+                     onchange="updateGlobalParam(${index}, 'max', this.value === '' ? null : Number(this.value))">
+            </div>
+          ` : ''}
+          <div class="param-detail">
+            <label>初始值：</label>
+            <input type="text" value="${param.initialValue !== undefined ? escapeH(JSON.stringify(param.initialValue)) : ''}"
+                   placeholder="預設值"
+                   onchange="updateGlobalParam(${index}, 'initialValue', this.value === '' ? null : this.value)">
+          </div>
+          <div class="param-detail" style="grid-column: 1 / -1;">
+            <label>說明：</label>
+            <input type="text" value="${escapeH(param.description || '')}"
+                   placeholder="參數說明"
+                   onchange="updateGlobalParam(${index}, 'description', this.value)">
+          </div>
+        </div>
+      </div>
+    `;
   }
 
-  function onBasicChange(key, kind) {
+  function renderPlayerAttributeRow(attr, index) {
+    const typeOptions = ['select', 'number', 'string', 'boolean', 'player', 'card', 'array']
+      .map(t => `<option value="${t}" ${attr.type === t ? 'selected' : ''}>${t}</option>`).join('');
+
+    return `
+      <div class="param-row">
+        <div class="param-head">
+          <input type="text" class="param-id-input" value="${escapeH(attr.id || '')}"
+                 placeholder="屬性 ID" onchange="updatePlayerAttribute(${index}, 'id', this.value)">
+          <select class="param-type-select" onchange="updatePlayerAttribute(${index}, 'type', this.value)">
+            ${typeOptions}
+          </select>
+          <input type="text" class="param-label-input" value="${escapeH(attr.label || '')}"
+                 placeholder="顯示名稱" onchange="updatePlayerAttribute(${index}, 'label', this.value)">
+          <button class="btn btn-danger btn-sm" onclick="deletePlayerAttribute(${index})">刪除</button>
+        </div>
+        <div class="param-details">
+          ${attr.type === 'number' ? `
+            <div class="param-detail">
+              <label>子類型：</label>
+              <select onchange="updatePlayerAttribute(${index}, 'subType', this.value)">
+                <option value="">無</option>
+                <option value="integer" ${attr.subType === 'integer' ? 'selected' : ''}>整數</option>
+                <option value="float" ${attr.subType === 'float' ? 'selected' : ''}>浮點數</option>
+              </select>
+            </div>
+            <div class="param-detail">
+              <label>最小值：</label>
+              <input type="number" value="${attr.min ?? ''}" placeholder="無限制"
+                     onchange="updatePlayerAttribute(${index}, 'min', this.value === '' ? null : Number(this.value))">
+            </div>
+            <div class="param-detail">
+              <label>最大值：</label>
+              <input type="number" value="${attr.max ?? ''}" placeholder="無限制"
+                     onchange="updatePlayerAttribute(${index}, 'max', this.value === '' ? null : Number(this.value))">
+            </div>
+          ` : ''}
+          <div class="param-detail">
+            <label>初始值：</label>
+            <input type="text" value="${attr.initialValue !== undefined ? escapeH(JSON.stringify(attr.initialValue)) : ''}"
+                   placeholder="預設值"
+                   onchange="updatePlayerAttribute(${index}, 'initialValue', this.value === '' ? null : this.value)">
+          </div>
+          <div class="param-detail" style="grid-column: 1 / -1;">
+            <label>說明：</label>
+            <input type="text" value="${escapeH(attr.description || '')}"
+                   placeholder="屬性說明"
+                   onchange="updatePlayerAttribute(${index}, 'description', this.value)">
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function addGlobalParam() {
     pushHistory();
-    const el = document.getElementById('fv_' + key);
-    let val;
-    if (kind === 'number') {
-      val = el.value === '' ? null : Number(el.value);
-    } else val = el.value;
-    if (manifest.fieldConfig && manifest.fieldConfig[key]) {
-      manifest.fieldConfig[key].default = val;
-    }
-    updateFieldVisibility();
+    manifest.globalParams = manifest.globalParams || [];
+    manifest.globalParams.push({
+      id: `param${manifest.globalParams.length + 1}`,
+      label: '新參數',
+      type: 'number',
+      subType: 'integer',
+      initialValue: 0,
+      description: ''
+    });
+    renderParamsTab();
     afterChange(true);
   }
 
-  function updateFieldVisibility() {
-    document.querySelectorAll('[data-show-when-field]').forEach(el => {
-      const key = el.dataset.showWhenField;
-      const want = el.dataset.showWhenValue;
-      const cur  = manifest?.fieldConfig?.[key]?.default;
-      el.style.display = String(cur) === String(want) ? 'block' : 'none';
+  function updateGlobalParam(index, field, value) {
+    pushHistory();
+    manifest.globalParams[index][field] = value;
+    renderParamsTab();
+    afterChange(true);
+  }
+
+  function deleteGlobalParam(index) {
+    if (!confirm('確定要刪除此全域參數？')) return;
+    pushHistory();
+    manifest.globalParams.splice(index, 1);
+    renderParamsTab();
+    afterChange(true);
+  }
+
+  function addPlayerAttribute() {
+    pushHistory();
+    manifest.playerAttributes = manifest.playerAttributes || [];
+    manifest.playerAttributes.push({
+      id: `attr${manifest.playerAttributes.length + 1}`,
+      label: '新屬性',
+      type: 'number',
+      subType: 'integer',
+      initialValue: 0,
+      description: ''
     });
+    renderParamsTab();
+    afterChange(true);
+  }
+
+  function updatePlayerAttribute(index, field, value) {
+    pushHistory();
+    manifest.playerAttributes[index][field] = value;
+    renderParamsTab();
+    afterChange(true);
+  }
+
+  function deletePlayerAttribute(index) {
+    if (!confirm('確定要刪除此玩家屬性？')) return;
+    pushHistory();
+    manifest.playerAttributes.splice(index, 1);
+    renderParamsTab();
+    afterChange(true);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1042,6 +1241,7 @@
           ` : ''}
         </div>
         ${s.type !== 'loop' ? renderAdvanceBlock(si, '階段結束時推進', 'advance', s.advance, '此階段所有事情完成後，如何進入下一個階段') : ''}
+        ${renderParamActionsBlock(si, s)}
         ${s.type === 'card_play' ? `
           <div style="margin-top:12px;padding:10px;background:#0d0d1f;border:1px solid #2a2a4a;border-radius:8px;">
             <div style="font-size:.8rem;color:#aaaacc;font-weight:600;margin-bottom:10px;">🎮 回合設定</div>
@@ -1066,6 +1266,146 @@
         ${s.type === 'game' ? renderGameConfigBlock(si, s) : ''}
         ${s.type === 'loop'  ? renderLoopBlock(si, s) : ''}
       </div>`).join('') + `<button class="add-card-btn" onclick="addStage()">+ 新增階段</button>`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  PARAMACTIONS EDITOR
+  // ═══════════════════════════════════════════════════════════════
+  function renderParamActionsBlock(si, stage) {
+    const actions = stage.paramActions || [];
+    const actionsHtml = actions.map((action, ai) => renderParamActionRow(si, action, ai)).join('');
+
+    return `
+      <div style="margin-top:12px;padding:12px;background:#0d0d1f;border:1px solid #3a2060; border-radius:8px;">
+        <div style="font-size:.8rem;color:#aaaacc;font-weight:600;margin-bottom:10px;">⚙️ 參數動作 (paramActions)</div>
+        <div class="help-text" style="margin-bottom:10px;">
+          在特定時機執行參數操作，例如：階段開始時設定參數、投票結束時淘汰玩家等。
+        </div>
+        <div id="paramActions_${si}">
+          ${actionsHtml}
+        </div>
+        <button class="add-card-btn" onclick="addParamAction(${si})">+ 新增動作</button>
+      </div>
+    `;
+  }
+
+  function renderParamActionRow(si, action, ai) {
+    const triggerOptions = [
+      { value: 'onStageStart', label: '階段開始時 (onStageStart)' },
+      { value: 'onStageEnd', label: '階段結束時 (onStageEnd)' }
+    ];
+
+    const actionOptions = [
+      { value: 'setValue', label: '設定參數值' },
+      { value: 'addValue', label: '增加參數值' },
+      { value: 'subtractValue', label: '減少參數值' },
+      { value: 'multiplyValue', label: '乘以參數值' },
+      { value: 'resetParam', label: '重置參數' },
+      { value: 'storeVoteWinner', label: '存儲投票勝者' },
+      { value: 'eliminatePlayer', label: '淘汰玩家' }
+    ];
+
+    return `
+      <div class="param-action-row" style="background:#0a0a1a;border:1px solid #2a2a4a;border-radius:6px;padding:10px;margin-bottom:8px;">
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+          <select class="field-input" style="flex:1;" onchange="updateParamAction(${si},${ai},'trigger',this.value)">
+            ${triggerOptions.map(t => `<option value="${t.value}" ${action.trigger === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}
+          </select>
+          <select class="field-input" style="flex:1;" onchange="updateParamAction(${si},${ai},'action',this.value)">
+            ${actionOptions.map(a => `<option value="${a.value}" ${action.action === a.value ? 'selected' : ''}>${a.label}</option>`).join('')}
+          </select>
+          <button class="btn btn-danger btn-sm" onclick="deleteParamAction(${si},${ai})">✕</button>
+        </div>
+        <div class="param-action-details" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+          ${renderParamActionFields(si, action, ai)}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderParamActionFields(si, action, ai) {
+    switch (action.action) {
+      case 'setValue':
+      case 'addValue':
+      case 'subtractValue':
+      case 'multiplyValue':
+        return `
+          <div style="grid-column:1/-1;">
+            <label style="font-size:.7rem;color:#8888aa;">目標參數：</label>
+            <input type="text" class="field-input" value="${escapeH(action.targetParam || '')}"
+                   placeholder="參數 ID"
+                   onchange="updateParamAction(${si},${ai},'targetParam',this.value)">
+          </div>
+          <div style="grid-column:1/-1;">
+            <label style="font-size:.7rem;color:#8888aa;">數值：</label>
+            <input type="text" class="field-input" value="${escapeH(action.value !== undefined ? String(action.value) : '')}"
+                   placeholder="數值或變數（支援 $變數 語法）"
+                   onchange="updateParamAction(${si},${ai},'value',this.value)">
+          </div>
+        `;
+
+      case 'resetParam':
+        return `
+          <div style="grid-column:1/-1;">
+            <label style="font-size:.7rem;color:#8888aa;">目標參數：</label>
+            <input type="text" class="field-input" value="${escapeH(action.targetParam || '')}"
+                   placeholder="參數 ID"
+                   onchange="updateParamAction(${si},${ai},'targetParam',this.value)">
+          </div>
+        `;
+
+      case 'storeVoteWinner':
+        return `
+          <div style="grid-column:1/-1;">
+            <label style="font-size:.7rem;color:#8888aa;">存儲到：</label>
+            <input type="text" class="field-input" value="${escapeH(action.targetParam || '')}"
+                   placeholder="全域參數 ID"
+                   onchange="updateParamAction(${si},${ai},'targetParam',this.value)">
+          </div>
+        `;
+
+      case 'eliminatePlayer':
+        return `
+          <div style="grid-column:1/-1;">
+            <label style="font-size:.7rem;color:#8888aa;">玩家參數：</label>
+            <input type="text" class="field-input" value="${escapeH(action.targetPlayerParam || '')}"
+                   placeholder="包含玩家 ID 的全域參數 ID"
+                   onchange="updateParamAction(${si},${ai},'targetPlayerParam',this.value)">
+          </div>
+        `;
+
+      default:
+        return '<div style="grid-column:1/-1;color:#6666aa;">未知動作類型</div>';
+    }
+  }
+
+  function addParamAction(si) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    stage.paramActions = stage.paramActions || [];
+    stage.paramActions.push({
+      trigger: 'onStageStart',
+      action: 'setValue',
+      targetParam: '',
+      value: ''
+    });
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function updateParamAction(si, ai, field, value) {
+    pushHistory();
+    manifest.stages[si].paramActions[ai][field] = value;
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function deleteParamAction(si, ai) {
+    if (!confirm('確定要刪除此動作？')) return;
+    pushHistory();
+    manifest.stages[si].paramActions.splice(ai, 1);
+    renderStagesTab();
+    afterChange(true);
   }
 
   function renderStageRoundField(si, key, label, value, defaultVal, unit = '', configPath = null) {
@@ -2142,7 +2482,7 @@ module.exports = MyModule;">${escapeH(serverCode)}</textarea>
     const validTriggers = ['host','all_played','all_confirmed','all_voted','all_submitted','all_ready',
                           'auto','timer','identity_timer','play_timer','generic_timer',
                           'auto_restart','restart_timer',
-                          'host_reveal','auto_next','round_timer'];
+                          'host_reveal','auto_next','round_timer','vote_ended'];
 
     const validateStage = (s, si, pathPrefix) => {
       if (!s.id)   push(`${pathPrefix}[${si}]`, '階段需要 id');

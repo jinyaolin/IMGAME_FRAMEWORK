@@ -503,23 +503,23 @@
 
 <header>
   <h1 data-i18n="host.title">🎮 HOST 控制台</h1>
-  <div style="display:flex;align-items:center;gap:12px;">
+  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
     <a href="/editor" target="_blank"
-       style="font-size:.82rem;color:#aaaaff;text-decoration:none;border:1px solid #3a3a6a;
-              padding:6px 12px;border-radius:6px;background:#14142a;"
+       class="btn btn-neutral"
+       style="font-size:.78rem;padding:6px 12px;text-decoration:none;"
        data-i18n="host.editor_link">
       📝 模組編輯器
     </a>
     <button class="btn btn-neutral"
             id="toggleQrBtn"
             onclick="toggleDisplayQR()"
-            style="padding:6px 12px;font-size:.82rem;"
+            style="padding:6px 12px;font-size:.78rem;"
             title="在 Display 顯示/隱藏玩家加入 QR Code"
             data-i18n="host.qr_btn">
       📱 玩家加入 QR
     </button>
     <div class="badge"
-         style="cursor:pointer;"
+         style="cursor:pointer;padding:6px 12px;"
          onclick="openDisplayPage()"
          title="點擊打開 Display 頁面"><span data-i18n="host.room_badge">房間</span> <span id="headerRoom">------</span> 📺</div>
   </div>
@@ -1431,6 +1431,7 @@
     next_round:       { label: '▶ 下一回合',          cls: 'btn-primary' },
     next_stage:       { label: '▶ 下一階段',          cls: 'btn-success' },
     end_game:         { label: '✕ 結束遊戲',          cls: 'btn-danger'  },
+    end_vote:         { label: '▶ 結束投票',          cls: 'btn-primary'  },
     restart:          { label: '↺ 重新開始',          cls: 'btn-success' },
     back_to_lobby:    { label: '← 返回 Lobby',        cls: 'btn-neutral' },
   };
@@ -1441,6 +1442,11 @@
     currentGamePhase = state.phase; // Store current game phase for use in renderPlayers
     currentAvailableActions = state.availableActions || []; // Store available actions for use in renderResultPanel
     console.log('[Host] renderGamePanel called with phase:', state.phase, 'playerStates:', state.playerStates?.length);
+
+    // 🆕 切換到遊戲面板（修復 host 重連後停留在 lobby 的問題）
+    showPanel('game');
+    currentPhase = 'playing';
+    setPhaseBadge('playing');
 
     // Update currentPlayers with playerStates from game panel
     if (state.playerStates && currentPlayers) {

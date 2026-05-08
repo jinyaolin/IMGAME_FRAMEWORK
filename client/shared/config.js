@@ -894,11 +894,11 @@ function _initCfgUI() {
   const style = document.createElement('style');
   style.textContent = `
     #appcfg-btn {
-      position: fixed; top: 10px; right: 14px; z-index: 9000;
       background: rgba(20,20,50,.85); border: 1px solid #3a3a7a;
-      color: #8888cc; border-radius: 8px; padding: 5px 10px;
-      font-size: .85rem; cursor: pointer; backdrop-filter: blur(4px);
+      color: #8888cc; border-radius: 8px; padding: 6px 10px;
+      font-size: .85rem; cursor: pointer;
       transition: color .15s, border-color .15s;
+      flex-shrink: 0;
     }
     #appcfg-btn:hover { color: #aaaaff; border-color: #6666cc; }
     #appcfg-overlay {
@@ -968,6 +968,12 @@ function _initCfgUI() {
       </div>
     </div>
   `;
+
+  // Insert button into header's button group if available, otherwise append to body
+  const headerBtnGroup = document.querySelector('header > div:last-child');
+  if (headerBtnGroup) {
+    headerBtnGroup.appendChild(root.querySelector('#appcfg-btn'));
+  }
   document.body.appendChild(root);
 
   document.getElementById('appcfg-ip').value = Config.ip;

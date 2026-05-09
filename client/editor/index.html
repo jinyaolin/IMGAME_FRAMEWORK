@@ -1787,19 +1787,78 @@
     afterChange(true);
   }
 
+  // ── Shared helper: render a loop condition block (entry or exit) ──
+  // prefix: used to name setter functions, e.g. 'Loop' → setLoopCondProp / 'ChildLoop' → setChildLoopCondProp
+  function renderLoopCondBlock(cond, hasCondition, { toggleFn, typeFn, opFn, valFn, teamFn, checkFn }, showCheckAfter) {
+    const condType  = cond.type     || 'alivePlayers';
+    const condOp    = cond.operator || 'lte';
+    const condVal   = cond.value    ?? 1;
+    const condCheck = cond.checkAfter || 'each_iteration';
+
+    const COND_TYPES = [
+      { value: 'alivePlayers', label: '存活玩家數' },
+      { value: 'teamPlayers',  label: '特定陣營玩家數' },
+      { value: 'globalParam',  label: '全局參數值' },
+      { value: 'iterations',   label: '已執行次數' },
+    ];
+    const typeOpts = COND_TYPES.map(t =>
+      `<option value="${t.value}" ${condType===t.value?'selected':''}>${t.label}</option>`).join('');
+    const opOpts = LOOP_OPERATORS.map(o =>
+      `<option value="${o.value}" ${condOp===o.value?'selected':''}>${o.label}</option>`).join('');
+
+    return `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label class="toggle-switch">
+          <input type="checkbox" ${hasCondition?'checked':''} onchange="${toggleFn}">
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-size:.75rem;color:#9988bb;">啟用條件</span>
+        ${!hasCondition ? '<span style="font-size:.7rem;color:#665577;margin-left:4px;">（未啟用）</span>' : ''}
+      </div>
+      ${hasCondition ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr 60px${showCheckAfter?' 1fr':''};gap:6px;margin-top:2px;">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">條件類型</label>
+          <select class="field-input" onchange="${typeFn}">${typeOpts}</select>
+        </div>
+        <div class="field-row" style="margin:0">
+          <label class="field-label">運算子</label>
+          <select class="field-input" onchange="${opFn}">${opOpts}</select>
+        </div>
+        <div class="field-row" style="margin:0">
+          <label class="field-label">值</label>
+          <input class="field-input" type="number" min="0" value="${condVal}" oninput="${valFn}">
+        </div>
+        ${showCheckAfter ? `
+        <div class="field-row" style="margin:0">
+          <label class="field-label">檢查時機</label>
+          <select class="field-input" onchange="${checkFn}">
+            <option value="each_stage"     ${condCheck==='each_stage'?'selected':''}>每子階段後</option>
+            <option value="each_iteration" ${condCheck==='each_iteration'?'selected':''}>每完整循環後</option>
+          </select>
+        </div>` : ''}
+      </div>
+      ${condType === 'teamPlayers' ? `
+      <div class="field-row" style="margin-top:8px;margin-bottom:0">
+        <label class="field-label">陣營名稱</label>
+        <input class="field-input" placeholder="例如：wolf" value="${escapeH(cond.team||'')}" oninput="${teamFn}">
+      </div>` : ''}
+      ${condType === 'globalParam' ? `
+      <div class="field-row" style="margin-top:8px;margin-bottom:0">
+        <label class="field-label">參數 ID (paramId)</label>
+        <input class="field-input" style="font-family:monospace" placeholder="globalParam 的 id"
+               value="${escapeH(cond.paramId||'')}" oninput="${teamFn.replace('team', 'paramId')}">
+      </div>` : ''}
+      ` : ''}`;
+  }
+
   // ── Loop Block ────────────────────────────────────────────────
   function renderLoopBlock(si, stage) {
     const loopType = stage.loopType || 'fixed';
-    const ec = stage.exitCondition || {};
-    const ecType = ec.type || 'alivePlayers';
-    const ecOp   = ec.operator || 'lte';
-    const ecVal  = ec.value ?? 1;
-    const ecCheck = ec.checkAfter || 'each_iteration';
-
-    const typeOpts = LOOP_EXIT_TYPES.map(t =>
-      `<option value="${t.value}" ${ecType===t.value?'selected':''}>${t.label}</option>`).join('');
-    const opOpts = LOOP_OPERATORS.map(o =>
-      `<option value="${o.value}" ${ecOp===o.value?'selected':''}>${o.label}</option>`).join('');
+    const ec  = stage.exitCondition  || {};
+    const enc = stage.entryCondition || {};
+    const hasExit  = !!stage.exitCondition;
+    const hasEntry = !!stage.entryCondition;
 
     return `<div class="loop-block">
       <div class="loop-block-title">🔁 循環設定</div>
@@ -1821,47 +1880,30 @@
         </div>` : '<div></div>'}
       </div>
 
+      <div class="loop-exit-block" style="margin-top:10px;">
+        <div class="loop-exit-title">🔑 進入條件（選填）</div>
+        <div class="help-text" style="margin-bottom:8px">不滿足條件時直接跳過整個循環。不設定則永遠進入。</div>
+        ${renderLoopCondBlock(enc, hasEntry, {
+          toggleFn: `toggleLoopEntryCondition(${si},this.checked)`,
+          typeFn:   `setLoopEntryCond(${si},'type',this.value)`,
+          opFn:     `setLoopEntryCond(${si},'operator',this.value)`,
+          valFn:    `setLoopEntryCond(${si},'value',Number(this.value))`,
+          teamFn:   `setLoopEntryCond(${si},'team',this.value)`,
+          checkFn:  ''
+        }, false)}
+      </div>
+
       <div class="loop-exit-block">
         <div class="loop-exit-title">🚪 逃脫條件（選填）</div>
         <div class="help-text" style="margin-bottom:8px">滿足條件時提前結束循環。不設定則跑完所有次數後自然結束。</div>
-        <div class="loop-exit-grid">
-          <div class="field-row" style="margin:0">
-            <label class="field-label">條件類型</label>
-            <select class="field-input" onchange="setLoopCondProp(${si},'type',this.value)">${typeOpts}</select>
-          </div>
-          <div class="field-row" style="margin:0">
-            <label class="field-label">運算子</label>
-            <select class="field-input" onchange="setLoopCondProp(${si},'operator',this.value)">${opOpts}</select>
-          </div>
-          <div class="field-row" style="margin:0">
-            <label class="field-label">值</label>
-            <input class="field-input" type="number" min="0"
-                   value="${ecVal}"
-                   oninput="setLoopCondProp(${si},'value',Number(this.value))">
-          </div>
-          <div class="field-row" style="margin:0">
-            <label class="field-label">檢查時機</label>
-            <select class="field-input" onchange="setLoopCondProp(${si},'checkAfter',this.value)">
-              <option value="each_stage"     ${ecCheck==='each_stage'?'selected':''}>每個子階段結束後</option>
-              <option value="each_iteration" ${ecCheck==='each_iteration'?'selected':''}>每次完整循環後</option>
-            </select>
-          </div>
-        </div>
-        ${ecType === 'teamPlayers' ? `
-        <div class="field-row" style="margin-top:8px;margin-bottom:0">
-          <label class="field-label">陣營名稱</label>
-          <input class="field-input" placeholder="例如：wolf" value="${escapeH(ec.team||'')}"
-                 oninput="setLoopCondProp(${si},'team',this.value)">
-        </div>` : ''}
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-          <label class="toggle-switch">
-            <input type="checkbox" ${ec.type ? 'checked' : ''}
-                   onchange="toggleLoopExitCondition(${si},this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-          <span style="font-size:.75rem;color:#9988bb;">啟用逃脫條件</span>
-          ${!ec.type ? '<span style="font-size:.7rem;color:#665577;margin-left:4px;">（目前未啟用，循環將跑完所有次數）</span>' : ''}
-        </div>
+        ${renderLoopCondBlock(ec, hasExit, {
+          toggleFn: `toggleLoopExitCondition(${si},this.checked)`,
+          typeFn:   `setLoopCondProp(${si},'type',this.value)`,
+          opFn:     `setLoopCondProp(${si},'operator',this.value)`,
+          valFn:    `setLoopCondProp(${si},'value',Number(this.value))`,
+          teamFn:   `setLoopCondProp(${si},'team',this.value)`,
+          checkFn:  `setLoopCondProp(${si},'checkAfter',this.value)`
+        }, true)}
       </div>
 
       ${renderChildStages(si, stage)}
@@ -2091,11 +2133,30 @@
     afterChange(true);
   }
 
+  function setLoopEntryCond(si, key, val) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    stage.entryCondition = stage.entryCondition || { type: 'alivePlayers', operator: 'gt', value: 0 };
+    stage.entryCondition[key] = val;
+    if (key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+
+  function toggleLoopEntryCondition(si, enabled) {
+    pushHistory();
+    const stage = manifest.stages[si];
+    if (enabled) { stage.entryCondition = { type: 'alivePlayers', operator: 'gt', value: 0 }; }
+    else { delete stage.entryCondition; }
+    renderStagesTab();
+    afterChange(true);
+  }
+
   function setLoopCondProp(si, key, val) {
     pushHistory();
     const stage = manifest.stages[si];
     stage.exitCondition = stage.exitCondition || { type: 'alivePlayers', operator: 'lte', value: 1, checkAfter: 'each_iteration' };
     stage.exitCondition[key] = val;
+    if (key === 'type') renderStagesTab();
     renderStagesTab();
     afterChange(true);
   }
@@ -2219,19 +2280,10 @@
   // Render a nested loop block for child stages (simplified — no further nesting UI)
   function renderChildLoopBlock(si, ci, cs) {
     const loopType = cs.loopType || 'fixed';
-    const ec = cs.exitCondition || {};
-    const ecType = ec.type || 'alivePlayers';
-    const ecOp   = ec.operator || 'lte';
-    const ecVal  = ec.value ?? 1;
-    const ecCheck = ec.checkAfter || 'each_iteration';
-
-    const typeOpts = LOOP_EXIT_TYPES.map(t =>
-      `<option value="${t.value}" ${ecType===t.value?'selected':''}>${t.label}</option>`).join('');
-    const opOpts = LOOP_OPERATORS.map(o =>
-      `<option value="${o.value}" ${ecOp===o.value?'selected':''}>${o.label}</option>`).join('');
-
-    // Child-level loop setters — operate on manifest.stages[si].children[ci]
-    const setLoopP  = (k, v) => `setChildLoopProp(${si},${ci},'${k}',${typeof v === 'string' ? `this.value` : v})`;
+    const ec  = cs.exitCondition  || {};
+    const enc = cs.entryCondition || {};
+    const hasExit  = !!cs.exitCondition;
+    const hasEntry = !!cs.entryCondition;
 
     const grandchildren = (cs.children || cs.stages || []);
     const gcRows = grandchildren.map((gc, gi) => `
@@ -2287,38 +2339,29 @@
                  oninput="setChildLoopProp(${si},${ci},'maxIterations',Number(this.value))">
         </div>` : '<div></div>'}
       </div>
+      <div class="loop-exit-block" style="margin-top:10px;">
+        <div class="loop-exit-title">🔑 進入條件（選填）</div>
+        <div class="help-text" style="margin-bottom:8px">不滿足條件時直接跳過整個循環。</div>
+        ${renderLoopCondBlock(enc, hasEntry, {
+          toggleFn: `toggleChildLoopEntryCondition(${si},${ci},this.checked)`,
+          typeFn:   `setChildLoopEntryCond(${si},${ci},'type',this.value)`,
+          opFn:     `setChildLoopEntryCond(${si},${ci},'operator',this.value)`,
+          valFn:    `setChildLoopEntryCond(${si},${ci},'value',Number(this.value))`,
+          teamFn:   `setChildLoopEntryCond(${si},${ci},'team',this.value)`,
+          checkFn:  ''
+        }, false)}
+      </div>
       <div class="loop-exit-block">
         <div class="loop-exit-title">🚪 逃脫條件（選填）</div>
-        <div class="loop-exit-grid">
-          <div class="field-row" style="margin:0">
-            <label class="field-label">條件類型</label>
-            <select class="field-input" onchange="setChildLoopCondProp(${si},${ci},'type',this.value)">${typeOpts}</select>
-          </div>
-          <div class="field-row" style="margin:0">
-            <label class="field-label">運算子</label>
-            <select class="field-input" onchange="setChildLoopCondProp(${si},${ci},'operator',this.value)">${opOpts}</select>
-          </div>
-          <div class="field-row" style="margin:0">
-            <label class="field-label">值</label>
-            <input class="field-input" type="number" min="0" value="${ecVal}"
-                   oninput="setChildLoopCondProp(${si},${ci},'value',Number(this.value))">
-          </div>
-          <div class="field-row" style="margin:0">
-            <label class="field-label">檢查時機</label>
-            <select class="field-input" onchange="setChildLoopCondProp(${si},${ci},'checkAfter',this.value)">
-              <option value="each_stage"     ${ecCheck==='each_stage'?'selected':''}>每子階段後</option>
-              <option value="each_iteration" ${ecCheck==='each_iteration'?'selected':''}>每完整循環後</option>
-            </select>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-          <label class="toggle-switch">
-            <input type="checkbox" ${ec.type?'checked':''}
-                   onchange="toggleChildLoopExitCondition(${si},${ci},this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-          <span style="font-size:.75rem;color:#9988bb;">啟用逃脫條件</span>
-        </div>
+        <div class="help-text" style="margin-bottom:8px">滿足條件時提前結束循環。</div>
+        ${renderLoopCondBlock(ec, hasExit, {
+          toggleFn: `toggleChildLoopExitCondition(${si},${ci},this.checked)`,
+          typeFn:   `setChildLoopCondProp(${si},${ci},'type',this.value)`,
+          opFn:     `setChildLoopCondProp(${si},${ci},'operator',this.value)`,
+          valFn:    `setChildLoopCondProp(${si},${ci},'value',Number(this.value))`,
+          teamFn:   `setChildLoopCondProp(${si},${ci},'team',this.value)`,
+          checkFn:  `setChildLoopCondProp(${si},${ci},'checkAfter',this.value)`
+        }, true)}
       </div>
       <div class="child-stages-wrap" style="margin-top:10px;">
         <div class="child-stages-title">📋 孫子階段</div>
@@ -2354,11 +2397,30 @@
     afterChange(true);
   }
 
+  function setChildLoopEntryCond(si, ci, key, val) {
+    pushHistory();
+    const cs = _childArr(manifest.stages[si])[ci];
+    cs.entryCondition = cs.entryCondition || { type: 'alivePlayers', operator: 'gt', value: 0 };
+    cs.entryCondition[key] = val;
+    if (key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+
+  function toggleChildLoopEntryCondition(si, ci, enabled) {
+    pushHistory();
+    const cs = _childArr(manifest.stages[si])[ci];
+    if (enabled) { cs.entryCondition = { type: 'alivePlayers', operator: 'gt', value: 0 }; }
+    else { delete cs.entryCondition; }
+    renderStagesTab();
+    afterChange(true);
+  }
+
   function setChildLoopCondProp(si, ci, key, val) {
     pushHistory();
     const cs = _childArr(manifest.stages[si])[ci];
     cs.exitCondition = cs.exitCondition || { type: 'alivePlayers', operator: 'lte', value: 1, checkAfter: 'each_iteration' };
     cs.exitCondition[key] = val;
+    if (key === 'type') renderStagesTab();
     renderStagesTab();
     afterChange(true);
   }

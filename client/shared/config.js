@@ -37,6 +37,7 @@ const TRANSLATIONS = {
     'stage.intermission':  '暫停',
     'stage.loop':          '🔁 循環',
     'stage.result':        '結算',
+    'stage.goto':          '🚀 跳轉',
 
     // Advance triggers (short form for dropdowns)
     'trigger.host':           '🎮 Host 手動推進',
@@ -461,6 +462,7 @@ const TRANSLATIONS = {
     'stage.intermission':  'Intermission',
     'stage.loop':          '🔁 Loop',
     'stage.result':        'Result',
+    'stage.goto':          '🚀 Goto',
 
     // Advance triggers
     'trigger.host':           '🎮 Host manual',

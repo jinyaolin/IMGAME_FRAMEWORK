@@ -420,7 +420,7 @@
   let originalServerCode = '';      // original server.js code for dirty check
 
   const HIST_LIMIT = 30;
-  const STAGE_TYPE_VALUES = ['identity_draw','card_play','vote','result','game','intermission','loop'];
+  const STAGE_TYPE_VALUES = ['identity_draw','card_play','vote','result','game','intermission','loop','goto'];
   function getStageTypes() {
     return STAGE_TYPE_VALUES.map(v => ({ value: v, label: (typeof t === 'function' ? t('stage.'+v) : v) }));
   }
@@ -1217,7 +1217,7 @@
               ${getStageTypes().map(st => `<option value="${st.value}" ${s.type===st.value?'selected':''}>${st.label}</option>`).join('')}
             </select>
           </div>
-          ${s.type !== 'loop' ? `
+          ${s.type !== 'loop' && s.type !== 'goto' ? `
           <div class="field-row" style="margin:0">
             <label class="field-label">使用牌組 (deckId)</label>
             <select class="field-input" onchange="setStageProp(${si},'deckId',this.value || undefined)">
@@ -1240,8 +1240,8 @@
           </div>
           ` : ''}
         </div>
-        ${s.type !== 'loop' ? renderAdvanceBlock(si, '階段結束時推進', 'advance', s.advance, '此階段所有事情完成後，如何進入下一個階段') : ''}
-        ${renderParamActionsBlock(si, s)}
+        ${s.type !== 'loop' && s.type !== 'goto' ? renderAdvanceBlock(si, '階段結束時推進', 'advance', s.advance, '此階段所有事情完成後，如何進入下一個階段') : ''}
+        ${s.type !== 'goto' ? renderParamActionsBlock(si, s) : ''}
         ${s.type === 'card_play' ? `
           <div style="margin-top:12px;padding:10px;background:#0d0d1f;border:1px solid #2a2a4a;border-radius:8px;">
             <div style="font-size:.8rem;color:#aaaacc;font-weight:600;margin-bottom:10px;">🎮 回合設定</div>
@@ -1265,6 +1265,7 @@
         ${s.type === 'vote'  ? renderVoteConfigBlock(s, String(si), null) : ''}
         ${s.type === 'game' ? renderGameConfigBlock(si, s) : ''}
         ${s.type === 'loop'  ? renderLoopBlock(si, s) : ''}
+        ${s.type === 'goto'  ? renderGotoBlock(si, s, 'top') : ''}
       </div>`).join('') + `<button class="add-card-btn" onclick="addStage()">+ 新增階段</button>`;
   }
 
@@ -1273,19 +1274,26 @@
   // ═══════════════════════════════════════════════════════════════
   function renderParamActionsBlock(si, stage) {
     const actions = stage.paramActions || [];
+    const hasActions = actions.length > 0;
     const actionsHtml = actions.map((action, ai) => renderParamActionRow(si, action, ai)).join('');
+    const badge = hasActions ? `<span style="background:#5533aa;color:#ddb0ff;border-radius:10px;padding:1px 7px;font-size:.68rem;margin-left:6px;">${actions.length}</span>` : '';
 
     return `
-      <div style="margin-top:12px;padding:12px;background:#0d0d1f;border:1px solid #3a2060; border-radius:8px;">
-        <div style="font-size:.8rem;color:#aaaacc;font-weight:600;margin-bottom:10px;">⚙️ 參數動作 (paramActions)</div>
-        <div class="help-text" style="margin-bottom:10px;">
-          在特定時機執行參數操作，例如：階段開始時設定參數、投票結束時淘汰玩家等。
+      <details style="margin-top:12px;" ${hasActions ? 'open' : ''}>
+        <summary style="cursor:pointer;padding:10px 12px;background:#0d0d1f;border:1px solid #3a2060;border-radius:8px;font-size:.8rem;color:#aaaacc;font-weight:600;list-style:none;display:flex;align-items:center;gap:4px;">
+          ⚙️ 參數動作 (paramActions)${badge}
+          <span style="margin-left:auto;font-size:.65rem;color:#665577;">▼</span>
+        </summary>
+        <div style="padding:12px;background:#0d0d1f;border:1px solid #3a2060;border-top:none;border-radius:0 0 8px 8px;">
+          <div class="help-text" style="margin-bottom:10px;">
+            在特定時機執行參數操作，例如：階段開始時設定參數、投票結束時淘汰玩家等。
+          </div>
+          <div id="paramActions_${si}">
+            ${actionsHtml}
+          </div>
+          <button class="add-card-btn" onclick="addParamAction(${si})">+ 新增動作</button>
         </div>
-        <div id="paramActions_${si}">
-          ${actionsHtml}
-        </div>
-        <button class="add-card-btn" onclick="addParamAction(${si})">+ 新增動作</button>
-      </div>
+      </details>
     `;
   }
 
@@ -1860,8 +1868,101 @@
     </div>`;
   }
 
+  // ── Goto block ────────────────────────────────────────────────
+  // context: 'top' (si), 'child' (si,ci), 'gc' (si, parentCi=ci, gi=extraIdx)
+  function renderGotoBlock(si, stage, context, ci, extraIdx) {
+    const cond = stage.condition || {};
+    const hasCond = !!stage.condition;
+    const condType = cond.type || 'alivePlayers';
+    const condParamId = cond.paramId || '';
+    const condOp = cond.operator || 'lte';
+    const condVal = cond.value ?? 1;
+    const team = cond.team || '';
+
+    let setTargetFn, toggleCondFn, typeHandler, opHandler, valHandler, paramIdHandler, teamHandler;
+    if (context === 'top') {
+      setTargetFn    = `setStageProp(${si},'target',this.value)`;
+      toggleCondFn   = `toggleStageGotoCondition(${si},this.checked)`;
+      typeHandler    = `setStageGotoProp(${si},'type',this.value)`;
+      opHandler      = `setStageGotoProp(${si},'operator',this.value)`;
+      valHandler     = `setStageGotoProp(${si},'value',Number(this.value))`;
+      paramIdHandler = `setStageGotoProp(${si},'paramId',this.value)`;
+      teamHandler    = `setStageGotoProp(${si},'team',this.value)`;
+    } else if (context === 'child') {
+      setTargetFn    = `setChildStageProp(${si},${ci},'target',this.value)`;
+      toggleCondFn   = `toggleChildGotoCondition(${si},${ci},this.checked)`;
+      typeHandler    = `setChildGotoProp(${si},${ci},'type',this.value)`;
+      opHandler      = `setChildGotoProp(${si},${ci},'operator',this.value)`;
+      valHandler     = `setChildGotoProp(${si},${ci},'value',Number(this.value))`;
+      paramIdHandler = `setChildGotoProp(${si},${ci},'paramId',this.value)`;
+      teamHandler    = `setChildGotoProp(${si},${ci},'team',this.value)`;
+    } else { // 'gc': ci=parentChildIdx, extraIdx=grandChildIdx
+      setTargetFn    = `setGrandChildStageProp(${si},${ci},${extraIdx},'target',this.value)`;
+      toggleCondFn   = `toggleGcGotoCondition(${si},${ci},${extraIdx},this.checked)`;
+      typeHandler    = `setGcGotoProp(${si},${ci},${extraIdx},'type',this.value)`;
+      opHandler      = `setGcGotoProp(${si},${ci},${extraIdx},'operator',this.value)`;
+      valHandler     = `setGcGotoProp(${si},${ci},${extraIdx},'value',Number(this.value))`;
+      paramIdHandler = `setGcGotoProp(${si},${ci},${extraIdx},'paramId',this.value)`;
+      teamHandler    = `setGcGotoProp(${si},${ci},${extraIdx},'team',this.value)`;
+    }
+
+    return `<div style="margin-top:10px;background:#090818;border:1px solid #2a4060;border-radius:8px;padding:12px 14px;">
+      <div style="font-size:.78rem;color:#88aaee;font-weight:700;margin-bottom:10px;">🚀 跳轉設定</div>
+      <div class="field-row" style="margin-bottom:10px">
+        <label class="field-label">目標階段 ID（必填）</label>
+        <input class="field-input" style="font-family:monospace" placeholder="輸入要跳轉的 stage id"
+               value="${escapeH(stage.target||'')}" oninput="${setTargetFn}">
+        <div class="help-text" style="margin-top:4px">可跳至同一 loop 的子階段、或外層任何階段</div>
+      </div>
+      <details ${hasCond ? 'open' : ''}>
+        <summary style="cursor:pointer;font-size:.74rem;color:#6688bb;padding:4px 0;list-style:none;display:flex;align-items:center;gap:4px;">
+          🔀 跳轉條件（選填）
+          ${!hasCond ? '<span style="color:#445566;margin-left:4px;">— 不啟用，則無條件跳轉</span>' : ''}
+          <span style="margin-left:auto;">▼</span>
+        </summary>
+        <div style="margin-top:10px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <label class="toggle-switch">
+              <input type="checkbox" ${hasCond?'checked':''} onchange="${toggleCondFn}">
+              <span class="toggle-slider"></span>
+            </label>
+            <span style="font-size:.75rem;color:#9988bb;">啟用條件（不啟用 = 無條件跳轉）</span>
+          </div>
+          ${hasCond ? `
+          <div style="display:grid;grid-template-columns:1fr 1fr 60px;gap:8px;">
+            <div class="field-row" style="margin:0">
+              <label class="field-label">條件類型</label>
+              <select class="field-input" onchange="${typeHandler}">${condTypeOpts}</select>
+            </div>
+            <div class="field-row" style="margin:0">
+              <label class="field-label">運算子</label>
+              <select class="field-input" onchange="${opHandler}">${condOpOpts}</select>
+            </div>
+            <div class="field-row" style="margin:0">
+              <label class="field-label">值</label>
+              <input class="field-input" type="number" value="${condVal}" oninput="${valHandler}">
+            </div>
+          </div>
+          ${condType === 'globalParam' ? `
+          <div class="field-row" style="margin-top:8px;margin-bottom:0">
+            <label class="field-label">參數 ID (paramId)</label>
+            <input class="field-input" style="font-family:monospace" placeholder="globalParam 的 id"
+                   value="${escapeH(condParamId)}" oninput="${paramIdHandler}">
+          </div>` : ''}
+          ${condType === 'teamPlayers' ? `
+          <div class="field-row" style="margin-top:8px;margin-bottom:0">
+            <label class="field-label">陣營名稱</label>
+            <input class="field-input" placeholder="例如：wolf" value="${escapeH(team)}"
+                   oninput="${teamHandler}">
+          </div>` : ''}
+          ` : ''}
+        </div>
+      </details>
+    </div>`;
+  }
+
   function renderChildStages(si, stage) {
-    const children = (stage.stages || []);
+    const children = (stage.children || stage.stages || []);
     const decks = manifest.decks || [];
     const deckOptsFor = (selId) => decks.map(d =>
       `<option value="${escapeH(d.id)}" ${d.id===selId?'selected':''}>${escapeH(d.name)} (${escapeH(d.id)})</option>`
@@ -1887,17 +1988,18 @@
           <div class="field-row" style="margin:0">
             <label class="field-label">階段類型</label>
             <select class="field-input" onchange="setChildStageProp(${si},${ci},'type',this.value)">
-              ${getStageTypes().filter(st => st.value !== 'loop').map(st =>
+              ${getStageTypes().map(st =>
                 `<option value="${st.value}" ${cs.type===st.value?'selected':''}>${st.label}</option>`).join('')}
             </select>
           </div>
+          ${cs.type !== 'loop' && cs.type !== 'goto' ? `
           <div class="field-row" style="margin:0">
             <label class="field-label">使用牌組 (deckId)</label>
             <select class="field-input" onchange="setChildStageProp(${si},${ci},'deckId',this.value||undefined)">
               <option value="" ${!cs.deckId?'selected':''}>— 不使用 —</option>
               ${deckOptsFor(cs.deckId)}
             </select>
-          </div>
+          </div>` : '<div></div>'}
           <div class="field-row" style="margin:0">
             <label class="field-label">子階段 ID</label>
             <input class="field-input" value="${escapeH(cs.id||'')}" style="font-family:monospace;font-size:.78rem"
@@ -1913,7 +2015,9 @@
           ` : ''}
         </div>
         ${cs.type === 'vote' ? renderVoteConfigBlock(cs, `${si},${ci}`, null) : ''}
-        ${renderChildAdvanceBlock(si, ci, cs)}
+        ${cs.type !== 'loop' && cs.type !== 'goto' ? renderChildAdvanceBlock(si, ci, cs) : ''}
+        ${cs.type === 'goto' ? renderGotoBlock(si, cs, 'child', ci) : ''}
+        ${cs.type === 'loop' ? renderChildLoopBlock(si, ci, cs) : ''}
       </div>`).join('');
 
     return `<div class="child-stages-wrap">
@@ -1958,9 +2062,19 @@
     </div>`;
   }
 
+  // Helper: get mutable children array, migrating from legacy 'stages' key if needed.
+  function _childArr(stage) {
+    if (!stage.children && stage.stages) {
+      stage.children = stage.stages;
+      delete stage.stages;
+    }
+    if (!stage.children) stage.children = [];
+    return stage.children;
+  }
+
   function setChildVoteConfigProp(si, ci, key, val) {
     pushHistory();
-    const cs = manifest.stages[si].stages[ci];
+    const cs = _childArr(manifest.stages[si])[ci];
     cs.voteConfig = cs.voteConfig || {};
     cs.voteConfig[key] = val;
     // Re-render to toggle teamName field visibility when optionSource or voterFilter changes
@@ -2000,23 +2114,23 @@
 
   function setChildStageProp(si, ci, key, val) {
     pushHistory();
-    const stage = manifest.stages[si];
-    stage.stages = stage.stages || [];
+    const arr = _childArr(manifest.stages[si]);
     if (key === 'enabled') {
       document.getElementById(`child_row_${si}_${ci}`)?.classList.toggle('disabled', !val);
     }
-    stage.stages[ci][key] = val;
-    // 当子阶段类型改为 vote 时，初始化 voteConfig 和 advance
+    arr[ci][key] = val;
+    // 當子階段類型改為 vote 時，初始化 voteConfig 和 advance
     if (key === 'type' && val === 'vote') {
-      const cs = stage.stages[ci];
+      const cs = arr[ci];
       cs.voteConfig = cs.voteConfig || {
-        countdownSeconds: 30,
-        anonymous: false,
-        allowSelfVote: true,
-        endWhenAllVoted: true
+        countdownSeconds: 30, anonymous: false,
+        allowSelfVote: true, endWhenAllVoted: true
       };
-      // 设置默认推进条件：等待 host 手动推进
       cs.advance = cs.advance || { trigger: 'host' };
+    }
+    // 當子階段類型改為 goto 時，清除 advance
+    if (key === 'type' && val === 'goto') {
+      delete arr[ci].advance;
     }
     if (key === 'type') renderStagesTab();
     afterChange(true);
@@ -2024,7 +2138,7 @@
 
   function setChildAdvKey(si, ci, prop, val) {
     pushHistory();
-    const cs = manifest.stages[si].stages[ci];
+    const cs = _childArr(manifest.stages[si])[ci];
     cs.advance = cs.advance || {};
     if (val === null || val === '') delete cs.advance[prop];
     else                            cs.advance[prop] = val;
@@ -2032,43 +2146,299 @@
     afterChange(true);
   }
 
-  function addChildStage(si) {
+  // ── Goto setters (top-level stage) ───────────────────────────
+  function setStageGotoProp(si, key, val) {
     pushHistory();
     const stage = manifest.stages[si];
-    stage.stages = stage.stages || [];
-    const newChildStage = {
-      id: uid('cs'), name: '新子階段', type: 'card_play',
-      enabled: true, advance: { trigger: 'host' }
-    };
-    // 如果是投票阶段，设置默认配置
-    if (newChildStage.type === 'vote') {
-      newChildStage.voteConfig = {
-        countdownSeconds: 30,
-        anonymous: false,
-        allowSelfVote: true,
-        endWhenAllVoted: true
-      };
-      newChildStage.advance = { trigger: 'host' };
+    stage.condition = stage.condition || { type: 'alivePlayers', operator: 'lte', value: 1 };
+    stage.condition[key] = val;
+    if (key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+
+  function toggleStageGotoCondition(si, enabled) {
+    pushHistory();
+    if (enabled) {
+      manifest.stages[si].condition = { type: 'alivePlayers', operator: 'lte', value: 1 };
+    } else {
+      delete manifest.stages[si].condition;
     }
-    stage.stages.push(newChildStage);
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  // ── Goto setters (child stage) ────────────────────────────────
+  function setChildGotoProp(si, ci, key, val) {
+    pushHistory();
+    const cs = _childArr(manifest.stages[si])[ci];
+    cs.condition = cs.condition || { type: 'alivePlayers', operator: 'lte', value: 1 };
+    cs.condition[key] = val;
+    if (key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+
+  function toggleChildGotoCondition(si, ci, enabled) {
+    pushHistory();
+    const cs = _childArr(manifest.stages[si])[ci];
+    if (enabled) {
+      cs.condition = { type: 'alivePlayers', operator: 'lte', value: 1 };
+    } else {
+      delete cs.condition;
+    }
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function addChildStage(si) {
+    pushHistory();
+    const arr = _childArr(manifest.stages[si]);
+    arr.push({ id: uid('cs'), name: '新子階段', type: 'card_play', enabled: true, advance: { trigger: 'host' } });
     renderStagesTab();
     afterChange(true);
   }
 
   function deleteChildStage(si, ci) {
-    if (!confirm(`刪除子階段「${manifest.stages[si].stages[ci].name}」？`)) return;
+    const arr = _childArr(manifest.stages[si]);
+    if (!confirm(`刪除子階段「${arr[ci].name}」？`)) return;
     pushHistory();
-    manifest.stages[si].stages.splice(ci, 1);
+    arr.splice(ci, 1);
     renderStagesTab();
     afterChange(true);
   }
 
   function moveChildStage(si, ci, dir) {
-    const arr = manifest.stages[si].stages;
+    const arr = _childArr(manifest.stages[si]);
     const ni = ci + dir;
     if (ni < 0 || ni >= arr.length) return;
     pushHistory();
     [arr[ci], arr[ni]] = [arr[ni], arr[ci]];
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  // Render a nested loop block for child stages (simplified — no further nesting UI)
+  function renderChildLoopBlock(si, ci, cs) {
+    const loopType = cs.loopType || 'fixed';
+    const ec = cs.exitCondition || {};
+    const ecType = ec.type || 'alivePlayers';
+    const ecOp   = ec.operator || 'lte';
+    const ecVal  = ec.value ?? 1;
+    const ecCheck = ec.checkAfter || 'each_iteration';
+
+    const typeOpts = LOOP_EXIT_TYPES.map(t =>
+      `<option value="${t.value}" ${ecType===t.value?'selected':''}>${t.label}</option>`).join('');
+    const opOpts = LOOP_OPERATORS.map(o =>
+      `<option value="${o.value}" ${ecOp===o.value?'selected':''}>${o.label}</option>`).join('');
+
+    // Child-level loop setters — operate on manifest.stages[si].children[ci]
+    const setLoopP  = (k, v) => `setChildLoopProp(${si},${ci},'${k}',${typeof v === 'string' ? `this.value` : v})`;
+
+    const grandchildren = (cs.children || cs.stages || []);
+    const gcRows = grandchildren.map((gc, gi) => `
+      <div class="child-stage-row ${gc.enabled?'':'disabled'}" style="margin-left:24px;border-left-color:#4433aa;" id="gc_row_${si}_${ci}_${gi}">
+        <div class="sr-head">
+          <div class="stage-order-btns">
+            <button onclick="moveGrandChildStage(${si},${ci},${gi},-1)" ${gi===0?'disabled':''}>▲</button>
+            <button onclick="moveGrandChildStage(${si},${ci},${gi}, 1)" ${gi===grandchildren.length-1?'disabled':''}>▼</button>
+          </div>
+          <input class="field-input" style="flex:1" placeholder="子子階段名稱"
+                 value="${escapeH(gc.name||'')}" oninput="setGrandChildStageProp(${si},${ci},${gi},'name',this.value)">
+          <label class="toggle-switch">
+            <input type="checkbox" ${gc.enabled?'checked':''}
+                   onchange="setGrandChildStageProp(${si},${ci},${gi},'enabled',this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <button class="ci-del" onclick="deleteGrandChildStage(${si},${ci},${gi})">✕</button>
+        </div>
+        <div class="child-stage-grid">
+          <div class="field-row" style="margin:0">
+            <label class="field-label">類型</label>
+            <select class="field-input" onchange="setGrandChildStageProp(${si},${ci},${gi},'type',this.value)">
+              ${getStageTypes().filter(st=>st.value!=='loop').map(st=>
+                `<option value="${st.value}" ${gc.type===st.value?'selected':''}>${st.label}</option>`).join('')}
+            </select>
+          </div>
+          <div></div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">ID</label>
+            <input class="field-input" value="${escapeH(gc.id||'')}" style="font-family:monospace;font-size:.78rem"
+                   oninput="setGrandChildStageProp(${si},${ci},${gi},'id',this.value)">
+          </div>
+        </div>
+        ${gc.type !== 'goto' ? renderGcAdvanceBlock(si, ci, gi, gc) : ''}
+        ${gc.type === 'goto' ? renderGotoBlock(si, gc, 'gc', ci, gi) : ''}
+      </div>`).join('');
+
+    return `<div class="loop-block">
+      <div class="loop-block-title">🔁 嵌套循環設定</div>
+      <div class="loop-cfg-grid">
+        <div class="field-row" style="margin:0">
+          <label class="field-label">循環模式</label>
+          <select class="field-input" onchange="setChildLoopProp(${si},${ci},'loopType',this.value)">
+            <option value="fixed"    ${loopType==='fixed'?'selected':''}>固定次數</option>
+            <option value="infinite" ${loopType==='infinite'?'selected':''}>無限循環</option>
+          </select>
+        </div>
+        ${loopType === 'fixed' ? `
+        <div class="field-row" style="margin:0">
+          <label class="field-label">最大循環次數</label>
+          <input class="field-input" type="number" min="1" max="99"
+                 value="${cs.maxIterations ?? 3}"
+                 oninput="setChildLoopProp(${si},${ci},'maxIterations',Number(this.value))">
+        </div>` : '<div></div>'}
+      </div>
+      <div class="loop-exit-block">
+        <div class="loop-exit-title">🚪 逃脫條件（選填）</div>
+        <div class="loop-exit-grid">
+          <div class="field-row" style="margin:0">
+            <label class="field-label">條件類型</label>
+            <select class="field-input" onchange="setChildLoopCondProp(${si},${ci},'type',this.value)">${typeOpts}</select>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">運算子</label>
+            <select class="field-input" onchange="setChildLoopCondProp(${si},${ci},'operator',this.value)">${opOpts}</select>
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">值</label>
+            <input class="field-input" type="number" min="0" value="${ecVal}"
+                   oninput="setChildLoopCondProp(${si},${ci},'value',Number(this.value))">
+          </div>
+          <div class="field-row" style="margin:0">
+            <label class="field-label">檢查時機</label>
+            <select class="field-input" onchange="setChildLoopCondProp(${si},${ci},'checkAfter',this.value)">
+              <option value="each_stage"     ${ecCheck==='each_stage'?'selected':''}>每子階段後</option>
+              <option value="each_iteration" ${ecCheck==='each_iteration'?'selected':''}>每完整循環後</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+          <label class="toggle-switch">
+            <input type="checkbox" ${ec.type?'checked':''}
+                   onchange="toggleChildLoopExitCondition(${si},${ci},this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:.75rem;color:#9988bb;">啟用逃脫條件</span>
+        </div>
+      </div>
+      <div class="child-stages-wrap" style="margin-top:10px;">
+        <div class="child-stages-title">📋 孫子階段</div>
+        ${gcRows || '<div style="color:#665577;font-size:.78rem;margin-bottom:6px;">尚無孫子階段</div>'}
+        <button class="add-card-btn" style="margin-left:24px" onclick="addGrandChildStage(${si},${ci})">+ 新增孫子階段</button>
+      </div>
+    </div>`;
+  }
+
+  // Grandchild advance block (simplified)
+  function renderGcAdvanceBlock(si, ci, gi, gc) {
+    const adv = gc.advance || {};
+    const stageType = gc.type || 'card_play';
+    let triggers = ADVANCE_TRIGGERS.filter(t => {
+      const typeMatch = t.types.includes('all') || t.types.includes(stageType);
+      return typeMatch && t.category === 'stage_advance';
+    });
+    const seen = new Set();
+    triggers = triggers.filter(t => { if(seen.has(t.value)) return false; seen.add(t.value); return true; });
+    const triggerOpts = triggers.map(t =>
+      `<option value="${t.value}" ${adv.trigger===t.value?'selected':''}>${getTriggerLabel(t.value)}</option>`).join('');
+    return `<div style="background:#0a0a18;border:1px solid #1a1a3a;border-radius:6px;padding:8px 10px;margin-top:8px;">
+      <div style="font-size:.72rem;color:#8888bb;margin-bottom:6px;">推進條件</div>
+      <select class="field-input" onchange="setGcAdvKey(${si},${ci},${gi},'trigger',this.value)">${triggerOpts}</select>
+    </div>`;
+  }
+
+  // Grandchild setters
+  function setChildLoopProp(si, ci, key, val) {
+    pushHistory();
+    _childArr(manifest.stages[si])[ci][key] = val;
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function setChildLoopCondProp(si, ci, key, val) {
+    pushHistory();
+    const cs = _childArr(manifest.stages[si])[ci];
+    cs.exitCondition = cs.exitCondition || { type: 'alivePlayers', operator: 'lte', value: 1, checkAfter: 'each_iteration' };
+    cs.exitCondition[key] = val;
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function toggleChildLoopExitCondition(si, ci, enabled) {
+    pushHistory();
+    const cs = _childArr(manifest.stages[si])[ci];
+    if (enabled) {
+      cs.exitCondition = { type: 'alivePlayers', operator: 'lte', value: 1, checkAfter: 'each_iteration' };
+    } else {
+      delete cs.exitCondition;
+    }
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function _gcArr(si, ci) {
+    const cs = _childArr(manifest.stages[si])[ci];
+    if (!cs.children && cs.stages) { cs.children = cs.stages; delete cs.stages; }
+    if (!cs.children) cs.children = [];
+    return cs.children;
+  }
+
+  function setGrandChildStageProp(si, ci, gi, key, val) {
+    pushHistory();
+    _gcArr(si, ci)[gi][key] = val;
+    if (key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+
+  function setGcAdvKey(si, ci, gi, prop, val) {
+    pushHistory();
+    const gc = _gcArr(si, ci)[gi];
+    gc.advance = gc.advance || {};
+    if (val === null || val === '') delete gc.advance[prop];
+    else gc.advance[prop] = val;
+    afterChange(true);
+  }
+
+  function addGrandChildStage(si, ci) {
+    pushHistory();
+    _gcArr(si, ci).push({ id: uid('gc'), name: '新孫子階段', type: 'card_play', enabled: true, advance: { trigger: 'host' } });
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function deleteGrandChildStage(si, ci, gi) {
+    const arr = _gcArr(si, ci);
+    if (!confirm(`刪除「${arr[gi].name}」？`)) return;
+    pushHistory();
+    arr.splice(gi, 1);
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  function moveGrandChildStage(si, ci, gi, dir) {
+    const arr = _gcArr(si, ci);
+    const ni = gi + dir;
+    if (ni < 0 || ni >= arr.length) return;
+    pushHistory();
+    [arr[gi], arr[ni]] = [arr[ni], arr[gi]];
+    renderStagesTab();
+    afterChange(true);
+  }
+
+  // ── Gc goto setters ───────────────────────────────────────────
+  function setGcGotoProp(si, ci, gi, key, val) {
+    pushHistory();
+    const gc = _gcArr(si, ci)[gi];
+    gc.condition = gc.condition || { type: 'alivePlayers', operator: 'lte', value: 1 };
+    gc.condition[key] = val;
+    if (key === 'type') renderStagesTab();
+    afterChange(true);
+  }
+
+  function toggleGcGotoCondition(si, ci, gi, enabled) {
+    pushHistory();
+    const gc = _gcArr(si, ci)[gi];
+    if (enabled) { gc.condition = { type: 'alivePlayers', operator: 'lte', value: 1 }; }
+    else { delete gc.condition; }
     renderStagesTab();
     afterChange(true);
   }
@@ -2492,9 +2862,15 @@ module.exports = MyModule;">${escapeH(serverCode)}</textarea>
       if (s.type === 'loop') {
         if (s.loopType === 'fixed' && (!s.maxIterations || s.maxIterations < 1))
           push(`${pathPrefix}[${si}]`, '固定次數循環需要 maxIterations ≥ 1');
-        if (!s.stages || s.stages.length === 0)
+        const loopChildren = s.children || s.stages || [];
+        if (loopChildren.length === 0)
           push(`${pathPrefix}[${si}]`, `循環「${s.name}」至少需有一個子階段`);
-        (s.stages || []).forEach((cs, ci) => validateStage(cs, ci, `${pathPrefix}[${si}].stages`));
+        loopChildren.forEach((cs, ci) => validateStage(cs, ci, `${pathPrefix}[${si}].children`));
+        return;
+      }
+
+      if (s.type === 'goto') {
+        if (!s.target) push(`${pathPrefix}[${si}]`, `跳轉階段「${s.name}」需要 target id`);
         return;
       }
 

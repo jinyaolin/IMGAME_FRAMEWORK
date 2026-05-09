@@ -86,6 +86,12 @@ class BaseModule {
     return frame.stages[frame.index] || null;
   }
 
+  // Returns the enabled children of a loop/container stage.
+  // Supports both 'children' (new) and 'stages' (legacy) keys.
+  _getChildren(stage) {
+    return (stage.children || stage.stages || []).filter(s => s.enabled);
+  }
+
   getCurrentStageInfo() {
     const stage = this._currentStage();
     if (!stage) return null;
@@ -111,7 +117,7 @@ class BaseModule {
     }
 
     if (stage.type === 'loop') {
-      const enabledChildren = (stage.stages || []).filter(s => s.enabled);
+      const enabledChildren = this._getChildren(stage);
 
       if (enabledChildren.length === 0) {
         // Empty loop — skip it
@@ -135,6 +141,8 @@ class BaseModule {
 
       // Enter first child of the loop
       await this._enterStageOrLoop(session);
+    } else if (stage.type === 'goto') {
+      await this._handleGoto(stage, session);
     } else {
       await this._startCurrentStage(session);
     }
@@ -310,6 +318,90 @@ class BaseModule {
       case 'eq':  return actualValue === value;
       case 'neq': return actualValue !== value;
       default:    return false;
+    }
+  }
+
+  // ── Goto / Jump ──────────────────────────────────────────────────────────
+
+  // Handle a 'goto' stage: evaluate optional condition, then jump to target.
+  async _handleGoto(stage, session) {
+    if (stage.condition) {
+      const condResult = this._evalGotoCondition(stage.condition, session);
+      if (!condResult) {
+        console.log(`[BaseModule] goto "${stage.id}" condition false — skipping`);
+        await this._advanceStage(session);
+        return;
+      }
+    }
+    if (!stage.target) {
+      console.warn(`[BaseModule] goto "${stage.id}" has no target — advancing`);
+      await this._advanceStage(session);
+      return;
+    }
+    console.log(`[BaseModule] goto "${stage.id}" → jumping to "${stage.target}"`);
+    await this._jumpToStage(stage.target, session);
+  }
+
+  // Jump to the stage with the given id, searching from innermost frame outward.
+  // Does NOT search into sibling containers — only the current stack path.
+  async _jumpToStage(targetId, session) {
+    // 1. Check current frame first (intra-container jump, cheapest)
+    const currentFrame = this._currentFrame();
+    if (currentFrame) {
+      const idx = currentFrame.stages.findIndex(s => s.id === targetId);
+      if (idx !== -1) {
+        currentFrame.index = idx;
+        await this._enterStageOrLoop(session);
+        return;
+      }
+    }
+
+    // 2. Walk up ancestor frames (cross-depth jump within current stack path)
+    for (let i = this._stageStack.length - 2; i >= 0; i--) {
+      const frame = this._stageStack[i];
+      const idx = frame.stages.findIndex(s => s.id === targetId);
+      if (idx !== -1) {
+        // Pop frames back to this ancestor level
+        this._stageStack = this._stageStack.slice(0, i + 1);
+        frame.index = idx;
+        await this._enterStageOrLoop(session);
+        return;
+      }
+    }
+
+    console.warn(`[BaseModule] _jumpToStage: target "${targetId}" not found in stack — advancing`);
+    await this._advanceStage(session);
+  }
+
+  // Evaluate a goto condition object against the current game state.
+  // condition: { type, paramId?, operator, value }
+  _evalGotoCondition(condition, session) {
+    const { type, paramId, operator, value } = condition;
+    let actualValue;
+
+    if (type === 'globalParam' && paramId) {
+      actualValue = session.getGlobalParam(paramId);
+    } else if (type === 'alivePlayers') {
+      actualValue = (this.players || []).filter(p => p.isAlive !== false).length;
+    } else if (type === 'teamPlayers') {
+      const team = condition.team;
+      actualValue = (this.players || []).filter(p => p.isAlive !== false && p.team === team).length;
+    } else if (type === 'iterations') {
+      // Find the innermost loop frame
+      const loopFrame = [...this._stageStack].reverse().find(f => f.loopStage);
+      actualValue = loopFrame ? (this._loopIterations.get(loopFrame.loopStage.id) || 0) : 0;
+    } else {
+      return true; // unknown type → always jump
+    }
+
+    switch (operator) {
+      case 'lt':  return actualValue < value;
+      case 'lte': return actualValue <= value;
+      case 'gt':  return actualValue > value;
+      case 'gte': return actualValue >= value;
+      case 'eq':  return actualValue === value;
+      case 'neq': return actualValue !== value;
+      default:    return true;
     }
   }
 

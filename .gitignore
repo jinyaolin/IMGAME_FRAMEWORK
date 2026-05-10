@@ -13,3 +13,4 @@ public/uploads/
 *.swp
 .vscode/
 .idea/
+*.bak

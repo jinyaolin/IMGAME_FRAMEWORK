@@ -120,17 +120,20 @@ class BaseModule {
       const enabledChildren = this._getChildren(stage);
 
       if (enabledChildren.length === 0) {
-        // Empty loop — skip it
-        await this._advanceStage(session);
+        // Empty loop — skip without triggering any paramActions
+        await this._skipCurrentStage(session);
         return;
       }
 
-      // Check entryCondition — if false, skip the entire loop
+      // Check entryCondition — if false, skip the entire loop without triggering paramActions
       if (stage.entryCondition && !this._evalGotoCondition(stage.entryCondition, session)) {
         console.log(`[BaseModule] Loop "${stage.id}" entryCondition false — skipping`);
-        await this._advanceStage(session);
+        await this._skipCurrentStage(session);
         return;
       }
+
+      // Fire onStageStart for the loop container itself
+      await this._executeParamActions(stage, 'onStageStart', session);
 
       this._stageStack.push({ stages: enabledChildren, index: 0, loopStage: stage });
 
@@ -275,6 +278,11 @@ class BaseModule {
     const exitedFrame = this._stageStack.pop();
     console.log(`[BaseModule] Exiting loop: ${exitedFrame.loopStage?.id}`);
 
+    // Fire onStageEnd for the loop container that just finished all its iterations
+    if (exitedFrame.loopStage) {
+      await this._executeParamActions(exitedFrame.loopStage, 'onStageEnd', session, {});
+    }
+
     const frame = this._currentFrame();
     if (!frame) {
       session.resetToLobby();
@@ -330,19 +338,36 @@ class BaseModule {
 
   // ── Goto / Jump ──────────────────────────────────────────────────────────
 
+  // Advance past the current stage without triggering any paramActions or timers.
+  // Used when a stage is skipped (empty loop, entryCondition false, etc.)
+  async _skipCurrentStage(session) {
+    const frame = this._currentFrame();
+    if (!frame) { session.resetToLobby(); return; }
+
+    frame.index++;
+
+    if (frame.index < frame.stages.length) {
+      await this._enterStageOrLoop(session);
+    } else if (frame.loopStage) {
+      await this._handleIterationEnd(session);
+    } else {
+      session.resetToLobby();
+    }
+  }
+
   // Handle a 'goto' stage: evaluate optional condition, then jump to target.
   async _handleGoto(stage, session) {
     if (stage.condition) {
       const condResult = this._evalGotoCondition(stage.condition, session);
       if (!condResult) {
         console.log(`[BaseModule] goto "${stage.id}" condition false — skipping`);
-        await this._advanceStage(session);
+        await this._skipCurrentStage(session); // goto has no paramActions, skip cleanly
         return;
       }
     }
     if (!stage.target) {
       console.warn(`[BaseModule] goto "${stage.id}" has no target — advancing`);
-      await this._advanceStage(session);
+      await this._skipCurrentStage(session);
       return;
     }
     console.log(`[BaseModule] goto "${stage.id}" → jumping to "${stage.target}"`);

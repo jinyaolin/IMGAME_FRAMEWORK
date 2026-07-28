@@ -19,7 +19,14 @@
          │ ACTION (60px fixed) │  play button (always visible, even when disabled)
          └─────────────────────┘
        ═══════════════════════════════════════════════ */
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * {
+      box-sizing: border-box; margin: 0; padding: 0;
+      -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; /* 鎖死選取：遊戲中誤觸不會把畫面/文字選起來 */
+      -webkit-touch-callout: none;               /* 關掉 iOS 長按的選字/存圖選單 */
+      -webkit-tap-highlight-color: transparent;  /* 點擊不閃灰底 */
+    }
+    /* 例外：若日後加入文字輸入框，仍要能在其中選字/輸入 */
+    input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
     :root {
       --bg:        #0a0a1a;
       --surface:   #14142a;
@@ -489,7 +496,6 @@
       align-items: center; justify-content: center;
       text-align: center; padding: 32px;
     }
-    #intermissionScreen .intermission-icon { font-size: 4rem; margin-bottom: 16px; }
     #intermissionScreen .intermission-title {
       font-size: 1.6rem; font-weight: 800; color: #ffaa44;
       margin-bottom: 8px; letter-spacing: .04em;
@@ -775,7 +781,6 @@
 
   <!-- ════════ INTERMISSION SCREEN ════════ -->
   <div id="intermissionScreen">
-    <div class="intermission-icon">⏸️</div>
     <div class="intermission-title">遊戲暫停中</div>
     <div class="intermission-sub" id="intermissionSubText">請稍候，遊戲即將繼續...</div>
     <div class="intermission-info">
@@ -786,6 +791,19 @@
         請耐心等待
       </div>
     </div>
+  </div>
+
+  <!-- ════════ CHARACTER SELECT ════════ -->
+  <div id="selectOverlay" style="display:none;position:fixed;inset:0;z-index:160;background:linear-gradient(180deg,#1a1030,#0d0820);flex-direction:column;align-items:center;">
+    <div id="selRoleName" style="margin-top:5vh;font-size:6vw;font-weight:800;color:#fff;">—</div>
+    <div id="selHint" style="font-size:3.4vw;color:#b6a6e0;margin-top:4px;">左右換角色 · 🎲 換造型</div>
+    <canvas id="selCanvas" style="flex:1;width:100%;touch-action:none;display:block;"></canvas>
+    <div style="display:flex;gap:6vw;align-items:center;justify-content:center;margin:2vh 0;">
+      <button id="selPrev" style="width:16vw;height:16vw;border-radius:50%;border:none;font-size:8vw;background:rgba(255,255,255,.12);color:#fff;">‹</button>
+      <button id="selDice" style="width:15vw;height:15vw;border-radius:50%;border:none;font-size:7vw;background:rgba(90,60,150,.9);color:#fff;">🎲</button>
+      <button id="selNext" style="width:16vw;height:16vw;border-radius:50%;border:none;font-size:8vw;background:rgba(255,255,255,.12);color:#fff;">›</button>
+    </div>
+    <button id="selConfirm" style="width:70%;padding:3.5vw;margin-bottom:4vh;border:none;border-radius:12px;font-size:5vw;font-weight:800;background:#52c76a;color:#fff;">確定</button>
   </div>
 
   <!-- ════════ VOTE OVERLAY ════════ -->
@@ -819,9 +837,16 @@
     <button class="leave-btn" onclick="leaveRoom()">離開房間</button>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/shared/socket.js"></script>
-  <script src="/shared/config.js"></script>
+  <script>
+    window.IMGAME_BASE = location.pathname.indexOf('/labs/game') === 0 ? '/labs/game' : '';
+    document.write('<script src="' + IMGAME_BASE + '/socket.io/socket.io.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/socket.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/config.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/netcore.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/netclient.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/p2p.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/vendor/NoSleep.min.js"><\/script>');
+  </script>
   <script>
     // ════════════════════════════════════════════════════════════════
     //   STATE
@@ -976,8 +1001,18 @@
     //   CONNECT
     // ════════════════════════════════════════════════════════════════
     const client = new GameClient();
-    client.connect();
+    try { window.__mgClient = client; } catch (e) {}   // 測試掛鉤(選角 e2e 用)
+    let myAttrs = {};   // 自己的 playerAttributes(選角記住上次選擇用),由 game_started + player_param_updated 維護
+    client.on('player_param_updated', (d) => { if (d && d.playerId === playerId) myAttrs = d.attributes || myAttrs; });
+    // P2P 模式(?p2p=1):直連 host 瀏覽器(GameSession 跑在那,Node 只做信令)→ 區網零跨網延遲。
+    // 一般模式:socket.io 連 Node。兩者之後所有 semantic 呼叫(joinRoom/playerAction/on)完全相同。
+    const useP2P = params.get('p2p') === '1';
     client.on('connect', () => client.joinRoom(roomId, playerId, playerName));
+    if (useP2P) {
+      client.connectP2P(roomId).catch(e => { console.error('[Mobile] P2P 連線失敗', e); setStatus('P2P 連線失敗:' + (e && e.message)); });
+    } else {
+      client.connect();
+    }
 
     client.on('room_joined', (data) => {
       phase = data.phase;
@@ -1000,7 +1035,7 @@
     client.on('player_left', d => {
       if (d.playerId === playerId) {
         alert('你已被移出房間');
-        window.location.href = '/mobile';
+        window.location.href = './';
       } else {
         renderPlayers((d.players || []).filter(p => p.id !== d.playerId));
       }
@@ -1030,6 +1065,7 @@
         const myPlayerData = data.players.find(p => p.id === playerId);
         console.log('[Mobile] My player data:', myPlayerData);
         if (myPlayerData) {
+          myAttrs = myPlayerData.attributes || {};   // 記住上次選的角色/外觀
           const numberEl = document.getElementById('playerNumber');
           console.log('[Mobile] numberEl element:', numberEl);
           console.log('[Mobile] numberEl before textContent:', numberEl.textContent);
@@ -1098,8 +1134,16 @@
         </div>`;
     });
 
-    client.on('game_ended',    (data) => { phase = 'result'; showResultScreen(data); });
+    client.on('game_ended',    (data) => { phase = 'result'; stopCustomGame(); showResultScreen(data); });
+    client.on('game_broadcast', (d) => {   // 自訂互動遊戲：display → 手機
+      if (mg) mg.msgHandlers.forEach(fn => { try { fn(d.data); } catch (e) {} });
+    });
+    client.on('net_snapshot', (d) => { if (mg && mg.net) { try { mg.net.pushSnapshot(d); } catch (e) {} } });   // NetKit 權威快照
+    client.on('game_states', (d) => {      // 自訂互動遊戲：全體玩家狀態快照（server 10Hz 聚合）
+      if (mg) mg.playersHandlers.forEach(fn => { try { fn(d.states || {}); } catch (e) {} });
+    });
     client.on('back_to_lobby', () => {
+      stopCustomGame();
       phase = 'lobby';
       myIsAlive = true;
       hideEliminatedScreen();
@@ -1356,9 +1400,13 @@
 
       // Hide intermission screen when entering any new stage
       hideIntermissionScreen();
+      if (data.stageType !== 'select') closeSelectOverlay();
 
       // Handle different stage types
-      if (data.stageType === 'intermission') {
+      if (data.stageType === 'select') {
+        hideIdentityOverlay(); hideControllerZone(); stopCustomGame();
+        openSelectOverlay();
+      } else if (data.stageType === 'intermission') {
         // Show intermission overlay screen to prevent any player actions
         showIntermissionScreen(data.stageDescription || '請稍候，遊戲即將繼續...');
         hideIdentityOverlay();
@@ -1381,7 +1429,13 @@
         console.log('[Mobile] Entering input/controller stage');
         setStatus(`🎮 ${data.stageName}`);
         hideIdentityOverlay();
-        showControllerZone(data.gameConfig || {});
+        if ((data.gameConfig || {}).layout === 'custom') {
+          hideControllerZone();
+          startCustomGame(data.gameConfig || {});
+        } else {
+          stopCustomGame();
+          showControllerZone(data.gameConfig || {});
+        }
       } else {
         setStatus(`階段：${data.stageName}`);
         hideIdentityOverlay();
@@ -1719,7 +1773,7 @@
     function leaveRoom() {
       client.socket.disconnect();
       const qs = new URLSearchParams({ room: roomId, name: playerName }).toString();
-      window.location.href = `/mobile?${qs}`;
+      window.location.href = `./?${qs}`;
     }
 
     // ── VOTE SYSTEM ───────────────────────────────────────────────
@@ -1895,6 +1949,236 @@
       pressedKeys.forEach(key => sendControllerInput(key, 'up'));
       pressedKeys.clear();
       document.getElementById('controllerLayout').innerHTML = '';
+      stopCustomGame();
+    }
+
+    // ── 自訂互動遊戲（gameConfig.layout === 'custom'）──────────────
+    // 手機本身變成遊戲畫面：跑 mobileCode，固定直式座標 720×1280（letterbox）
+    // 手機 → display：GameAPI.sendState（20Hz 節流）；display → 手機：game_broadcast → onMessage
+    const MG_LIB_URLS = { three: Config.url('/shared/vendor/three.min.js'), babylon: Config.url('/shared/vendor/babylon.js'), p5: Config.url('/shared/vendor/p5.min.js') };
+    const MG_PALETTE = ['#ff6644','#44aaff','#44ff88','#ffdd44','#ff44aa','#88aaff','#ffaa44','#44ffdd'];  // 與 display 同步
+    const mgLoadedLibs = {};
+
+    // 遊戲 log 回報（GameAPI.log + 自動錯誤 → server，給 AI debug）
+    let mgLogBuf = [], mgLogTimer = null;
+    function mgPushLog(level, msg) {
+      if (mgLogBuf.length >= 60) return;
+      mgLogBuf.push({ ts: Date.now(), src: 'mobile:' + playerName, level, msg: String(msg).slice(0, 500) });
+      if (!mgLogTimer) mgLogTimer = setTimeout(mgFlushLogs, 2000);
+    }
+    function mgFlushLogs() {
+      mgLogTimer = null;
+      if (!mgLogBuf.length) return;
+      client.socket.emit('game_log', { roomId, entries: mgLogBuf.splice(0) });
+    }
+    const mgFmtErr = (e) => e.message + (e.stack ? ' @' + (e.stack.split('\n')[1] || '').trim().slice(0, 120) : '');
+    let mg = null;   // { overlay, box, canvas, ctx, raf, updateFn, cleanups, msgHandlers, pendingState, flushTimer, resizeFn, errored }
+
+    function mgLoadScript(url, key) {
+      if (mgLoadedLibs[key]) return Promise.resolve();
+      return new Promise(resolve => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = () => { mgLoadedLibs[key] = true; resolve(); };
+        s.onerror = () => { console.error('[Mobile] script load failed:', url); resolve(); };
+        document.head.appendChild(s);
+      });
+    }
+    function mgLoadLib(lib) {
+      if (!lib || lib === 'none' || !MG_LIB_URLS[lib]) return Promise.resolve();
+      return mgLoadScript(MG_LIB_URLS[lib], lib).then(() =>
+        // three 一律附掛 LowPoly（角色）+ FX（特效）+ LowWorld（場景/物件生成庫）
+        lib === 'three'
+          ? mgLoadScript(Config.url('/shared/vendor/lowpoly.js'), '_lowpoly')
+              .then(() => mgLoadScript(Config.url('/shared/vendor/fx.js'), '_fx'))
+              .then(() => mgLoadScript(Config.url('/shared/vendor/lowworld.js'), '_lowworld'))
+          : null);
+    }
+
+    // ════════ 選角介面(select stage):LowPoly 預覽 + 換角色 + 骰造型 + 確定 → 寫 playerAttribute ════════
+    let sel = null;
+    function openSelectOverlay() {
+      document.getElementById('selectOverlay').style.display = 'flex';
+      hideControllerZone();
+      // 每次進選角重置確定按鈕/提示(重開一輪時 ready 已清,按鈕不能還停在「已確定」)
+      const cb = document.getElementById('selConfirm'); cb.textContent = '確定'; cb.style.background = '#52c76a';
+      document.getElementById('selHint').textContent = '左右換角色 · 🎲 換造型';
+      if (sel) { sel.confirmed = false; return; }
+      sel = { roleIdx: 0, seed: 1, confirmed: false, faceY: 0 };
+      mgLoadLib('three').then(() => {
+        if (!sel) return;
+        const THREE = window.THREE, cv = document.getElementById('selCanvas');
+        sel.renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+        sel.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        sel.scene = new THREE.Scene();
+        sel.cam = new THREE.PerspectiveCamera(42, 1, 0.1, 100); sel.cam.position.set(0, 1.5, 5.2);
+        if (LowPoly.addLights) LowPoly.addLights(sel.scene);
+        else { sel.scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2)); const d = new THREE.DirectionalLight(0xffffff, .7); d.position.set(3, 6, 4); sel.scene.add(d); }
+        sel.roles = LowPoly.roles;
+        // 記住上次選的角色/外觀:初始化到之前的 role/seed(若有)
+        if (myAttrs.role) { const i = sel.roles.indexOf(myAttrs.role); if (i >= 0) sel.roleIdx = i; }
+        if (myAttrs.seed) sel.seed = myAttrs.seed | 0 || 1;
+        sel.build = function () {
+          if (sel.charRoot) sel.scene.remove(sel.charRoot);
+          const role = sel.roles[sel.roleIdx];
+          const ac = LowPoly.animatedCharacter({ role, seed: sel.seed });
+          sel.charRoot = ac.root; sel.animator = ac.animator; sel.scene.add(ac.root);
+          document.getElementById('selRoleName').textContent = (LowPoly.ROLES[role] && LowPoly.ROLES[role].name) || role;
+          client.playerAction('set_player_attr', { attrId: 'role', value: role });
+          client.playerAction('set_player_attr', { attrId: 'seed', value: sel.seed });
+        };
+        let last = performance.now();
+        sel.loop = function (now) {
+          if (!sel || !sel.renderer) return;
+          const dt = Math.min(.05, (now - last) / 1000); last = now;
+          if (sel.charRoot) sel.charRoot.rotation.y = sel.faceY;
+          if (sel.animator) sel.animator.update(dt);
+          const w = cv.clientWidth || 300, h = cv.clientHeight || 300;
+          sel.renderer.setSize(w, h, false); sel.cam.aspect = w / h; sel.cam.updateProjectionMatrix();
+          sel.renderer.render(sel.scene, sel.cam); sel.raf = requestAnimationFrame(sel.loop);
+        };
+        sel.build(); sel.raf = requestAnimationFrame(sel.loop);
+      });
+    }
+    function closeSelectOverlay() {
+      document.getElementById('selectOverlay').style.display = 'none';
+      if (sel) { if (sel.raf) cancelAnimationFrame(sel.raf); if (sel.renderer) { try { sel.renderer.dispose(); } catch (e) {} } sel = null; }
+    }
+    (function wireSelect() {
+      const chg = d => { if (!sel || !sel.build || sel.confirmed) return; sel.roleIdx = (sel.roleIdx + d + sel.roles.length) % sel.roles.length; sel.seed = 1; sel.build(); };
+      document.getElementById('selPrev').onclick = () => chg(-1);
+      document.getElementById('selNext').onclick = () => chg(1);
+      document.getElementById('selDice').onclick = () => { if (!sel || !sel.build || sel.confirmed) return; sel.seed = (Math.random() * 1e9 | 0) || 1; sel.build(); };
+      document.getElementById('selConfirm').onclick = () => {
+        if (!sel || sel.confirmed) return; sel.confirmed = true;
+        client.playerAction('set_player_attr', { attrId: 'ready', value: true });
+        const b = document.getElementById('selConfirm'); b.textContent = '已確定 ✓ 等待其他玩家'; b.style.background = '#777';
+        document.getElementById('selHint').textContent = '已鎖定,等待主持人開始';
+      };
+      const cv = document.getElementById('selCanvas'); let drag = false, lx = 0;
+      cv.addEventListener('pointerdown', e => { drag = true; lx = e.clientX; });
+      addEventListener('pointerup', () => { drag = false; });
+      addEventListener('pointermove', e => { if (drag && sel) { sel.faceY += (e.clientX - lx) * 0.01; lx = e.clientX; } });
+    })();
+
+    function startCustomGame(cfg) {
+      stopCustomGame();
+      document.getElementById('cardZone').style.display = 'none';
+      document.getElementById('actionbar').style.display = 'none';
+
+      const W = 720, H = 1280;
+      const overlay = document.createElement('div');
+      overlay.id = 'customGameOverlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:150;background:#000;display:flex;align-items:center;justify-content:center;';
+      document.body.appendChild(overlay);
+      const box = document.createElement('div');
+      box.style.cssText = 'position:relative;overflow:hidden;background:#000010;';
+      overlay.appendChild(box);
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;';
+      box.appendChild(canvas);
+      // 讓 p5 等函式庫自建的 canvas 也自動縮放
+      const styleEl = document.createElement('style');
+      styleEl.textContent = '#customGameOverlay canvas{position:absolute;inset:0;width:100% !important;height:100% !important;display:block;touch-action:none;}';
+      overlay.appendChild(styleEl);
+
+      const fit = () => {
+        const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+        box.style.width  = Math.floor(W * s) + 'px';
+        box.style.height = Math.floor(H * s) + 'px';
+      };
+      fit();
+      window.addEventListener('resize', fit);
+
+      mg = { overlay, box, canvas, ctx: null, raf: null, updateFn: null, cleanups: [], msgHandlers: [],
+             playersHandlers: [], pendingState: null, flushTimer: null, resizeFn: fit, errored: false };
+
+      // NetKit(host-authoritative):有 target:'sim' 檔 → 手機只跑 render + 送 input,權威在伺服器。
+      const isNK = Array.isArray(cfg.files) && cfg.files.some(f => f && f.target === 'sim');
+      const mobileCode = isNK ? composeGameCode(cfg, 'render') : composeGameCode(cfg, 'mobile');
+      const lib = (cfg.library && mobileCode) ? cfg.library : 'none';
+      if (lib === 'none') {
+        mg.ctx = canvas.getContext('2d');
+        mg.ctx.fillStyle = '#000010';
+        mg.ctx.fillRect(0, 0, W, H);
+      }
+
+      if (isNK && window.NetClientKit) {
+        // 客戶端預測:在本地建同一份 sim 推進「自己」→ 輸入零延遲(收 snapshot 後 replay 對帳)
+        let localSim = null;
+        try {
+          const simCode = composeGameCode(cfg, 'sim');
+          if (simCode) { const S = {}; (new Function('Sim', simCode))(S); if (typeof S.step === 'function') { S.emit = function () {}; localSim = S; } }
+        } catch (e) { console.warn('[Mobile] predict sim build failed:', e && e.message); }
+        const useRP = params.get('rp') === '1';   // A/B:遠端實體預測(別人也預測到 now,不內插在過去)
+        mg.net = new NetClientKit.NetSurface({
+          surface: 'mobile', selfId: playerId, sim: localSim,
+          remotePredict: useRP, predictStep: (localSim && localSim.predictStep) || null,
+          sendInput: obj => client.playerAction('net_input', obj),
+        });
+      } else {
+        // 舊路徑 sendState 節流：最新狀態 20Hz 送出（丟舊保新）
+        mg.flushTimer = setInterval(() => {
+          if (mg && mg.pendingState != null) {
+            client.playerAction('game_state', mg.pendingState);
+            mg.pendingState = null;
+          }
+        }, 50);
+      }
+
+      if (mobileCode) {
+        mgLoadLib(lib).then(() => {
+          if (!mg || mg.canvas !== canvas) return;   // 階段已切走
+          try {
+            const self = mg;
+            const GameAPI = {
+              canvas, width: W, height: H,
+              get ctx() { if (!self.ctx) self.ctx = canvas.getContext('2d'); return self.ctx; },
+              container: box, library: lib,
+              playerId, playerName,
+              sendState: obj => { self.pendingState = obj; },                       // 節流（≤20Hz，最新為準）
+              sendEvent: obj => client.playerAction('game_event', obj),             // 立即送（離散事件用；獨立通道，不進位置聚合快照）
+              onMessage: cb => self.msgHandlers.push(cb),                           // display broadcast → 手機
+              onPlayers: cb => self.playersHandlers.push(cb),                       // 全體玩家狀態快照（~10Hz，含自己）
+              palette: MG_PALETTE,                                                  // 玩家配色：palette[idx % length]
+              log: (...a) => { const s = a.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' '); console.log('[Game]', s); mgPushLog('log', s); },
+              update: cb => { self.updateFn = cb; },
+              onEnd: cb => self.cleanups.push(cb),
+            };
+            (new Function('GameAPI', 'Net', mobileCode))(GameAPI, self.net || null);
+          } catch (e) {
+            console.error('[Mobile] mobileCode error:', e);
+            mgPushLog('error', 'mobileCode 執行錯誤: ' + mgFmtErr(e));
+          }
+        });
+      } else {
+        box.innerHTML = '<div style="color:#8888bb;font-size:.9rem;text-align:center;padding-top:40vh;">此關卡沒有手機端程式（mobileCode）</div>';
+      }
+
+      const loop = ts => {
+        if (!mg || mg.canvas !== canvas) return;
+        if (mg.net) { try { mg.net.frame(); } catch (e) {} }   // NetKit:每幀先內插取樣 → Net.entities 更新
+        if (mg.updateFn) {
+          try { mg.updateFn(ts); }
+          catch (e) { if (!mg.errored) { mg.errored = true; console.error('[Mobile] update error:', e); mgPushLog('error', 'update 錯誤: ' + mgFmtErr(e)); } }
+        }
+        mg.raf = requestAnimationFrame(loop);
+      };
+      mg.raf = requestAnimationFrame(loop);
+    }
+
+    function stopCustomGame() {
+      if (!mg) return;
+      mgFlushLogs();
+      if (mg.raf) cancelAnimationFrame(mg.raf);
+      if (mg.flushTimer) clearInterval(mg.flushTimer);
+      if (mg.resizeFn) window.removeEventListener('resize', mg.resizeFn);
+      for (const fn of mg.cleanups) { try { fn(); } catch (e) {} }
+      if (mg.overlay) mg.overlay.remove();
+      mg = null;
+      document.getElementById('cardZone').style.display = '';
+      document.getElementById('actionbar').style.display = '';
     }
 
     function renderController(cfg) {
@@ -2162,6 +2446,36 @@
       const seq = ++inputSeq;
       client.playerAction('game', { key, state, seq });
     }
+
+    // ── 防休眠：遊戲進行中保持螢幕常亮 ─────────────────────────────
+    // 優先用 Screen Wake Lock API（需要 HTTPS/localhost）；
+    // HTTP 環境退回 NoSleep.js（隱藏影片保持喚醒，需使用者手勢啟動）
+    let _wakeLock = null, _noSleep = null;
+    async function requestWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          if (_wakeLock && !_wakeLock.released) return;
+          _wakeLock = await navigator.wakeLock.request('screen');
+          console.log('[Mobile] wake lock acquired');
+          return;
+        } catch (e) { console.warn('[Mobile] wake lock failed:', e.message); }
+      }
+      // 後備：NoSleep.js（enable 必須在使用者手勢的事件處理器內同步呼叫）
+      if (typeof NoSleep !== 'undefined') {
+        try {
+          if (!_noSleep) _noSleep = new NoSleep();
+          _noSleep.enable();
+          console.log('[Mobile] NoSleep enabled');
+        } catch (e) { console.warn('[Mobile] NoSleep failed:', e.message); }
+      }
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && 'wakeLock' in navigator) requestWakeLock();
+    });
+    // Wake Lock 與 NoSleep 都需要（或建議在）使用者手勢後啟動；玩家一定會碰螢幕
+    ['touchstart', 'click'].forEach(ev =>
+      document.addEventListener(ev, requestWakeLock, { once: true, passive: true }));
+    if ('wakeLock' in navigator) requestWakeLock();
   </script>
 </body>
 </html>

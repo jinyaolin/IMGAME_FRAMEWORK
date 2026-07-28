@@ -1,0 +1,40 @@
+{
+  "id": "fairy-brawl-nk",
+  "name": "童話大亂鬥 (NetKit)",
+  "description": "Host-authoritative NetKit 版:伺服器權威 sim + 實體插值,結構性無瞬移。",
+  "version": "0.1.0",
+  "minPlayers": 2,
+  "maxPlayers": 8,
+  "decks": [],
+  "playerAttributes": [
+    { "id": "role", "label": "角色", "type": "select", "options": [
+      { "value": "knight", "label": "騎士", "icon": "⚔️" },
+      { "value": "witch", "label": "女巫", "icon": "🧙‍♀️" },
+      { "value": "troll", "label": "巨魔", "icon": "👹" },
+      { "value": "frog", "label": "青蛙", "icon": "🐸" },
+      { "value": "princess", "label": "公主", "icon": "👸" },
+      { "value": "wizard", "label": "巫師", "icon": "🧙" },
+      { "value": "dwarf", "label": "矮人", "icon": "⛏️" },
+      { "value": "robin", "label": "羅賓漢", "icon": "🏹" },
+      { "value": "fairy", "label": "仙女", "icon": "🧚" },
+      { "value": "elf", "label": "精靈", "icon": "🧝" },
+      { "value": "hood", "label": "小紅帽", "icon": "🧥" },
+      { "value": "prince", "label": "王子", "icon": "🤴" }
+    ] },
+    { "id": "seed", "label": "外觀", "type": "number", "initialValue": 1 },
+    { "id": "ready", "label": "已確定", "type": "boolean", "initialValue": false, "resetOnStart": true }
+  ],
+  "gameStage": {
+    "library": "three",
+    "files": [
+      { "name": "shared/config", "target": "shared", "src": "config.js" },
+      { "name": "sim/fairy", "target": "sim", "src": "sim.js" },
+      { "name": "render/fairy", "target": "render", "src": "render.js" }
+    ]
+  },
+  "stages": [
+    { "id": "select", "type": "select", "name": "選角", "description": "選擇你的角色與外觀,按確定。", "enabled": true, "advance": { "trigger": "all_ready", "fallback": "host" } },
+    { "id": "fight", "type": "game", "name": "童話格鬥場 (NetKit)", "enabled": true, "advance": { "trigger": "timer", "duration": 180, "fallback": "host" } },
+    { "id": "result", "type": "result", "name": "結果", "enabled": true, "advance": { "trigger": "host" } }
+  ]
+}

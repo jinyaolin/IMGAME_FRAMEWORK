@@ -11,7 +11,19 @@ const ModuleLoader = require('./core/ModuleLoader');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+
+// ── 子路徑部署（zaistudio.tw/labs/game）────────────────────────────
+// BASE_PATH：所有路由/靜態檔/socket.io 掛在此前綴下；本機開發留空（掛根路徑）。
+// PUBLIC_ORIGIN：QR code 與分享連結使用的對外網域（https），未設則依請求 Host 推測。
+const BASE = (process.env.BASE_PATH || '').replace(/\/+$/, '');
+const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '') || null;
+const auth = require('./auth');
+
+const io = new Server(server, {
+  path: BASE + '/socket.io',
+  cors: { origin: '*' },
+  maxHttpBufferSize: 8e6,   // 允許 AI 聊天貼圖（base64 縮圖，預設 1MB 不夠）
+});
 
 const PORT        = process.env.PORT || 3000;
 const PUBLIC_HOST = process.env.HOST || null;  // e.g. HOST=192.168.1.100
@@ -35,39 +47,61 @@ async function initializeServer() {
 // ── Static files ─────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.text({ type: 'text/plain' }));
-app.use('/mobile',  express.static(path.join(__dirname, '../client/mobile')));
-app.use('/display', express.static(path.join(__dirname, '../client/display')));
-app.use('/host',    express.static(path.join(__dirname, '../client/host')));
-app.use('/editor',  express.static(path.join(__dirname, '../client/editor')));
-app.use('/decks',   express.static(path.join(__dirname, '../client/decks')));
-app.use('/actions', express.static(path.join(__dirname, '../client/actions')));
-app.use('/shared',  express.static(path.join(__dirname, '../client/shared')));
+
+// 合併式主持頁（host+display 合一）— zaistudio.tw/labs/game 的入口，需登入
+app.get(BASE + '/', auth.requireAuthPage, (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/labs/index.html'));
+});
+
+// 玩家/顯示端免登入；host / editor / decks / actions 等管理頁需登入
+app.use(BASE + '/mobile',  express.static(path.join(__dirname, '../client/mobile')));
+app.use(BASE + '/display', express.static(path.join(__dirname, '../client/display')));
+app.use(BASE + '/host',    auth.requireAuthPage, express.static(path.join(__dirname, '../client/host')));
+app.use(BASE + '/editor',  auth.requireAuthPage, express.static(path.join(__dirname, '../client/editor')));
+app.use(BASE + '/reports', auth.requireAuthPage, express.static(path.join(__dirname, '../docs/reports')));
+app.use(BASE + '/decks',   auth.requireAuthPage, express.static(path.join(__dirname, '../client/decks')));
+app.use(BASE + '/actions', auth.requireAuthPage, express.static(path.join(__dirname, '../client/actions')));
+app.use(BASE + '/shared',  express.static(path.join(__dirname, '../client/shared')));
+// Phase 2:把核心引擎(3 個 class)以純文字供 host 瀏覽器載入,讓 GameSession 在 host 端當 server 跑。
+// 白名單、非機密(就是遊戲狀態機邏輯);瀏覽器用 engine-loader.js 的 micro-CommonJS 執行。
+const ENGINE_WHITELIST = new Set(['PlayerManager.js', 'BaseModule.js', 'GameSession.js', 'NetKitHost.js']);
+app.get(BASE + '/engine/:file', (req, res) => {
+  if (!ENGINE_WHITELIST.has(req.params.file)) return res.status(404).end();
+  res.type('application/javascript').sendFile(path.join(__dirname, 'core', req.params.file));
+});
+app.use(BASE + '/uploads', express.static(path.join(__dirname, '../public/uploads')));
+// 相容:模組 gameCode / 牌面 HTML 內寫死的 /uploads 根路徑(Caddy 也會把 /uploads/* 導過來)
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
 
 // ── Decks API ───────────────────────────────────────────────────────
 const { router: decksRouter } = require('./api/decks');
 // Attach deckManager to app for API access
 app.deckManager = deckManager;
-// Attach deckManager to request for API routes
-app.use('/api/decks', (req, res, next) => {
+// Attach deckManager to request for API routes（寫入需登入,讀取開放）
+app.use(BASE + '/api/decks', auth.requireAuthForWrites, (req, res, next) => {
   req.deckManager = deckManager;
   next();
 }, decksRouter);
 
 // ── Actions API ─────────────────────────────────────────────────────
 const actionsRouter = createActionsRouter(actionsAPI);
-app.use('/api/actions', (req, res, next) => {
+app.use(BASE + '/api/actions', auth.requireAuthForWrites, (req, res, next) => {
   req.actionsAPI = actionsAPI;
   next();
 }, actionsRouter);
 
+// 模組/素材 API：寫入（POST/PUT/DELETE）需登入；讀取開放給顯示端與玩家
+app.use(BASE + '/api/modules', auth.requireAuthForWrites);
+app.use(BASE + '/api/assets', auth.requireAuthForWrites);
+
 // ── HTTP API ──────────────────────────────────────────────────────
 
-// Create a new room (called by host)
-app.post('/api/rooms', (req, res) => {
+// Create a new room (called by host) — 需登入;房間歸開房者所有,只有本人能主持
+app.post(BASE + '/api/rooms', auth.requireAuthAPI, (req, res) => {
   const { moduleId } = req.body || {};
   const roomId = generateRoomCode();
-  const session = new GameSession(roomId, io);
+  const session = new GameSession(roomId, io);   // Phase 0:io 即 transport(socket.io 原生符合 to(id).emit 契約);Phase 2 P2P 房會改餵 P2PRouter
+  session.ownerUserId = auth.getUserIdFromReq(req);
 
   if (moduleId) {
     const manifest = moduleLoader.getManifest(moduleId);
@@ -84,26 +118,140 @@ app.post('/api/rooms', (req, res) => {
   res.json({ roomId, manifest: session.manifest });
 });
 
-// List all active rooms
-app.get('/api/rooms', (req, res) => {
-  const rooms = Array.from(sessions.values()).map(session => session.toSummary());
+// List my active rooms — 需登入;每個人只看得到自己開的房
+app.get(BASE + '/api/rooms', auth.requireAuthAPI, (req, res) => {
+  const uid = auth.getUserIdFromReq(req);
+  const rooms = Array.from(sessions.values())
+    .filter(s => !s.ownerUserId || s.ownerUserId === uid)
+    .map(session => session.toSummary());
   res.json(rooms);
 });
 
-// Room info
-app.get('/api/rooms/:roomId', (req, res) => {
+// Room info（玩家/顯示端免登入 — 用房代碼當能力憑證）
+app.get(BASE + '/api/rooms/:roomId', (req, res) => {
   const session = sessions.get(req.params.roomId.toUpperCase());
   if (!session) return res.status(404).json({ error: 'Room not found' });
   res.json(session.toSummary());
 });
 
 // Available modules (summary list)
-app.get('/api/modules', (req, res) => {
+app.get(BASE + '/api/modules', (req, res) => {
   res.json(moduleLoader.listModules());
 });
 
-// Get module's server.js content
-app.get('/api/modules/:id/server', (req, res) => {
+// P2P 的 ICE 設定:STUN 一律有;TURN 只在 env 有設時加(憑證留伺服器、不進 client 原始碼庫)。
+// env:STUN_URLS(逗號分隔,可覆蓋預設)、TURN_URLS(逗號分隔)、TURN_USERNAME、TURN_CREDENTIAL。
+// 沒設 TURN → 只回 STUN(等同現況,零 regression)。無 isolation 場地走直連;酒店等隔離場地才用得到 TURN。
+function buildIceServers() {
+  const ice = [];
+  const stun = (process.env.STUN_URLS || 'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  for (const u of stun) ice.push({ urls: u });
+  const turnUrls = (process.env.TURN_URLS || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (turnUrls.length) {
+    if (process.env.TURN_SECRET) {
+      // coturn REST API(use-auth-secret):username=到期時間戳,credential=HMAC-SHA1(secret,username) base64。
+      // 短效(預設 12h)→ 公開的 /api/ice 不會外洩「永久」open relay,防止中繼被盜用。
+      const ttl = parseInt(process.env.TURN_TTL || '43200', 10);
+      const username = String(Math.floor(Date.now() / 1000) + ttl) + ':imgame';
+      const credential = require('crypto').createHmac('sha1', process.env.TURN_SECRET).update(username).digest('base64');
+      ice.push({ urls: turnUrls, username, credential });
+    } else if (process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
+      ice.push({ urls: turnUrls, username: process.env.TURN_USERNAME, credential: process.env.TURN_CREDENTIAL });
+    }
+  }
+  return ice;
+}
+// Cloudflare Realtime TURN(全球 anycast,就近節點;免費 1TB/月)。設了 CF_TURN_KEY_ID + CF_TURN_API_TOKEN
+// 就優先用它,伺服器代取 iceServers(含 TURN over TLS 443)。憑證 24h 有效 → 快取 20 分鐘,不每次打 CF。
+let _cfIce = null, _cfIceAt = 0;
+async function cloudflareIce() {
+  const now = Date.now();
+  if (_cfIce && (now - _cfIceAt) < 20 * 60 * 1000) return _cfIce;
+  const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CF_TURN_KEY_ID}/credentials/generate-ice-servers`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + process.env.CF_TURN_API_TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ttl: 86400 }),
+  });
+  if (!r.ok) throw new Error('Cloudflare TURN ' + r.status);
+  const d = await r.json();
+  if (!d.iceServers || !d.iceServers.length) throw new Error('Cloudflare TURN 回應無 iceServers');
+  _cfIce = d.iceServers; _cfIceAt = now; return _cfIce;
+}
+app.get(BASE + '/api/ice', async (req, res) => {
+  res.set('Cache-Control', 'no-store');   // TURN 憑證會輪替 → 不快取
+  if (process.env.CF_TURN_KEY_ID && process.env.CF_TURN_API_TOKEN) {
+    try { return res.json({ iceServers: await cloudflareIce() }); }
+    catch (e) { console.warn('[ice] Cloudflare TURN 取用失敗,退回本機 coturn/STUN:', e && e.message); }
+  }
+  res.json({ iceServers: buildIceServers() });   // 退回:本機 coturn(有 env)或純 STUN
+});
+
+// ── 素材庫（圖片/音效，供遊戲程式引用；Kimi 可整理成多層目錄）────
+const multer = require('multer');
+const ASSETS_ROOT = path.join(__dirname, '../public/uploads/assets');
+fs.mkdirSync(ASSETS_ROOT, { recursive: true });
+
+// 安全的素材相對路徑（允許多層目錄與中文檔名，擋 .. 與絕對路徑）
+function safeAssetPath(rel) {
+  if (typeof rel !== 'string' || !rel.trim()) return null;
+  const clean = rel.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (clean.split('/').some(seg => seg === '' || seg === '.' || seg === '..')) return null;
+  if (!/^[\w\-./一-鿿（）()]+$/.test(clean)) return null;
+  return path.join(ASSETS_ROOT, clean);
+}
+
+function listAssetsRecursive(dir = ASSETS_ROOT, out = []) {
+  if (!fs.existsSync(dir) || out.length >= 300) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) listAssetsRecursive(full, out);
+    else if (out.length < 300) {
+      const rel = path.relative(ASSETS_ROOT, full).replace(/\\/g, '/');
+      out.push({ path: rel, url: '/uploads/assets/' + rel, sizeKB: Math.round(fs.statSync(full).size / 1024) });
+    }
+  }
+  return out;
+}
+
+const assetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+app.post(BASE + '/api/assets', assetUpload.array('files', 6), (req, res) => {
+  const dir = String(req.body?.dir || '').trim();
+  const saved = [];
+  for (const f of req.files || []) {
+    if (!/^(image|audio)\//.test(f.mimetype)) continue;
+    const base = (f.originalname || 'file').replace(/[^\w\-.一-鿿（）()]/g, '_');
+    let target = safeAssetPath((dir ? dir + '/' : '') + base);
+    if (!target) continue;
+    if (fs.existsSync(target)) target = safeAssetPath((dir ? dir + '/' : '') + Date.now().toString(36) + '-' + base);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, f.buffer);
+    const rel = path.relative(ASSETS_ROOT, target).replace(/\\/g, '/');
+    saved.push({ path: rel, url: '/uploads/assets/' + rel, sizeKB: Math.round(f.size / 1024), type: f.mimetype });
+    console.log(`[Assets] Uploaded: ${rel} (${Math.round(f.size / 1024)}KB)`);
+  }
+  res.json({ files: saved });
+});
+app.get(BASE + '/api/assets', (req, res) => res.json(listAssetsRecursive()));
+
+// Kimi 的模組長期筆記（KIMI.md）
+app.get(BASE + '/api/modules/:id/notes', (req, res) => {
+  const id = req.params.id;
+  if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
+  const p = path.join(__dirname, 'modules', id, 'KIMI.md');
+  if (!fs.existsSync(p)) return res.status(404).json({ error: '尚無筆記' });
+  res.type('text/plain').send(fs.readFileSync(p, 'utf8'));
+});
+
+// 遊戲執行 log 讀取(debug):GET → 最近 N 筆(GameAPI.log / 自動錯誤回報聚合);?clear=1 清空
+app.get(BASE + '/api/modules/:id/gamelogs', (req, res) => {
+  const gl = require('./ai/gamelogs');
+  if (req.query.clear) { gl.clearLogs(req.params.id); return res.json({ cleared: true }); }
+  res.json(gl.getLogs(req.params.id, Number(req.query.limit) || 200));
+});
+
+// Get module's server.js content（引擎原始碼 — 需登入）
+app.get(BASE + '/api/modules/:id/server', auth.requireAuthAPI, (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
@@ -122,7 +270,7 @@ app.get('/api/modules/:id/server', (req, res) => {
 });
 
 // Save or update module's server.js
-app.post('/api/modules/:id/server', (req, res) => {
+app.post(BASE + '/api/modules/:id/server', (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
@@ -237,7 +385,7 @@ app.post('/api/modules/:id/server', (req, res) => {
 });
 
 // Delete module's server.js
-app.delete('/api/modules/:id/server', (req, res) => {
+app.delete(BASE + '/api/modules/:id/server', (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
@@ -259,7 +407,7 @@ app.delete('/api/modules/:id/server', (req, res) => {
 });
 
 // Full manifest for one module (for editor to load)
-app.get('/api/modules/:id', (req, res) => {
+app.get(BASE + '/api/modules/:id', (req, res) => {
   const id = req.params.id;
   const manifestPath = path.join(__dirname, 'modules', id, 'manifest.json');
   if (!fs.existsSync(manifestPath)) return res.status(404).json({ error: '模組不存在' });
@@ -523,6 +671,45 @@ function validateManifest(m) {
           }
         });
       }
+
+      // 🆕 gameConfig 驗證：library 白名單 + gameCode 語法檢查（只編譯不執行）
+      const checkGameConfig = (st, pathPrefix) => {
+        const gc = st.gameConfig;
+        if (gc) {
+          if (gc.library && !['three', 'babylon', 'p5'].includes(gc.library)) {
+            push(`${pathPrefix}.gameConfig.library`, 'library 必須是 three、babylon 或 p5');
+          }
+          if (gc.aspectRatio && !['16:9', '4:3', '1:1'].includes(gc.aspectRatio)) {
+            push(`${pathPrefix}.gameConfig.aspectRatio`, 'aspectRatio 必須是 16:9、4:3 或 1:1');
+          }
+          if (gc.gameCode) {
+            try { new Function('GameAPI', gc.gameCode); }
+            catch (e) { push(`${pathPrefix}.gameConfig.gameCode`, `gameCode 語法錯誤：${e.message}`); }
+          }
+          if (gc.mobileCode) {
+            try { new Function('GameAPI', gc.mobileCode); }
+            catch (e) { push(`${pathPrefix}.gameConfig.mobileCode`, `mobileCode 語法錯誤：${e.message}`); }
+          }
+          if (Array.isArray(gc.files)) {
+            const fnames = new Set();
+            gc.files.forEach((f, fi) => {
+              const fp = `${pathPrefix}.gameConfig.files[${fi}]`;
+              if (!f.name || !String(f.name).trim()) push(`${fp}.name`, '程式檔需要名稱');
+              else if (fnames.has(f.name)) push(`${fp}.name`, `程式檔名重複：${f.name}`);
+              else fnames.add(f.name);
+              if (!['shared', 'display', 'mobile'].includes(f.target))
+                push(`${fp}.target`, 'target 必須是 shared、display 或 mobile');
+              if (typeof f.code !== 'string') push(`${fp}.code`, '程式檔需要 code 字串');
+              else if (f.code) {
+                try { new Function('GameAPI', f.code); }
+                catch (e) { push(`${fp}.code`, `「${f.name}」語法錯誤：${e.message}`); }
+              }
+            });
+          }
+        }
+        (st.children || st.stages || []).forEach((c, ci) => checkGameConfig(c, `${pathPrefix}.children[${ci}]`));
+      };
+      checkGameConfig(s, `stages[${si}]`);
     });
   }
 
@@ -539,7 +726,7 @@ function atomicWriteJSON(filePath, obj) {
 // Overwrite an existing module's manifest. Accepts the full manifest object
 // (from /editor) OR legacy patch shape (from older clients).
 // Body: { manifest: {...full...} }  OR  { name, description, fieldValues, decks, stages }
-app.put('/api/modules/:id/manifest', (req, res) => {
+app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
@@ -609,7 +796,7 @@ app.put('/api/modules/:id/manifest', (req, res) => {
 });
 
 // Delete a module directory
-app.delete('/api/modules/:id', (req, res) => {
+app.delete(BASE + '/api/modules/:id', (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
@@ -642,7 +829,7 @@ app.delete('/api/modules/:id', (req, res) => {
 // Clone a module: copy <sourceId>/ → <newId>/ with edited manifest baked in.
 // Body: { newId, newName, description?, fieldValues?, decks?, stages? }
 // fieldValues are merged into fieldConfig[k].default; decks/stages replace wholesale.
-app.post('/api/modules/:sourceId/clone', (req, res) => {
+app.post(BASE + '/api/modules/:sourceId/clone', (req, res) => {
   try {
     const sourceId = req.params.sourceId;
     const { newId, newName, description, fieldValues, decks, stages } = req.body || {};
@@ -714,11 +901,19 @@ app.post('/api/modules/:sourceId/clone', (req, res) => {
 });
 
 // QR code for a room (returns PNG)
-app.get('/api/rooms/:roomId/qr', async (req, res) => {
+app.get(BASE + '/api/rooms/:roomId/qr', async (req, res) => {
   const roomId = req.params.roomId.toUpperCase();
   const overrideHost = req.query.host;
-  const host = overrideHost ? `${overrideHost}:${PORT}` : (PUBLIC_HOST ? `${PUBLIC_HOST}:${PORT}` : req.headers.host);
-  const url = `http://${host}/mobile?room=${roomId}`;
+  // ?path= 覆蓋(same-origin,必須以 / 開頭)—— 讓 P2P host 頁對自訂 mobile 路徑(/mobile/p2p.html?room=)出 QR。
+  let suffix = `/mobile?room=${roomId}`;
+  if (req.query.path) { const p = String(req.query.path); suffix = p.startsWith('/') ? p : '/' + p; }
+  let url;
+  if (PUBLIC_ORIGIN && !overrideHost) {
+    url = `${PUBLIC_ORIGIN}${BASE}${suffix}`;
+  } else {
+    const host = overrideHost ? `${overrideHost}:${PORT}` : (PUBLIC_HOST ? `${PUBLIC_HOST}:${PORT}` : req.headers.host);
+    url = `http://${host}${BASE}${suffix}`;
+  }
   const png = await QRCode.toBuffer(url);
   res.set('Content-Type', 'image/png').send(png);
 });
@@ -792,8 +987,18 @@ io.on('connection', (socket) => {
 
   // ── Join as host ────────────────────────────────────────────
   socket.on('join_host', ({ roomId }) => {
+    if (!auth.socketAuthOk(socket)) {
+      socket.emit('error', { message: '需要登入才能主持', code: 'AUTH_REQUIRED' });
+      return;
+    }
     const session = getSession(socket, roomId);
     if (!session) return;
+
+    // 只有開房者本人能主持;別人的房只能以玩家(join_room)/觀眾(join_display)身分加入
+    if (session.ownerUserId && session.ownerUserId !== auth.socketUserId(socket)) {
+      socket.emit('error', { message: '這是別人開的房間,你只能以玩家身分加入', code: 'ROOM_FORBIDDEN' });
+      return;
+    }
 
     socket.join(roomId);
     session.hostSocketId = socket.id;
@@ -868,6 +1073,16 @@ io.on('connection', (socket) => {
     const session = sessions.get(roomId);
     if (!session || session.hostSocketId !== socket.id) return;
     try {
+      // 若要載入的模組跟房間目前快照不同（更換模組後、或建房時未指定模組），
+      // 重新從登錄表 fork 一份新鮮快照，讓真的換得成遊戲（而非沿用開房時那份）。
+      const snapshotId = session.manifest && session.manifest.id;
+      if (moduleName && moduleName !== snapshotId) {
+        const fresh = moduleLoader.getManifest(moduleName);
+        if (!fresh) { socket.emit('error', { message: `Module "${moduleName}" not found` }); return; }
+        session.manifest   = JSON.parse(JSON.stringify(fresh));   // 深拷貝：與日後編輯器存檔隔離
+        session.moduleName = moduleName;
+        session.engineCode = moduleLoader.readEngineCode(moduleName);
+      }
       // Use the session's forked snapshot; fall back to live registry only if no snapshot
       const manifest = session.manifest || moduleLoader.registry.get(moduleName);
       if (manifest) {
@@ -892,7 +1107,55 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Host: 選定模組（只載入快照、留在 lobby，不啟動）──────────────
+  // 對應 labs 頁的「載入遊戲」;之後 host_load_module 用同一個 moduleName 啟動時
+  // 會沿用這份快照,不再重新 fork。
+  socket.on('host_select_module', ({ roomId, moduleName }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    if (session.phase !== 'lobby') return;
+    const fresh = moduleLoader.getManifest(moduleName);
+    if (!fresh) { socket.emit('error', { message: `Module "${moduleName}" not found` }); return; }
+    session.manifest   = JSON.parse(JSON.stringify(fresh));   // 深拷貝：與日後編輯器存檔隔離
+    session.moduleName = moduleName;
+    session.engineCode = moduleLoader.readEngineCode(moduleName);
+    session.broadcastAll('module_selected', { moduleId: moduleName, manifest: session.manifest });
+    console.log(`[Room:${roomId}] Module selected (not started): ${moduleName}`);
+  });
+
+  // ── Host: 更換遊戲模組 ────────────────────────────────────────
+  // 從任何階段（遊戲進行中 / 結算 / 大廳）強制把全部人踢回大廳，並丟掉房間的模組快照，
+  // 讓主持人重新挑一個模組直接開新局（不必關房重掃）。玩家的「準備」狀態保留。
+  socket.on('host_change_module', ({ roomId }) => {
+    const session = sessions.get(roomId);
+    if (!session || session.hostSocketId !== socket.id) return;
+    session.resetToLobby();          // dispose 模組計時器、清空狀態、廣播 back_to_lobby + player_ready
+    session.manifest   = null;       // 丟掉快照，下次 host_load_module 會 fork 新選的模組
+    session.moduleName = null;
+    session.engineCode = null;
+    // 通知主持人重新打開模組選擇器（附上最新模組清單，順便反映期間的編輯器新增）
+    session.sendToHost('module_picker_reopen', { availableModules: moduleLoader.listModules() });
+    console.log(`[Room:${roomId}] Module change requested → back to lobby, picker reopened`);
+  });
+
   // ── Host: close room ────────────────────────────────────────
+  // ── 遊戲執行 log 回報（display / mobile / 編輯器預覽）→ 依模組聚合，給 AI debug ──
+  socket.on('game_log', ({ roomId, moduleId, entries }) => {
+    if (!Array.isArray(entries) || !entries.length) return;
+    let mid = null;
+    if (typeof moduleId === 'string' && isValidModuleId(moduleId)) mid = moduleId;
+    else if (roomId && sessions.get(roomId)) mid = sessions.get(roomId).moduleName;
+    if (!mid) return;
+    require('./ai/gamelogs').addLogs(mid, entries.slice(0, 50));
+  });
+
+  // ── Display → 全體手機：自訂互動遊戲的廣播（開始倒數、名次更新等）──
+  socket.on('display_game_broadcast', ({ roomId, data }) => {
+    const session = sessions.get(roomId);
+    if (!session || !session.displaySocketIds.has(socket.id)) return;
+    session.broadcastPlayers('game_broadcast', { data });
+  });
+
   socket.on('host_close_room', ({ roomId }) => {
     const session = sessions.get(roomId);
     if (!session || session.hostSocketId !== socket.id) return;
@@ -1086,16 +1349,32 @@ function generateRoomCode() {
 async function startServer() {
   await initializeServer();
 
+  // Phase 1:WebRTC 信令中繼(P2P 房建連用;建連後遊戲流量走 DataChannel 不經此)
+  require('./p2p-signal').attach(io);
+
+  // AI 核心（Kimi 編輯核心 + AI 主持）— 需在 moduleLoader 初始化後接線
+  require('./ai').attach({
+    app, io, sessions, moduleLoader, validateManifest, atomicWriteJSON,
+    modulesDir: path.join(__dirname, 'modules'),
+    decksDir: path.join(__dirname, 'decks'),
+    assetsRoot: ASSETS_ROOT,
+    port: PORT,
+    base: BASE,
+    auth,
+  });
+
   server.listen(PORT, () => {
-    const publicBase = PUBLIC_HOST ? `http://${PUBLIC_HOST}:${PORT}` : `http://localhost:${PORT}`;
+    const publicBase = PUBLIC_ORIGIN || (PUBLIC_HOST ? `http://${PUBLIC_HOST}:${PORT}` : `http://localhost:${PORT}`);
     console.log(`\n🎮 Immersive Game Server`);
-    console.log(`   Local   → http://localhost:${PORT}`);
-    if (PUBLIC_HOST) console.log(`   Public  → ${publicBase}  ← QR codes use this`);
-    console.log(`   Mobile  → ${publicBase}/mobile`);
-    console.log(`   Display → ${publicBase}/display`);
-    console.log(`   Host    → ${publicBase}/host`);
-    console.log(`   Editor  → ${publicBase}/editor`);
-    console.log(`   Decks   → ${publicBase}/decks\n`);
+    console.log(`   Local   → http://localhost:${PORT}${BASE || ''}`);
+    if (PUBLIC_ORIGIN) console.log(`   Public  → ${PUBLIC_ORIGIN}${BASE}  ← 分享連結/QR 用這個`);
+    else if (PUBLIC_HOST) console.log(`   Public  → ${publicBase}  ← QR codes use this`);
+    console.log(`   Labs    → ${publicBase}${BASE}/  （合併主持頁${auth.enabled ? ',需登入' : ',登入停用'}）`);
+    console.log(`   Mobile  → ${publicBase}${BASE}/mobile`);
+    console.log(`   Display → ${publicBase}${BASE}/display`);
+    console.log(`   Editor  → ${publicBase}${BASE}/editor`);
+    if (BASE) console.log(`   (子路徑模式 BASE_PATH=${BASE},根路徑不再提供頁面)`);
+    console.log('');
   });
 }
 

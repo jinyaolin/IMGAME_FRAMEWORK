@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
+<title>Zai Studio — 遊戲主持</title>
+<style>
+  /* ── Zai Studio「暗夜書房」主題(與主站 globals.css 同一組 token)── */
+  :root {
+    --ground:#16110c; --ground-2:#1c160f; --surface:#201811; --surface-2:#2c2318; --paper:#1e1710;
+    --ink:#ece3d2; --ink-2:#c8baa1; --mute:#8b7c64;
+    --lamp:#e0a94e; --lamp-soft:rgba(224,169,78,0.14);
+    --line:rgba(224,169,78,0.14); --line-2:rgba(224,169,78,0.24);
+    --lamp-glow:0 0 42px rgba(224,169,78,.28);
+    --serif:'Noto Serif TC','Source Han Serif TC','Source Han Serif','Songti TC','Songti SC','PMingLiU','MingLiU','SimSun',serif;
+    --sans:'Noto Sans TC','PingFang TC','PingFang SC','Microsoft JhengHei','Microsoft YaHei',system-ui,-apple-system,'Segoe UI',sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--ground); color: var(--ink);
+    font-family: var(--sans);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  ::selection { background: var(--lamp-soft); }
+  button { font-family: inherit; cursor: pointer; }
+  .btn {
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 18px;
+    font-size: .95rem; font-weight: 600; color: var(--ink);
+    background: var(--surface-2); transition: border-color .15s, box-shadow .15s, transform .05s, filter .15s;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--line-2); filter: brightness(1.12); }
+  .btn:active:not(:disabled) { transform: scale(.97); }
+  .btn:disabled { opacity: .35; cursor: not-allowed; }
+  .btn-primary {
+    background: #fbbf24; border-color: transparent; color: #1c1206;
+    box-shadow: 0 10px 28px rgba(224,169,78,.28);
+  }
+  .btn-primary:hover:not(:disabled) { background: #fcd34d; border-color: transparent; }
+  .btn-success { background: #2e9e6b; border-color: transparent; color: #fff; }
+  .btn-warning { background: #9c6b18; border-color: transparent; color: #fff; }
+  .btn-danger  { background: #dc2626; border-color: transparent; color: #fff; }
+  .btn-ghost   { background: transparent; border: 1px solid var(--line); color: var(--ink-2); }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--lamp); }
+  .btn-lg { padding: 14px 26px; font-size: 1.05rem; border-radius: 8px; }
+
+  /* ── 頂列(主站 sticky header 語言:暖黑半透明 + 模糊 + 細金邊)── */
+  #topbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: rgba(16,12,8,.94); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+    min-height: 52px; flex-shrink: 0;
+  }
+  #topbar .seal {
+    font-family: var(--serif); font-size: 1.25rem; line-height: 1; color: var(--lamp);
+    border: 2px solid rgba(224,169,78,.45); border-radius: 8px;
+    padding: 4px 7px; text-shadow: var(--lamp-glow); white-space: nowrap;
+  }
+  #topbar .wordmark {
+    font-size: .68rem; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--mute); white-space: nowrap;
+  }
+  #roomBadge {
+    font-size: 1.05rem; font-weight: 800; letter-spacing: .18em;
+    color: var(--lamp); background: var(--lamp-soft); border: 1px solid var(--line-2);
+    padding: 3px 12px; border-radius: 8px;
+  }
+  #moduleBadge { color: var(--ink-2); font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #topbar .spacer { flex: 1; }
+  .topbtn {
+    background: transparent; border: 1px solid var(--line); color: var(--ink-2);
+    border-radius: 999px; padding: 6px 14px; font-size: .85rem; font-weight: 600;
+    transition: border-color .15s, color .15s;
+  }
+  .topbtn:hover { border-color: var(--lamp); color: var(--ink); }
+
+  /* ── 大廳（未開房）────────────────────────────────── */
+  #landing {
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+    align-items: center; padding: 56px 20px; gap: 26px;
+  }
+  #landing .hero { position: relative; text-align: center; }
+  #landing .hero::before {
+    content: ''; position: absolute; inset: -46px -70px;
+    background: radial-gradient(58% 52% at 50% 36%, rgba(224,169,78,.20), transparent 70%);
+    border-radius: 45%; filter: blur(8px); pointer-events: none;
+  }
+  #landing h1 {
+    position: relative; font-family: var(--serif); font-weight: 700;
+    font-size: 2rem; color: var(--ink); text-shadow: var(--lamp-glow);
+  }
+  #landing .sub { color: var(--mute); margin-top: -14px; }
+  #roomListBox { width: min(520px, 92vw); }
+  #roomListBox h2 { font-family: var(--serif); font-size: .95rem; color: var(--mute); margin-bottom: 10px; }
+  .roomItem {
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 8px; color: var(--ink);
+    transition: border-color .15s, box-shadow .15s, transform .05s;
+  }
+  .roomItem:hover { border-color: var(--lamp); box-shadow: 0 6px 20px rgba(224,169,78,.12); }
+  .roomItem:active { transform: scale(.99); }
+  .roomItem .code { font-weight: 800; letter-spacing: .15em; color: var(--lamp); }
+  .roomItem .mod { flex: 1; color: var(--ink-2); font-size: .85rem; }
+  .roomItem .cnt { color: var(--mute); font-size: .8rem; }
+  .emptyHint { color: var(--mute); text-align: center; padding: 18px; }
+
+  /* ── 房間畫面 ─────────────────────────────────────── */
+  #roomView { flex: 1; display: none; flex-direction: column; min-height: 0; }
+  #displayWrap { flex: 1; min-height: 0; position: relative; display: flex; background: #000; }
+  #displayWrap:fullscreen { background: #000; }
+  #displayFrame { flex: 1; min-height: 0; border: none; background: #000; width: 100%; }
+  #fsBtn {
+    position: absolute; right: 12px; bottom: 12px; z-index: 5;
+    width: 40px; height: 40px; border-radius: 8px;
+    background: rgba(16,12,8,.78); border: 1px solid var(--line-2); color: var(--ink-2);
+    font-size: 1.1rem; display: flex; align-items: center; justify-content: center;
+    opacity: .55; transition: opacity .15s, border-color .15s;
+  }
+  #fsBtn:hover { opacity: 1; border-color: var(--lamp); color: var(--ink); }
+
+  /* 玩家列 */
+  #playerStrip {
+    display: flex; gap: 8px; align-items: center;
+    padding: 7px 12px; background: var(--ground-2); border-top: 1px solid var(--line);
+    overflow-x: auto; flex-shrink: 0; min-height: 46px;
+  }
+  #playerStrip .lbl { color: var(--mute); font-size: .78rem; flex-shrink: 0; }
+  .chip {
+    display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 12px 4px 8px; font-size: .85rem; color: var(--ink);
+  }
+  .chip .num {
+    background: var(--lamp); color: #1c1206; font-weight: 800; font-size: .72rem;
+    width: 18px; height: 18px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mute); }
+  .chip .dot.ready { background: #34d17b; }
+  .chip .dot.wait  { background: #d9a444; }
+  .chip.off { opacity: .4; }
+  .chip .score { color: var(--lamp); font-size: .78rem; }
+  .chip .kick { color: #ef6b6b; background: none; border: none; font-size: .8rem; padding: 0 2px; }
+
+  /* 底部控制列 */
+  #controlBar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--line);
+    flex-shrink: 0; min-height: 64px;
+  }
+  #phaseInfo { color: var(--ink-2); font-size: .85rem; min-width: 0; }
+  #phaseInfo b { color: var(--lamp); font-weight: 700; }
+  #controlBar .grow { flex: 1; }
+  #readyHint { color: #d9a444; font-size: .8rem; width: 100%; }
+
+  /* ── Modal ────────────────────────────────────────── */
+  .modalMask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  .modalMask.open { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    width: min(680px, 94vw); max-height: 84vh; display: flex; flex-direction: column;
+    box-shadow: 0 18px 60px rgba(0,0,0,.5);
+  }
+  .modal header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-bottom: 1px solid var(--line);
+  }
+  .modal header b { font-family: var(--serif); font-size: 1.05rem; font-weight: 700; }
+  .modal .body { padding: 16px 18px; overflow-y: auto; }
+  .modal .body::-webkit-scrollbar { width: 8px; }
+  .modal .body::-webkit-scrollbar-thumb { background: rgba(224,169,78,.35); border-radius: 4px; }
+  #moduleGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .modCard {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; cursor: pointer; transition: border-color .15s, box-shadow .15s;
+  }
+  .modCard:hover { border-color: var(--lamp); box-shadow: 0 6px 20px rgba(224,169,78,.12); }
+  .modCard.sel { border-color: var(--lamp); background: var(--lamp-soft); }
+  .modCard h3 { font-family: var(--serif); font-size: .98rem; color: var(--ink); margin-bottom: 4px; }
+  .modCard .desc { font-size: .78rem; color: var(--mute); margin-bottom: 8px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .modCard .meta { font-size: .72rem; color: var(--mute); }
+  #shareBox { text-align: center; }
+  #shareQr { width: 220px; height: 220px; background: #fff; border-radius: 8px; padding: 8px; }
+  #shareUrl {
+    margin: 12px auto; padding: 8px 12px; background: var(--ground-2); border: 1px solid var(--line);
+    border-radius: 8px; color: var(--lamp); font-size: .85rem; word-break: break-all;
+  }
+
+  /* toast */
+  #toast {
+    position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--line-2); color: var(--ink);
+    padding: 10px 18px; border-radius: 8px; font-size: .9rem;
+    box-shadow: 0 8px 30px rgba(0,0,0,.4);
+    opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 99;
+    max-width: 90vw;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- 頂列 -->
+<div id="topbar">
+  <span class="seal">戲</span>
+  <span class="wordmark">Zai Game</span>
+  <span id="roomBadge" style="display:none"></span>
+  <span id="moduleBadge"></span>
+  <span class="spacer"></span>
+  <button class="topbtn" id="shareBtn" style="display:none">↗ 分享</button>
+  <button class="topbtn" id="closeRoomBtn" style="display:none">✕ 關房</button>
+</div>
+
+<!-- 大廳:開房 / 進房 -->
+<div id="landing">
+  <div class="hero"><h1>派對遊戲主持台</h1></div>
+  <p class="sub">開一個房間,把手機連結分享給朋友就能玩</p>
+  <button class="btn btn-primary btn-lg" id="createBtn">＋ 開新房間</button>
+  <button class="btn btn-lg" id="createP2PBtn" style="margin-top:10px">⚡ 區網主持(P2P·最快)</button>
+  <p class="sub" style="margin-top:6px;opacity:.6;font-size:.82rem">區網主持:這台瀏覽器當伺服器,手機直連,看別人零延遲(需與手機同一 WiFi)</p>
+  <div id="roomListBox">
+    <h2>我的房間(點擊重新接管;別人開的房請用手機連結加入)</h2>
+    <div id="roomList"><div class="emptyHint">讀取中…</div></div>
+  </div>
+</div>
+
+<!-- 房間:display + 玩家列 + 控制列 -->
+<div id="roomView">
+  <div id="displayWrap">
+    <iframe id="displayFrame" title="display"></iframe>
+    <button id="fsBtn" title="全螢幕(ESC 返回)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9.5 2h4.5v4.5M14 2 9 7M6.5 14H2V9.5M2 14l5-5"/></svg></button>
+  </div>
+  <div id="playerStrip"><span class="lbl">玩家</span></div>
+  <div id="controlBar"></div>
+</div>
+
+<!-- 載入遊戲 modal -->
+<div class="modalMask" id="moduleModal">
+  <div class="modal">
+    <header><b>載入遊戲</b><button class="topbtn" onclick="closeModuleModal()">✕</button></header>
+    <div class="body"><div id="moduleGrid"><div class="emptyHint">讀取中…</div></div></div>
+  </div>
+</div>
+
+<!-- 分享 modal -->
+<div class="modalMask" id="shareModal">
+  <div class="modal" style="width:min(360px,92vw)">
+    <header><b>↗ 分享手機連結</b><button class="topbtn" onclick="closeShareModal()">✕</button></header>
+    <div class="body" id="shareBox">
+      <img id="shareQr" alt="QR">
+      <div id="shareUrl"></div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+        <button class="btn btn-primary" id="copyLinkBtn">複製連結</button>
+        <button class="btn btn-ghost" id="qrOnScreenBtn">▣ 大螢幕顯示 QR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  window.IMGAME_BASE = location.pathname.indexOf('/labs/game') === 0 ? '/labs/game' : '';
+  document.write('<script src="' + IMGAME_BASE + '/socket.io/socket.io.js"><\/script>');
+  document.write('<script src="' + IMGAME_BASE + '/shared/socket.js"><\/script>');
+  // P2P 主持(host-authoritative):瀏覽器當 server 跑 GameSession + NetKit 權威 sim
+  document.write('<script src="' + IMGAME_BASE + '/shared/p2p.js"><\/script>');
+  document.write('<script src="' + IMGAME_BASE + '/shared/engine-loader.js"><\/script>');
+  document.write('<script src="' + IMGAME_BASE + '/shared/game-host.js"><\/script>');
+  document.write('<script src="' + IMGAME_BASE + '/shared/netcore.js"><\/script>');
+  document.write('<script src="' + IMGAME_BASE + '/shared/netclient.js"><\/script>');
+  document.write('<script src="' + IMGAME_BASE + '/shared/netsim.js"><\/script>');
+</script>
+<script>
+'use strict';
+// ════════════════════════════════════════════════════════════════
+//  Zai Game 合併主持頁:display(上方 iframe)+ host 控制(下方)
+//  流程:開房 → 載入遊戲(選模組,留在大廳)→ 啟動遊戲 → 精簡主持
+// ════════════════════════════════════════════════════════════════
+const $ = (id) => document.getElementById(id);
+const client = new GameClient();
+
+let roomId = null;
+let phase = 'lobby';            // lobby | playing | result
+let selectedModuleId = null;    // 已載入(未啟動)的模組
+let selectedManifest = null;
+let players = [];
+let lastGameState = null;
+let qrVisibleOnScreen = false;
+let p2pMode = false;            // true = host-authoritative(GameSession 跑本機瀏覽器,手機/大螢幕 P2P 直連)
+let gameHost = null;           // P2P 模式下的 GameHost(瀏覽器內 server)
+let hostP2P = null;
+
+const ACTION_DEFS = {
+  advance_identity: { label: '▶ 全員確認，開始發牌', cls: 'btn-primary' },
+  force_reveal:     { label: '✦ 強制翻牌',          cls: 'btn-warning' },
+  next_round:       { label: '▶ 下一回合',          cls: '' },
+  next_stage:       { label: '▶ 下一階段',          cls: '' },
+  end_game:         { label: '✕ 結束遊戲',          cls: 'btn-danger'  },
+  end_vote:         { label: '▶ 結束投票',          cls: '' },
+  restart:          { label: '↺ 重新開始',          cls: '' },
+  back_to_lobby:    { label: '← 返回 Lobby',        cls: 'btn-ghost'   },
+};
+
+// ── 小工具 ──────────────────────────────────────────────
+let toastTimer = null;
+function toast(msg, ms = 2800) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+function api(path, opts) {
+  return fetch(IMGAME_BASE + path, opts).then(async r => {
+    if (r.status === 401) { location.href = IMGAME_BASE + '/'; throw new Error('auth'); }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  });
+}
+// A/B:遠端實體預測 flag —— labs 頁網址帶 ?rp=1 就一路傳給大螢幕與手機
+const RP = new URLSearchParams(location.search).get('rp') === '1' ? '&rp=1' : '';
+// A/B:?sw=0 關掉 sim Web Worker(改回主執行緒跑模擬)→ 對照大螢幕順不順。預設開(Worker)。
+window.__noSimWorker = new URLSearchParams(location.search).get('sw') === '0';
+// P2P 模式:手機開完整遊戲頁走 WebRTC 直連(?p2p=1);一般模式走 Node
+function mobileUrl() {
+  return p2pMode
+    ? location.origin + IMGAME_BASE + '/mobile/game.html?room=' + roomId + '&p2p=1' + RP
+    : location.origin + IMGAME_BASE + '/mobile?room=' + roomId;
+}
+function qrSrc() {
+  return p2pMode
+    ? IMGAME_BASE + '/api/rooms/' + roomId + '/qr?path=' + encodeURIComponent('/mobile/game.html?room=' + roomId + '&p2p=1' + RP)
+    : IMGAME_BASE + '/api/rooms/' + roomId + '/qr';
+}
+
+// ── 大廳:開房 / 房間清單 ───────────────────────────────
+async function refreshRooms() {
+  try {
+    const rooms = await api('/api/rooms');
+    const box = $('roomList');
+    if (!rooms.length) { box.innerHTML = '<div class="emptyHint">目前沒有開著的房間</div>'; return; }
+    box.innerHTML = '';
+    rooms.forEach(r => {
+      const el = document.createElement('button');
+      el.className = 'roomItem';
+      el.innerHTML = `<span class="code">${r.roomId}</span>
+        <span class="mod">${r.moduleName || '（未選模組）'} · ${r.phase}</span>
+        <span class="cnt">${(r.playerCount ?? (r.players || []).length) || 0} 人</span>`;
+      el.onclick = () => enterRoom(r.roomId);
+      box.appendChild(el);
+    });
+  } catch (e) {
+    $('roomList').innerHTML = '<div class="emptyHint">讀取失敗</div>';
+  }
+}
+
+async function createRoom() {
+  $('createBtn').disabled = true;
+  try {
+    const j = await api('/api/rooms', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    enterRoom(j.roomId);
+  } catch (e) {
+    toast('建房失敗:' + e.message);
+  } finally {
+    $('createBtn').disabled = false;
+  }
+}
+
+// ── 區網主持(P2P):這個瀏覽器當 server ────────────────────
+function genRoomCode() { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+async function createRoomP2P() {
+  $('createP2PBtn').disabled = true;
+  try {
+    if (typeof loadGameEngine !== 'function' || typeof GameHost !== 'function') throw new Error('P2P 元件未載入');
+    const rid = genRoomCode();
+    const engine = await loadGameEngine(IMGAME_BASE);
+    const sig = io(location.origin, { path: IMGAME_BASE + '/socket.io' });
+    await new Promise((r) => sig.connected ? r() : sig.on('connect', r));
+    hostP2P = new P2PNode(sig, { roomId: rid, role: 'host' });
+    gameHost = new GameHost(hostP2P, engine, { roomId: rid, deckLoader: () => [] });
+    const reply = await hostP2P.join();
+    if (!reply || !reply.isHost) throw new Error('此房號已有 host');
+    window.__gameHost = gameHost;   // display iframe 需要時可取(目前 display 走 P2P,不需)
+    p2pMode = true;
+    enterRoom(rid);
+  } catch (e) {
+    toast('區網主持啟動失敗:' + e.message);
+    p2pMode = false; gameHost = null;
+  } finally {
+    $('createP2PBtn').disabled = false;
+  }
+}
+
+// ── 進房 ───────────────────────────────────────────────
+function enterRoom(id) {
+  roomId = id.toUpperCase();
+  history.replaceState(null, '', IMGAME_BASE + '/?room=' + roomId + (p2pMode ? '&p2p=1' : '') + RP);   // 保留 rp 在網址列(看得到 + reload 不掉)
+  $('landing').style.display = 'none';
+  $('roomView').style.display = 'flex';
+  $('roomBadge').style.display = '';
+  $('roomBadge').textContent = roomId + (p2pMode ? ' ⚡' : '') + (RP ? ' RP' : '');   // RP = 遠端預測開著
+  $('shareBtn').style.display = '';
+  $('closeRoomBtn').style.display = '';
+  // 大螢幕 display:P2P 模式走 WebRTC 直連 host(?p2p=1);一般模式連 Node。rp=1 → 遠端預測
+  $('displayFrame').src = IMGAME_BASE + '/display?room=' + roomId + (p2pMode ? '&p2p=1' + RP : '');
+  connectHost();
+}
+
+function connectHost() {
+  // P2P:本機 loopback。connectLocal 會同步 _emit('connect') → 下方 connect handler 自動 joinHost。
+  if (p2pMode) { client.connectLocal(gameHost); return; }
+  if (!client.socket) client.connect();
+  else if (client.socket.connected) client.joinHost(roomId);
+}
+
+function leaveRoomView() {
+  roomId = null; phase = 'lobby';
+  selectedModuleId = null; selectedManifest = null; players = []; lastGameState = null;
+  history.replaceState(null, '', IMGAME_BASE + '/');
+  try { client.socket?.disconnect(); } catch {}
+  client.socket = null;
+  // P2P 主持:拆掉瀏覽器內 server(房間結束)
+  if (p2pMode) { try { hostP2P?.leave?.(); } catch {} try { gameHost?.session?.dispose?.(); } catch {} gameHost = null; hostP2P = null; window.__gameHost = null; p2pMode = false; }
+  $('roomView').style.display = 'none';
+  $('landing').style.display = 'flex';
+  $('roomBadge').style.display = 'none';
+  $('shareBtn').style.display = 'none';
+  $('closeRoomBtn').style.display = 'none';
+  $('displayFrame').src = 'about:blank';
+  refreshRooms();
+}
+
+// ── 玩家列 ─────────────────────────────────────────────
+function renderPlayers() {
+  const strip = $('playerStrip');
+  strip.innerHTML = '<span class="lbl">玩家 ' + players.length + '</span>';
+  players.forEach((p, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (p.isConnected === false ? ' off' : '');
+    const num = p.playerNumber || (i + 1);
+    const dotCls = p.isReady ? 'ready' : 'wait';
+    chip.innerHTML = `<span class="num">${num}</span><span class="dot ${dotCls}"></span>
+      <span>${escapeHtml(p.name)}</span>` +
+      (p.score ? `<span class="score">${p.score}</span>` : '');
+    const kick = document.createElement('button');
+    kick.className = 'kick'; kick.title = '踢出'; kick.textContent = '✕';
+    kick.onclick = () => { if (confirm(`踢出 ${p.name}？`)) client.kickPlayer(p.id); };
+    chip.appendChild(kick);
+    strip.appendChild(chip);
+  });
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ── 底部控制列(依階段渲染)─────────────────────────────
+function renderControls() {
+  const bar = $('controlBar');
+  bar.innerHTML = '';
+
+  if (phase === 'lobby') {
+    const ready = players.filter(p => p.isReady).length;
+    const info = document.createElement('span');
+    info.id = 'phaseInfo';
+    info.innerHTML = selectedManifest
+      ? `已載入 <b>${escapeHtml(selectedManifest.name || selectedModuleId)}</b>(${selectedManifest.minPlayers}–${selectedManifest.maxPlayers} 人)`
+      : '大廳 — 先載入一款遊戲';
+    bar.appendChild(info);
+    bar.appendChild(grow());
+
+    const loadBtn = mkBtn(selectedManifest ? '更換遊戲' : '載入遊戲', '', openModuleModal);
+    bar.appendChild(loadBtn);
+
+    const startBtn = mkBtn('▶ 啟動遊戲', 'btn-primary btn-lg', () => {
+      client.loadModule(selectedModuleId, null);
+    });
+    startBtn.disabled = !selectedModuleId;
+    bar.appendChild(startBtn);
+
+    if (selectedManifest) {
+      const hint = document.createElement('span');
+      hint.id = 'readyHint';
+      hint.textContent = `已準備 ${ready} 人(最少 ${selectedManifest.minPlayers} 人)` +
+        (ready < selectedManifest.minPlayers ? ' — 人數還不足' : ' ✓');
+      bar.appendChild(hint);
+    }
+    return;
+  }
+
+  if (phase === 'result') {
+    const info = document.createElement('span');
+    info.id = 'phaseInfo';
+    info.innerHTML = '🏁 <b>遊戲結束</b>';
+    bar.appendChild(info);
+    bar.appendChild(grow());
+    bar.appendChild(mkBtn(ACTION_DEFS.restart.label, ACTION_DEFS.restart.cls, () => hostAction('restart')));
+    bar.appendChild(mkBtn(ACTION_DEFS.back_to_lobby.label, ACTION_DEFS.back_to_lobby.cls, () => hostAction('back_to_lobby')));
+    bar.appendChild(mkBtn('更換遊戲', '', () => client.changeModule()));
+    return;
+  }
+
+  // playing
+  const st = lastGameState || {};
+  const info = document.createElement('span');
+  info.id = 'phaseInfo';
+  const roundTxt = st.maxRounds ? ` · 回合 ${st.round}/${st.maxRounds}` : (st.round ? ` · 回合 ${st.round}` : '');
+  info.innerHTML = `<b>${escapeHtml(st.phaseLabel || st.phase || '進行中')}</b>${roundTxt}` +
+    (st.advance?.auto ? ` <span style="color:#5c5">⏱ 自動</span>` : '');
+  bar.appendChild(info);
+  bar.appendChild(grow());
+
+  const actions = st.availableActions || [];
+  if (!actions.length) {
+    const wait = document.createElement('span');
+    wait.style.color = '#556'; wait.style.fontSize = '.82rem';
+    wait.textContent = '等待玩家操作…';
+    bar.appendChild(wait);
+  }
+  actions.forEach(a => {
+    const def = ACTION_DEFS[a] || { label: a, cls: 'btn-primary' };
+    bar.appendChild(mkBtn(def.label, def.cls, () => hostAction(a)));
+  });
+}
+
+function grow() { const s = document.createElement('span'); s.className = 'grow'; return s; }
+function mkBtn(label, cls, onclick) {
+  const b = document.createElement('button');
+  b.className = 'btn ' + cls; b.textContent = label; b.onclick = onclick;
+  return b;
+}
+function hostAction(action) { client.nextPhase({ action }); }
+
+// ── 載入遊戲 modal ────────────────────────────────────
+let moduleListCache = null;
+async function openModuleModal() {
+  $('moduleModal').classList.add('open');
+  try {
+    if (!moduleListCache) moduleListCache = await api('/api/modules');
+    renderModuleGrid(moduleListCache);
+  } catch (e) {
+    $('moduleGrid').innerHTML = '<div class="emptyHint">模組清單讀取失敗</div>';
+  }
+}
+function closeModuleModal() { $('moduleModal').classList.remove('open'); }
+function renderModuleGrid(mods) {
+  const grid = $('moduleGrid');
+  grid.innerHTML = '';
+  if (!mods.length) { grid.innerHTML = '<div class="emptyHint">沒有可用模組</div>'; return; }
+  mods.forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'modCard' + (m.id === selectedModuleId ? ' sel' : '');
+    card.innerHTML = `<h3>${escapeHtml(m.name || m.id)}</h3>
+      <div class="desc">${escapeHtml(m.description || '')}</div>
+      <div class="meta">${m.minPlayers}–${m.maxPlayers} 人 · ${m.stageCount ?? '?'} 階段</div>`;
+    card.onclick = () => {
+      closeModuleModal();
+      client.selectModule(m.id);
+      toast(`載入「${m.name || m.id}」…`);
+    };
+    grid.appendChild(card);
+  });
+}
+
+// ── 分享 modal ────────────────────────────────────────
+function openShareModal() {
+  if (!roomId) return;
+  $('shareQr').src = qrSrc();
+  $('shareUrl').textContent = mobileUrl();
+  qrVisibleOnScreen = false;
+  $('qrOnScreenBtn').textContent = '▣ 大螢幕顯示 QR';
+  $('shareModal').classList.add('open');
+}
+function closeShareModal() {
+  $('shareModal').classList.remove('open');
+  if (qrVisibleOnScreen) { client.socket.emit('host_toggle_qr', { roomId, visible: false }); qrVisibleOnScreen = false; }
+}
+
+// ── Socket 事件 ───────────────────────────────────────
+client.on('connect', () => { if (roomId) client.joinHost(roomId); });
+
+client.on('host_joined', (d) => {
+  phase = d.phase || 'lobby';
+  players = d.players || [];
+  if (d.moduleName && d.manifest) {
+    selectedModuleId = d.moduleName;
+    selectedManifest = d.manifest;
+  }
+  $('moduleBadge').textContent = d.moduleName ? `已載入:${d.manifest?.name || d.moduleName}` : '';
+  renderPlayers();
+  renderControls();
+});
+
+client.on('module_selected', (d) => {
+  selectedModuleId = d.moduleId;
+  selectedManifest = d.manifest;
+  $('moduleBadge').textContent = `已載入:${d.manifest?.name || d.moduleId}`;
+  toast(`已載入「${d.manifest?.name || d.moduleId}」,可以啟動了`);
+  renderControls();
+});
+
+client.on('module_picker_reopen', (d) => {
+  phase = 'lobby';
+  selectedModuleId = null; selectedManifest = null;
+  moduleListCache = d.availableModules || moduleListCache;
+  $('moduleBadge').textContent = '';
+  renderControls();
+  openModuleModal();
+});
+
+client.on('player_joined',  (d) => { players = d.players || players; renderPlayers(); renderControls(); });
+client.on('player_left',    (d) => { players = d.players || players; renderPlayers(); renderControls(); });
+client.on('player_ready',   (d) => { players = d.players || players; renderPlayers(); renderControls(); });
+client.on('player_disconnected', (d) => {
+  const p = players.find(x => x.id === d.playerId); if (p) p.isConnected = false;
+  renderPlayers();
+});
+client.on('player_reconnected', (d) => { players = d.players || players; renderPlayers(); });
+client.on('player_renamed', (d) => {
+  const p = players.find(x => x.id === d.playerId); if (p) p.name = d.newName;
+  renderPlayers();
+});
+client.on('player_numbers_updated', (d) => {
+  players.forEach(p => { if (d.players?.[p.id]) p.playerNumber = d.players[p.id]; });
+  renderPlayers();
+});
+
+client.on('game_started', (d) => {
+  phase = 'playing';
+  lastGameState = null;
+  closeModuleModal(); closeShareModal();
+  toast(`▶ ${d.module || ''} 開始!`);
+  renderControls();
+});
+
+client.on('stage_started', (d) => {
+  if (lastGameState) lastGameState.phaseLabel = d.stageName;
+  else lastGameState = { phaseLabel: d.stageName };
+  renderControls();
+});
+
+client.on('host_game_state', (st) => {
+  phase = 'playing';
+  lastGameState = st;
+  if (st.playerStates) {
+    st.playerStates.forEach(up => {
+      const p = players.find(x => x.id === up.id);
+      if (p) Object.assign(p, up);
+    });
+  }
+  renderPlayers();
+  renderControls();
+});
+
+client.on('game_ended', () => {
+  phase = 'result';
+  renderControls();
+});
+
+client.on('back_to_lobby', () => {
+  phase = 'lobby';
+  lastGameState = null;
+  renderControls();
+});
+
+client.on('room_closed', () => {
+  toast('房間已關閉');
+  leaveRoomView();
+});
+
+client.on('error', (e) => {
+  if (e?.code === 'AUTH_REQUIRED') { location.href = IMGAME_BASE + '/'; return; }
+  if (e?.code === 'ROOM_FORBIDDEN') {           // 別人開的房:不能主持,退回大廳
+    toast(e.message || '這是別人開的房間', 4200);
+    leaveRoomView();
+    return;
+  }
+  toast(e?.message || '發生錯誤', 4200);
+});
+
+// ── display 全螢幕(ESC 為瀏覽器內建離開,fullscreenchange 同步按鈕)──
+$('fsBtn').onclick = () => {
+  const wrap = $('displayWrap');
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsEl) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } else {
+    (wrap.requestFullscreen || wrap.webkitRequestFullscreen).call(wrap);
+  }
+};
+// ESC 備援:多數瀏覽器全螢幕時原生處理 ESC;若被页面收到(內嵌 webview 等)也保證能返回
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsEl) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+});
+const FS_ICON_EXPAND = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9.5 2h4.5v4.5M14 2 9 7M6.5 14H2V9.5M2 14l5-5"/></svg>';
+const FS_ICON_SHRINK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 9.5v4.5h-4.5M14 14l-5-5M2 6.5V2h4.5M2 2l5 5"/></svg>';
+function onFsChange() {
+  const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  $('fsBtn').innerHTML = fs ? FS_ICON_SHRINK : FS_ICON_EXPAND;
+  $('fsBtn').title = fs ? '離開全螢幕(ESC)' : '全螢幕(ESC 返回)';
+}
+document.addEventListener('fullscreenchange', onFsChange);
+document.addEventListener('webkitfullscreenchange', onFsChange);
+
+// ── 綁定 UI ───────────────────────────────────────────
+$('createBtn').onclick = createRoom;
+$('createP2PBtn').onclick = createRoomP2P;
+// 測試掛鉤(冒煙用):讓自動化能驅動載入模組/推進階段,不依賴 modal DOM
+window.__labs = { client, get roomId() { return roomId; }, get p2p() { return p2pMode; }, get phase() { return phase; }, get selected() { return selectedModuleId; },
+  select: (id) => client.selectModule(id), load: (id) => client.loadModule(id, null), next: (a) => client.nextPhase(a ? { action: a } : {}), createP2P: createRoomP2P };
+$('shareBtn').onclick = openShareModal;
+$('closeRoomBtn').onclick = () => {
+  if (!confirm('關閉房間?所有玩家會被踢出。')) return;
+  if (p2pMode) { leaveRoomView(); return; }   // P2P:直接拆掉本機 server(host_close_room 在瀏覽器無對應)
+  client.closeRoom();
+};
+$('copyLinkBtn').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(mobileUrl());
+    toast('連結已複製 ✓');
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = mobileUrl(); document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove();
+    toast('連結已複製 ✓');
+  }
+};
+$('qrOnScreenBtn').onclick = () => {
+  qrVisibleOnScreen = !qrVisibleOnScreen;
+  client.socket.emit('host_toggle_qr', { roomId, visible: qrVisibleOnScreen });
+  $('qrOnScreenBtn').textContent = qrVisibleOnScreen ? '▣ 關閉大螢幕 QR' : '▣ 大螢幕顯示 QR';
+};
+$('moduleModal').addEventListener('click', e => { if (e.target === $('moduleModal')) closeModuleModal(); });
+$('shareModal').addEventListener('click', e => { if (e.target === $('shareModal')) closeShareModal(); });
+
+// ── 初始化:?room=XXXX → 直接回房 ─────────────────────
+(async function init() {
+  const want = new URLSearchParams(location.search).get('room');
+  if (want) {
+    try {
+      await api('/api/rooms/' + encodeURIComponent(want.toUpperCase()));
+      enterRoom(want);
+      return;
+    } catch { /* 房間不存在 → 留在大廳 */ }
+  }
+  refreshRooms();
+})();
+</script>
+</body>
+</html>

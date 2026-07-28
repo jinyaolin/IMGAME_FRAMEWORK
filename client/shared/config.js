@@ -1,3 +1,30 @@
+// ── Base path（子路徑部署，如 zaistudio.tw/labs/game）─────────────────────
+// 各 HTML 頁在載入本檔前會先設 window.IMGAME_BASE(與伺服器 BASE_PATH 對應);
+// 未設時從 URL 推導。本機開發(根路徑)為空字串,行為不變。
+if (typeof window !== 'undefined' && window.IMGAME_BASE === undefined) {
+  window.IMGAME_BASE = location.pathname.indexOf('/labs/game') === 0 ? '/labs/game' : '';
+}
+// 子路徑模式下,把站內絕對路徑的 fetch('/api/...') 自動補上前綴
+if (typeof window !== 'undefined' && window.IMGAME_BASE && !window.__imgameFetchWrapped) {
+  window.__imgameFetchWrapped = true;
+  const _fetch = window.fetch;
+  window.fetch = (u, o) => _fetch(
+    (typeof u === 'string' && /^\/(?!\/)/.test(u) && !u.startsWith(window.IMGAME_BASE + '/'))
+      ? window.IMGAME_BASE + u : u, o);
+}
+
+// P2P 的 ICE 設定(STUN + 選配 TURN)由伺服器 /api/ice 提供(TURN 憑證放伺服器 env、不進 git)。
+// 頁面一載入就抓、存進 window.IMGAME_ICE;P2P 連線在使用者開房/加入時才建,遠晚於此,穩妥就位。
+if (typeof window !== 'undefined' && !window.__imgameIceFetched) {
+  window.__imgameIceFetched = true;
+  try {
+    fetch((window.IMGAME_BASE || '') + '/api/ice')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && Array.isArray(d.iceServers) && d.iceServers.length) window.IMGAME_ICE = d.iceServers; })
+      .catch(() => {});
+  } catch (e) {}
+}
+
 // ── Config ────────────────────────────────────────────────────────────────
 const Config = {
   get lang() { return localStorage.getItem('cfg_lang') || 'zh'; },
@@ -5,15 +32,18 @@ const Config = {
   get ip()   { return localStorage.getItem('cfg_ip') || ''; },
   set ip(v)  { v ? localStorage.setItem('cfg_ip', v) : localStorage.removeItem('cfg_ip'); },
 
+  // 把站內根路徑(/api/...、/uploads/...)補上子路徑前綴
+  url(path) { return (window.IMGAME_BASE || '') + path; },
+
   mobileUrl(roomId) {
     const port = location.port ? ':' + location.port : '';
     const base = this.ip ? `http://${this.ip}${port}` : location.origin;
-    return `${base}/mobile?room=${roomId}`;
+    return `${base}${window.IMGAME_BASE || ''}/mobile?room=${roomId}`;
   },
   qrSrc(roomId) {
     return this.ip
-      ? `/api/rooms/${roomId}/qr?host=${encodeURIComponent(this.ip)}`
-      : `/api/rooms/${roomId}/qr`;
+      ? this.url(`/api/rooms/${roomId}/qr?host=${encodeURIComponent(this.ip)}`)
+      : this.url(`/api/rooms/${roomId}/qr`);
   }
 };
 
@@ -126,6 +156,7 @@ const TRANSLATIONS = {
     'host.sort_manual':       '手動排列（可拖曳）',
     'host.module_select':     '選擇遊戲模組',
     'host.module_selected':   '遊戲模組',
+    'host.change_module':     '🔄 更換遊戲模組',
     'host.md_basic':          '基本參數',
     'host.md_decks':          '牌組',
     'host.md_stages':         '啟用階段',
@@ -226,6 +257,7 @@ const TRANSLATIONS = {
     'alert.join_failed':      '無法加入房間',
     'alert.no_room':          '請先建立房間',
     'alert.close_room':       '確定要關閉房間嗎？所有玩家將被踢出。',
+    'alert.change_module':    '確定要更換遊戲模組嗎？目前這局會中止，所有人回到大廳。',
     'alert.rename_player':    '修改玩家名稱',
     'alert.empty_name':       '名稱不能為空',
     'alert.kick_confirm':     '確定踢除玩家「{name}」？',
@@ -551,6 +583,7 @@ const TRANSLATIONS = {
     'host.sort_manual':       'Manual (drag to reorder)',
     'host.module_select':     'Select Game Module',
     'host.module_selected':   'Game Module',
+    'host.change_module':     '🔄 Change Game',
     'host.md_basic':          'Basic',
     'host.md_decks':          'Decks',
     'host.md_stages':         'Active Stages',
@@ -651,6 +684,7 @@ const TRANSLATIONS = {
     'alert.join_failed':      'Failed to join room',
     'alert.no_room':          'Please create a room first',
     'alert.close_room':       'Close this room? All players will be kicked.',
+    'alert.change_module':    'Change the game module? The current game will be aborted and everyone returns to the lobby.',
     'alert.rename_player':    'Rename player',
     'alert.empty_name':       'Name cannot be empty',
     'alert.kick_confirm':     'Kick player "{name}"?',
@@ -1032,3 +1066,17 @@ Config.initUI = function() {
     _initCfgUI();
   }
 };
+
+// ── 遊戲程式檔案合成（多檔案 gameConfig.files → 單一可執行字串）──────
+// target: 'display' | 'mobile'。shared 檔案先載入；同端所有檔案共享頂層作用域。
+// 沒有 files（舊格式）時退回 gameCode / mobileCode。
+function composeGameCode(cfg, target) {
+  if (!cfg) return '';
+  if (Array.isArray(cfg.files) && cfg.files.length) {
+    const parts = cfg.files.filter(f => f && (f.target === 'shared' || f.target === target));
+    if (parts.length) {
+      return parts.map(f => `// ═══ ${f.name || 'file'} ═══\n${f.code || ''}`).join('\n\n');
+    }
+  }
+  return target === 'mobile' ? (cfg.mobileCode || '') : (cfg.gameCode || '');
+}

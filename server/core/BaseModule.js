@@ -2,6 +2,12 @@
 
 const fs = require('fs');
 const path = require('path');
+// NetKit(host 端權威 sim)。Node 直接 require;瀏覽器 engine-loader 會預載 NetKitHost,
+// 若未預載則優雅降級(僅舊路徑),不讓 BaseModule 在瀏覽器載入時炸掉。
+let NetKitHost = null, hasSim = function () { return false; };
+// typeof 守衛:瀏覽器 engine-loader 對「載入中拋錯」的模組會留下空 exports({}),
+// 此時 require 不拋錯但回傳空物件 → 必須檢查 hasSim 真的是函式才採用,否則保留降級 fallback。
+try { const _nk = require('./NetKitHost'); if (_nk && typeof _nk.hasSim === 'function') { NetKitHost = _nk.NetKitHost; hasSim = _nk.hasSim; } } catch (e) { /* 瀏覽器未預載 → 無 host sim */ }
 
 /**
  * Base Game Module
@@ -90,6 +96,26 @@ class BaseModule {
   // Supports both 'children' (new) and 'stages' (legacy) keys.
   _getChildren(stage) {
     return (stage.children || stage.stages || []).filter(s => s.enabled);
+  }
+
+  // 自訂互動介面的狀態聚合廣播：停止並清空
+  _clearGameStateTicker() {
+    if (this._gameStateTicker) { clearInterval(this._gameStateTicker); this._gameStateTicker = null; }
+    if (this._gameStates) this._gameStates.clear();
+    this._gameStatesDirty = false;
+    this._stopNetKit();
+  }
+
+  _stopNetKit() {
+    if (this._netkit) { try { this._netkit.dispose(); } catch (e) {} this._netkit = null; }
+  }
+
+  // 卸下模組時的清理：停掉所有計時器，避免殘留 callback 打到已卸下的模組
+  // （中途更換模組 / 強制回大廳都會呼叫；由 GameSession.resetToLobby 統一觸發）
+  dispose() {
+    if (this._countdownTimer)   { clearTimeout(this._countdownTimer);   this._countdownTimer = null; }
+    if (this._autoAdvanceTimer) { clearTimeout(this._autoAdvanceTimer); this._autoAdvanceTimer = null; }
+    this._clearGameStateTicker();
   }
 
   getCurrentStageInfo() {
@@ -188,6 +214,7 @@ class BaseModule {
         clearTimeout(this._countdownTimer);
         this._countdownTimer = null;
       }
+      this._clearGameStateTicker();
       if (this._autoAdvanceTimer && typeof this._autoAdvanceTimer === 'object') {
         clearTimeout(this._autoAdvanceTimer);
       }
@@ -475,6 +502,17 @@ class BaseModule {
       }
     }
 
+    // 重置標記 resetOnStart 的 playerAttribute(如選角的 ready → 每局重新確定;role/seed 不重置 → 記住上次選擇)。
+    // 通用:任何遊戲都能靠此旗標在開局清掉「準備/已提交」類狀態,保留「選擇」類狀態。
+    const _resetDefs = ((this.manifest && this.manifest.playerAttributes) || []).filter(d => d && d.resetOnStart);
+    if (_resetDefs.length) {
+      for (const p of this.players) {
+        p.attributes = p.attributes || {};
+        for (const d of _resetDefs) p.attributes[d.id] = (d.initialValue !== undefined ? d.initialValue : null);
+      }
+      console.log('[BaseModule] 重置 resetOnStart 屬性:', _resetDefs.map(d => d.id).join(', '));
+    }
+
     // Send game_started event to notify clients
     const playersData = this.players.map(p => ({
       id: p.id,
@@ -701,6 +739,29 @@ class BaseModule {
   }
 
   async onPlayerAction(playerId, action, data, session) {
+    // NetKit:手機只送輸入,權威 sim 在伺服器。高頻 → 不 log。
+    if (action === 'net_input') { if (this._netkit) this._netkit.input(playerId, data); return; }
+
+    // 通用:玩家設定自己的 playerAttribute(選角/收集等 stage 用來寫入共享參數;跨 stage 保留、host/display 靠廣播看板)。
+    // 只允許 manifest 有宣告的參數;setPlayerParam 內部再驗證值型別/select 選項。
+    if (action === 'set_player_attr') {
+      const attrId = data && data.attrId;
+      const defs = (session.manifest && session.manifest.playerAttributes) || [];
+      if (attrId && defs.some(d => d.id === attrId)) {
+        try { session.setPlayerParam(playerId, attrId, data.value); } catch (e) { console.warn('[BaseModule] set_player_attr:', e && e.message); }
+        // all_ready 觸發:全員 ready 屬性為 true → 自動進下一階段(選角/收集等 stage 用)
+        const stage = this._currentStage();
+        if (stage && stage.advance && stage.advance.trigger === 'all_ready' && !this._autoAdvanceTimer) {
+          const allReady = this.players.length > 0 && this.players.every(p => (p.attributes || {}).ready === true);
+          if (allReady) {
+            console.log('[BaseModule] 全員確定 → 自動推進下一階段');
+            this._autoAdvanceTimer = setTimeout(() => { this._autoAdvanceTimer = null; this.onHostNextStage(session); }, 800);
+          }
+        }
+      }
+      return;
+    }
+
     console.log('[BaseModule] Player action:', playerId, action, data);
 
     // Handle identity confirmation for identity_draw stages
@@ -736,6 +797,44 @@ class BaseModule {
           state: data?.state,
           seq: data?.seq, // Forward sequence number to prevent out-of-order issues
         });
+      }
+    }
+
+    // 自訂互動介面（layout:'custom'）：手機端遊戲狀態回報 → 轉發給 display（大地圖等）
+    // 兩條通道嚴格分離：
+    //   game_state（sendState，連續位置快照）→ 轉發 display + 聚合定頻(20Hz)廣播回全體手機（onPlayers）
+    //   game_event（sendEvent，離散事件 atk/cast/died…）→ 只轉發 display（display 再 broadcast → onMessage）
+    // 關鍵：離散事件「絕不」進聚合快照 _gameStates。否則事件物件會覆蓋該玩家最後的位置狀態，
+    // 20Hz 打包時被當成位置送出（多數事件沒有 x → 收端讀 s.state.x||0 = 0 → 對方角色瞬移到中心再插值滑回）。
+    if (action === 'game_state' || action === 'game_event') {
+      const stage = this._currentStage();
+      if (stage?.type === 'game') {
+        const player = this.players.find(p => p.id === playerId);
+        session.broadcastDisplay('player_game_state', {
+          playerId,
+          playerName: player?.name || playerId,
+          state: data,
+        });
+
+        if (action === 'game_event') return; // 離散事件到此為止，不污染位置聚合通道
+
+        if (!this._gameStates) this._gameStates = new Map();
+        this._gameStates.set(playerId, data);
+        this._gameStatesDirty = true;
+        if (!this._gameStateTicker) {
+          this._gameStateTicker = setInterval(() => {
+            const st = this._currentStage();
+            if (st?.type !== 'game') { this._clearGameStateTicker(); return; }
+            if (!this._gameStatesDirty) return;
+            this._gameStatesDirty = false;
+            const states = {};
+            for (const [pid, s] of this._gameStates) {
+              const idx = this.players.findIndex(p => p.id === pid);
+              states[pid] = { name: (idx >= 0 ? this.players[idx].name : pid), idx: Math.max(idx, 0), state: s };
+            }
+            session.broadcastPlayers('game_states', { states });
+          }, 50);   // 20Hz 聚合轉發(原 10Hz 太顆粒);收端用送端速度 dead-reckoning 外推,區網頻寬無虞
+        }
       }
     }
 
@@ -1048,7 +1147,13 @@ class BaseModule {
 
   onPlayerDisconnected(playerId, session) {
     console.log('[BaseModule] Player disconnected:', playerId);
+    if (this._netkit) this._netkit.leave(playerId);
     // Override this method to handle player disconnect
+  }
+
+  // NetKit:玩家(重新)加入且正在 game 階段 → 生成實體
+  onPlayerJoinedGame(playerId) {
+    if (this._netkit) this._netkit.join(playerId);
   }
 
   getGameState() {
@@ -1401,6 +1506,18 @@ class BaseModule {
     }
 
     if (deckConfig.ref) {
+      // Phase 0:deck 載入可注入。瀏覽器 P2P 沒有 fs → session.deckLoader(ref) 提供開房前預載的卡片
+      //（回傳 {cards:[...]}、陣列、或 null)。未注入時(Node 現行)走原本 fs 讀檔 → 行為零變。
+      const loader = this.session && this.session.deckLoader;
+      if (loader) {
+        try {
+          const d = loader(deckConfig.ref);
+          return (d && (d.cards || d)) || [];
+        } catch (err) {
+          console.error('[BaseModule] injected deckLoader failed:', deckConfig.ref, err);
+          return [];
+        }
+      }
       try {
         const deckPath = path.join(__dirname, '../../decks', `${deckConfig.ref}.json`);
         console.log('[BaseModule] Loading external deck from:', deckPath);
@@ -1747,6 +1864,13 @@ class BaseModule {
   async _startGameStage(session, stage) {
     console.log('[BaseModule] Entering game stage:', stage.name);
     for (const player of this.players) player.status = 'active';
+
+    // NetKit:若此 game 階段有 target:'sim' 檔 → 啟動伺服器權威 sim(取代舊的 game_states 聚合)
+    this._stopNetKit();
+    if (hasSim(stage.gameConfig)) {
+      try { this._netkit = new NetKitHost(session, stage); }
+      catch (e) { console.error('[BaseModule] NetKit start failed:', e && e.message); this._netkit = null; }
+    }
 
     const trigger = stage.advance?.trigger || 'host';
     if (trigger === 'timer') {

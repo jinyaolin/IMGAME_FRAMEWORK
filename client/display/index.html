@@ -120,6 +120,19 @@
     #moduleDisplay {
       width: 100%;
       height: 100%;
+      position: relative;
+    }
+
+    /* ── Game stage：鎖定比例的 letterbox 畫布 ── */
+    #gameStageBox {
+      position: absolute; inset: 0; margin: auto;
+      background: #000; overflow: hidden;
+      box-shadow: 0 0 40px #0008;
+    }
+    #gameStageBox canvas {
+      position: absolute; inset: 0;
+      width: 100% !important; height: 100% !important;
+      display: block;
     }
 
     /* ── Event feed ── */
@@ -293,6 +306,7 @@
     <div id="lobbyView">
       <h1>🎮</h1>
       <h1 id="lobbyRoomCode">------</h1>
+      <div id="lobbyModule" style="color:#8899ff;font-size:1.05rem;min-height:1.4em;margin-top:2px;"></div>
       <div id="qrArea"><img id="qrImg" src="" alt="QR"></div>
       <div id="joinUrl"></div>
       <div style="margin-top:16px;">
@@ -326,14 +340,25 @@
   <div id="eventFeed"></div>
 
   <!-- Socket.io -->
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/shared/socket.js"></script>
-  <script src="/shared/config.js"></script>
+  <script>
+    window.IMGAME_BASE = location.pathname.indexOf('/labs/game') === 0 ? '/labs/game' : '';
+    document.write('<script src="' + IMGAME_BASE + '/socket.io/socket.io.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/socket.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/config.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/netcore.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/netclient.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/p2p.js"><\/script>');
+  </script>
   <script>
     const roomId = getRoomFromUrl();
+    const useP2P = new URLSearchParams(location.search).get('p2p') === '1';   // P2P 主持:直連 host 瀏覽器
 
     const client = new GameClient();
-    client.connect();
+    if (useP2P) {
+      client.connectP2P(roomId).catch(e => { document.getElementById('connectMsg').textContent = 'P2P 連線失敗:' + (e && e.message); });
+    } else {
+      client.connect();
+    }
 
     client.on('connect', () => {
       document.getElementById('connectMsg').textContent = '連線成功，加入顯示端…';
@@ -359,17 +384,25 @@
       setRoom(data.roomId);
       setPhase(data.phase);
       setModule(data.moduleName);
+      document.getElementById('lobbyModule').textContent =
+        (data.phase === 'lobby' && data.moduleName) ? `已載入:${data.moduleName} — 等待主持人啟動` : '';
       renderPlayers(data.players || []);
       updateShared(data.sharedState || {});
 
-      // Show QR
-      const mobileUrl = Config.mobileUrl(data.roomId);
+      // Show QR — P2P 模式要帶完整遊戲頁 + &p2p=1(手機才會走 WebRTC 直連 host);rp=1 一起帶下去
+      const rpQS = (new URLSearchParams(location.search).get('rp') === '1') ? '&rp=1' : '';
+      const mobileUrl = useP2P
+        ? (Config.mobileUrl(data.roomId).replace('/mobile?room=', '/mobile/game.html?room=') + '&p2p=1' + rpQS)
+        : Config.mobileUrl(data.roomId);
+      const qrUrl = useP2P
+        ? (IMGAME_BASE + '/api/rooms/' + data.roomId + '/qr?path=' + encodeURIComponent('/mobile/game.html?room=' + data.roomId + '&p2p=1' + rpQS))
+        : Config.qrSrc(data.roomId);
       document.getElementById('joinUrl').textContent = mobileUrl;
       document.getElementById('mobileLink').href = mobileUrl;
-      document.getElementById('qrImg').src = Config.qrSrc(data.roomId);
+      document.getElementById('qrImg').src = qrUrl;
 
       // Initialize QR overlay
-      document.getElementById('qrOverlayImg').src = Config.qrSrc(data.roomId);
+      document.getElementById('qrOverlayImg').src = qrUrl;
       document.getElementById('qrOverlayUrl').textContent = mobileUrl;
 
       if (data.phase === 'playing') {
@@ -379,6 +412,13 @@
           startGameStage(data.currentStage.gameConfig || {}, [...players.values()]);
         }
       }
+    });
+
+    // 主持人在大廳選定模組(尚未啟動)— 頂列與大廳提示即時更新
+    client.on('module_selected', (data) => {
+      const name = data?.manifest?.name || data?.moduleId || '';
+      setModule(name || data?.moduleId);
+      document.getElementById('lobbyModule').textContent = name ? `已載入:${name} — 等待主持人啟動` : '';
     });
 
     client.on('game_started', (data) => {
@@ -460,22 +500,53 @@
       // Stop any running input game loop
       stopGameStage();
 
-      // Handle intermission stage - show pause screen
+      // Handle intermission stage - show message screen（不放暫停 icon,訊息本身即重點)
       if (data.stageType === 'intermission') {
         const el = document.getElementById('moduleDisplay');
         el.innerHTML = `
           <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;">
-            <div style="font-size:6rem;margin-bottom:30px;">⏸️</div>
             <h1 style="font-size:3rem;color:#aaaaff;margin-bottom:20px;letter-spacing:.2em;">${data.stageName}</h1>
             ${data.stageDescription ? `<div style="font-size:1.5rem;color:#8888cc;margin-bottom:40px;">${data.stageDescription}</div>` : ''}
             <div style="font-size:1.2rem;color:#6666aa;">${t('display.paused')}</div>
           </div>
         `;
+      } else if (data.stageType === 'select') {
+        selBoardActive = true; renderSelectBoard();
       } else if (data.stageType === 'game') {
         startGameStage(data.gameConfig || {}, [...players.values()]);
       } else if (data.stageType === 'card_play') {
         document.getElementById('moduleDisplay').innerHTML = '';
       }
+      if (data.stageType !== 'select') selBoardActive = false;
+    });
+
+    // ════════ 選角即時看板:每人目前選的角色 + 是否已確定(靠 player_param_updated 廣播更新)════════
+    const SEL_ROLE_META = { knight:{n:'騎士',i:'⚔️'}, witch:{n:'女巫',i:'🧙‍♀️'}, troll:{n:'巨魔',i:'👹'}, frog:{n:'青蛙',i:'🐸'}, princess:{n:'公主',i:'👸'}, wizard:{n:'巫師',i:'🧙'}, dwarf:{n:'矮人',i:'⛏️'}, robin:{n:'羅賓漢',i:'🏹'}, fairy:{n:'仙女',i:'🧚'}, elf:{n:'精靈',i:'🧝'}, hood:{n:'小紅帽',i:'🧥'}, prince:{n:'王子',i:'🤴'} };
+    let selBoardActive = false;
+    function renderSelectBoard() {
+      const el = document.getElementById('moduleDisplay');
+      const list = [...players.values()];
+      const cards = list.map(p => {
+        const a = p.attributes || {};
+        const m = SEL_ROLE_META[a.role] || { n: '？', i: '❔' };
+        const ready = !!a.ready;
+        return `<div style="width:200px;padding:20px 10px;border-radius:16px;background:${ready ? 'rgba(82,199,106,.18)' : 'rgba(255,255,255,.06)'};border:2px solid ${ready ? '#52c76a' : 'rgba(255,255,255,.15)'};text-align:center;transition:all .2s;">
+          <div style="font-size:4rem;line-height:1;">${m.i}</div>
+          <div style="font-size:1.5rem;color:#fff;margin-top:8px;font-weight:700;">${m.n}</div>
+          <div style="font-size:1rem;color:#aab;margin-top:4px;">${p.name || '玩家'}</div>
+          <div style="font-size:1.1rem;margin-top:10px;color:${ready ? '#52e05a' : '#8888aa'};">${ready ? '✓ 已確定' : '選擇中…'}</div>
+        </div>`;
+      }).join('');
+      const done = list.filter(p => (p.attributes || {}).ready).length;
+      el.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;">
+        <h1 style="font-size:2.6rem;color:#c9b6ff;letter-spacing:.15em;margin-bottom:6px;">選擇你的英雄</h1>
+        <div style="font-size:1.3rem;color:#8888cc;margin-bottom:30px;">${done} / ${list.length} 已確定 · 手機上左右換角色、🎲換造型</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;justify-content:center;max-width:90vw;">${cards || '<div style="color:#889;">等待玩家加入…</div>'}</div>
+      </div>`;
+    }
+    client.on('player_param_updated', d => {
+      const p = players.get(d.playerId); if (p) p.attributes = d.attributes || p.attributes;
+      if (selBoardActive) renderSelectBoard();
     });
 
     client.on('round_started', (data) => {
@@ -573,6 +644,7 @@
       console.log('[Display] Back to lobby');
       setPhase('lobby');
       setModule(null);
+      document.getElementById('lobbyModule').textContent = '';
       exitGameView();
       // Clear player number map when returning to lobby
       playerNumberMap = {};
@@ -725,6 +797,8 @@
     // ── Countdown ─────────────────────────────────────────────────
     let countdownTimer = null;
     client.on('countdown', (data) => {
+      // 互動遊戲(game 階段)的計時由遊戲自己畫在畫布上,不再疊加通用倒數遮罩
+      if (inputCanvas) return;
       console.log('[Display] Countdown:', data.remaining, '/', data.total);
       const overlay = document.getElementById('countdownOverlay');
       const numberEl = document.getElementById('countdownNumber');
@@ -870,9 +944,61 @@
     const CTRL_COLORS = ['#ff6644','#44aaff','#44ff88','#ffdd44','#ff44aa','#88aaff','#ffaa44','#44ffdd'];
     const inputPlayers = new Map(); // playerId → { name, color, inputs: Set, lastSeq: Map<key, seq> }
     let inputRAF = null;
+    let inputNet = null;   // NetKit:大螢幕的 Net(觀察者;收 net_snapshot 內插)
     let inputUpdateFn = null;
     let inputHandlers = [];
+    let inputStateHandlers = [];   // 自訂介面：手機 sendState 的接收端
     let inputCanvas = null, inputCtx = null;
+    let inputResizeHandler = null;
+
+    // ── 外部函式庫（gameConfig.library）───────────────────────────
+    // three/babylon 需要乾淨的 canvas 拿 WebGL context，所以 2d context 改為惰性取得
+    const GAME_LIB_URLS = {
+      three:   Config.url('/shared/vendor/three.min.js'),
+      babylon: Config.url('/shared/vendor/babylon.js'),
+      p5:      Config.url('/shared/vendor/p5.min.js'),
+    };
+
+    // ── 遊戲 log 回報（GameAPI.log + 自動錯誤捕捉 → server，給 AI debug）──
+    let gameLogBuf = [], gameLogTimer = null;
+    function pushGameLog(level, msg) {
+      if (gameLogBuf.length >= 100) return;
+      gameLogBuf.push({ ts: Date.now(), src: 'display', level, msg: String(msg).slice(0, 500) });
+      if (!gameLogTimer) gameLogTimer = setTimeout(flushGameLogs, 1500);
+    }
+    function flushGameLogs() {
+      gameLogTimer = null;
+      if (!gameLogBuf.length) return;
+      client.socket.emit('game_log', { roomId, entries: gameLogBuf.splice(0) });
+    }
+    const fmtLogArgs = (args) => args.map(x => {
+      if (typeof x === 'object') { try { return JSON.stringify(x); } catch { return String(x); } }
+      return String(x);
+    }).join(' ');
+    const fmtErr = (e) => e.message + (e.stack ? ' @' + (e.stack.split('\n')[1] || '').trim().slice(0, 120) : '');
+    const loadedGameLibs = {};
+    let inputCleanupFns = [];
+
+    function loadScriptOnce(url, key) {
+      if (loadedGameLibs[key]) return Promise.resolve();
+      return new Promise(resolve => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload  = () => { loadedGameLibs[key] = true; resolve(); };
+        s.onerror = () => { console.error('[Display] script load failed:', url); resolve(); };
+        document.head.appendChild(s);
+      });
+    }
+    function loadGameLibrary(lib) {
+      if (!lib || lib === 'none' || !GAME_LIB_URLS[lib]) return Promise.resolve();
+      return loadScriptOnce(GAME_LIB_URLS[lib], lib).then(() =>
+        // three 一律附掛 LowPoly（角色）+ FX（特效）+ LowWorld（場景/物件生成庫）
+        lib === 'three'
+          ? loadScriptOnce(Config.url('/shared/vendor/lowpoly.js'), '_lowpoly')
+              .then(() => loadScriptOnce(Config.url('/shared/vendor/fx.js'), '_fx'))
+              .then(() => loadScriptOnce(Config.url('/shared/vendor/lowworld.js'), '_lowworld'))
+          : null);
+    }
 
     function startGameStage(cfg, playersList) {
       inputPlayers.clear();
@@ -885,44 +1011,111 @@
         });
       });
 
+      // 鎖定比例：固定內部解析度（gameCode 座標系統穩定），CSS 縮放到視窗內最大可視尺寸
+      const GAME_RESOLUTIONS = { '16:9': [1920, 1080], '4:3': [1600, 1200], '1:1': [1080, 1080] };
+      const [gameW, gameH] = GAME_RESOLUTIONS[cfg.aspectRatio] || GAME_RESOLUTIONS['16:9'];
+
       const displayEl = document.getElementById('moduleDisplay');
       displayEl.innerHTML = '';
+      const stageBox = document.createElement('div');
+      stageBox.id = 'gameStageBox';
+      displayEl.appendChild(stageBox);
+
       inputCanvas = document.createElement('canvas');
       inputCanvas.id = 'inputCanvas';
-      inputCanvas.width  = window.innerWidth;
-      inputCanvas.height = window.innerHeight;
-      displayEl.appendChild(inputCanvas);
-      inputCtx = inputCanvas.getContext('2d');
-      inputCtx.fillStyle = '#000010';
-      inputCtx.fillRect(0, 0, inputCanvas.width, inputCanvas.height);
+      inputCanvas.width  = gameW;
+      inputCanvas.height = gameH;
+      stageBox.appendChild(inputCanvas);
+
+      const fitStageBox = () => {
+        const scale = Math.min(window.innerWidth / gameW, window.innerHeight / gameH);
+        stageBox.style.width  = Math.floor(gameW * scale) + 'px';
+        stageBox.style.height = Math.floor(gameH * scale) + 'px';
+      };
+      fitStageBox();
+      if (inputResizeHandler) window.removeEventListener('resize', inputResizeHandler);
+      inputResizeHandler = fitStageBox;
+      window.addEventListener('resize', inputResizeHandler);
+
+      // NetKit(host-authoritative):有 target:'sim' 檔 → 大螢幕跑 render + 收 net_snapshot 內插
+      const isNK = Array.isArray(cfg.files) && cfg.files.some(f => f && f.target === 'sim');
+      const displayCode = isNK ? composeGameCode(cfg, 'render') : composeGameCode(cfg, 'display');
+      const lib = (cfg.library && displayCode) ? cfg.library : 'none';
+      if (isNK && window.NetClientKit) {
+        const useRP = new URLSearchParams(location.search).get('rp') === '1';   // A/B:遠端實體預測
+        let predictStep = null;
+        if (useRP) { try { const S = {}; (new Function('Sim', composeGameCode(cfg, 'sim')))(S); S.emit = function () {}; predictStep = S.predictStep || null; } catch (e) { console.warn('predict sim build failed', e); } }
+        inputNet = new NetClientKit.NetSurface({ surface: 'display', selfId: null, remotePredict: useRP, predictStep });
+      } else { inputNet = null; }
+      inputCtx = null;
+      if (lib === 'none') {
+        // 沒用外部函式庫 → 維持舊行為：直接給 2d context
+        inputCtx = inputCanvas.getContext('2d');
+        inputCtx.fillStyle = '#000010';
+        inputCtx.fillRect(0, 0, inputCanvas.width, inputCanvas.height);
+      }
 
       inputHandlers = [];
+      inputStateHandlers = [];
       inputUpdateFn = null;
+      inputCleanupFns = [];
 
-      if (cfg.gameCode) {
-        try {
-          const GameAPI = {
-            canvas: inputCanvas, ctx: inputCtx,
-            players: inputPlayers,
-            onInput: cb => inputHandlers.push(cb),
-            update:  cb => { inputUpdateFn = cb; }
-          };
-          (new Function('GameAPI', cfg.gameCode))(GameAPI);
-        } catch (e) { console.error('[Display] gameCode error:', e); }
+      if (displayCode) {
+        loadGameLibrary(lib).then(() => {
+          if (!inputCanvas) return; // 階段已被切走
+          try {
+            const GameAPI = {
+              canvas: inputCanvas,
+              width: gameW, height: gameH,   // 固定座標系統（勿用 window.innerWidth）
+              get ctx() {           // 惰性：three/babylon 的 gameCode 不碰它就不會鎖死 WebGL
+                if (!inputCtx && inputCanvas) inputCtx = inputCanvas.getContext('2d');
+                return inputCtx;
+              },
+              container: stageBox,   // p5 instance mode 掛載點（已是 letterbox 內框）
+              library: lib,
+              players: inputPlayers,
+              onInput: cb => inputHandlers.push(cb),
+              onPlayerState: cb => inputStateHandlers.push(cb),   // 手機 sendState → fn(playerId, state, player)
+              broadcast: data => client.socket.emit('display_game_broadcast', { roomId, data }),  // → 全體手機 onMessage
+              update:  cb => { inputUpdateFn = cb; },
+              onEnd:   cb => inputCleanupFns.push(cb),   // 階段結束時的清理（dispose engine 等）
+              log:     (...a) => { const s = fmtLogArgs(a); console.log('[Game]', s); pushGameLog('log', s); },
+            };
+            (new Function('GameAPI', 'Net', displayCode))(GameAPI, inputNet);
+          } catch (e) {
+            console.error('[Display] gameCode error:', e);
+            pushGameLog('error', 'gameCode 執行錯誤: ' + fmtErr(e));
+          }
+        });
       }
 
       if (inputRAF) cancelAnimationFrame(inputRAF);
+      let loopErrCount = 0;
       const loop = ts => {
-        inputUpdateFn ? inputUpdateFn(ts) : drawInputDefault(ts);
+        try {
+          if (inputNet) inputNet.frame();   // NetKit:每幀先內插取樣
+          inputUpdateFn ? inputUpdateFn(ts) : drawInputDefault(ts);
+        } catch (e) {
+          // update 丟例外不能讓 RAF 停掉（畫面凍結）；錯誤回報但限量
+          if (loopErrCount++ < 3) {
+            console.error('[Display] update error:', e);
+            pushGameLog('error', 'update 錯誤: ' + fmtErr(e));
+          }
+        }
         inputRAF = requestAnimationFrame(loop);
       };
       inputRAF = requestAnimationFrame(loop);
     }
 
     function stopGameStage() {
+      flushGameLogs();
       if (inputRAF) { cancelAnimationFrame(inputRAF); inputRAF = null; }
+      if (inputResizeHandler) { window.removeEventListener('resize', inputResizeHandler); inputResizeHandler = null; }
+      for (const fn of inputCleanupFns) { try { fn(); } catch (e) { console.error('[Display] onEnd cleanup error:', e); } }
+      inputCleanupFns = [];
       inputPlayers.clear();
       inputHandlers = [];
+      inputStateHandlers = [];
       inputUpdateFn = null;
       inputCanvas = null; inputCtx = null;
     }
@@ -1005,7 +1198,17 @@
       if (data.state === 'down') ps.inputs.add(data.key);
       else ps.inputs.delete(data.key);
       for (const h of inputHandlers) {
-        try { h(data.playerId, data.key, data.state, ps); } catch(e) {}
+        try { h(data.playerId, data.key, data.state, ps); } catch(e) { pushGameLog('error', 'onInput 錯誤: ' + fmtErr(e)); }
+      }
+    });
+
+    client.on('net_snapshot', (d) => { if (inputNet) { try { inputNet.pushSnapshot(d); } catch (e) {} } });   // NetKit 權威快照
+
+    // 自訂互動介面：手機端 sendState 的回報（賽車位置等）
+    client.on('player_game_state', data => {
+      const ps = inputPlayers.get(data.playerId);
+      for (const h of inputStateHandlers) {
+        try { h(data.playerId, data.state, ps || { name: data.playerName }); } catch (e) { pushGameLog('error', 'onPlayerState 錯誤: ' + fmtErr(e)); }
       }
     });
   </script>

@@ -156,8 +156,10 @@ _countdownTimer, _autoAdvanceTimer           timer 管理
 ### Host → Server
 | 事件 | payload | 用途 |
 |------|---------|------|
-| `join_host` | `{ roomId }` | 取得 host 控制權 |
-| `host_load_module` | `{ roomId, moduleName, config }` | 啟動遊戲 |
+| `join_host` | `{ roomId }` | 取得 host 控制權（正式環境需登入 cookie）|
+| `host_select_module` | `{ roomId, moduleName }` | 只載入模組快照、留在大廳（labs 頁「載入遊戲」）;廣播 `module_selected` |
+| `host_load_module` | `{ roomId, moduleName, config }` | 啟動遊戲；`moduleName` 與房間快照不同時會自動 fork 新模組快照（可換遊戲）|
+| `host_change_module` | `{ roomId }` | 更換模組：任何階段強制全員回大廳、丟掉房間模組快照，重開選擇器（保留玩家準備狀態）|
 | `host_next_phase` | `{ roomId, data: { action } }` | 推進階段／回合 |
 | `host_kick_player` | `{ roomId, playerId }` | 踢人 |
 
@@ -188,6 +190,8 @@ _countdownTimer, _autoAdvanceTimer           timer 管理
 | `host_game_state` | host | 完整 host 視角狀態（玩家進度、可用 action、自動推進狀態）|
 | `game_ended` | all | `{ scores, champions, ranked }` |
 | `back_to_lobby` | all | 重設 UI 到大廳 |
+| `module_picker_reopen` | host | 更換模組後重開模組選擇器（附最新 `availableModules`）|
+| `module_selected` | all | 大廳中選定模組（未啟動）;`{ moduleId, manifest }`,display 顯示「已載入…」|
 | `modules_updated` | host | 模組清單變動（編輯器存檔／刪除後）|
 
 ---
@@ -279,6 +283,53 @@ editor client 端有同款驗證（mirror），錯誤即時顯示 banner，存�
 ## 9. 檔案安全寫入
 
 `atomicWriteJSON(filePath, obj)`：寫入 `.tmp` → `rename`。避免寫到一半 crash 留下半損的 manifest。
+
+---
+
+## 9.5 子路徑部署與登入（zaistudio.tw/labs/game）
+
+正式環境整個 app 掛在 `https://zaistudio.tw/labs/game` 下，由 Caddy 反代（不剝前綴）到 imgame :3000：
+
+- **`BASE_PATH`**（env，如 `/labs/game`）：所有靜態頁面、REST API、socket.io（`path = BASE + '/socket.io'`）都掛在前綴下；本機開發留空 = 掛根路徑，行為不變。客戶端由各頁 inline snippet 從 `location.pathname` 推導 `window.IMGAME_BASE`,`config.js` 再把絕對路徑 `fetch` 自動補前綴（`Config.url()` 給動態載入的腳本/QR/分享連結用）。
+- **`PUBLIC_ORIGIN`**（env，如 `https://zaistudio.tw`）:QR code 與分享連結的對外網域。
+- **登入**(`server/auth.js`)：驗證主站（zai_studio）簽發的 `zai_session` cookie(HMAC-SHA256，與主站共用 `AUTH_COOKIE_SECRET`，置於 `/root/imgame/.env`)。未登入訪問頁面 → 302 到 `/studio/login?next=…`;API → 401。規則:
+  - 需登入：合併主持頁 `BASE + '/'`、`/host` `/editor` `/decks` `/actions` 頁面、`POST /api/rooms`、`GET /api/rooms`、所有 `/api/modules|decks|actions|assets` 的**寫入**、`join_host` 與 `ai_chat` socket 事件。
+  - **房間擁有權**:建房時記下 `session.ownerUserId`(cookie 的 userId;loopback/dev 為 `'local'`)。`GET /api/rooms` 只回傳自己開的房;`join_host` 非擁有者 → `error { code: 'ROOM_FORBIDDEN' }`(labs 頁收到會退回大廳）。別人的房只能 `join_room` 當玩家或 `join_display` 旁觀。
+  - 免登入：`/mobile`、`/display`、模組/房間資訊 GET、`join_room` / `join_display`（玩家掃碼即玩）。
+  - 本機直連 loopback（無 `X-Forwarded-For`）視為內部呼叫放行 — AI playtest / Puppeteer 測試用;Caddy 反代一定帶 XFF,外部直連 :3000 也不是 loopback。
+  - 未設 `AUTH_COOKIE_SECRET`（本機 dev)→ 全部放行。
+- **合併主持頁**(`client/labs/index.html`，掛在 `BASE + '/'`):display 用 iframe 內嵌於上半部（自己的 socket 走 `join_display`)，下半部是精簡 host 控制列：載入遊戲（模組 modal → `host_select_module`，留在大廳）→ 啟動遊戲（`host_load_module`)→ 遊戲中依 `host_game_state.availableActions` 顯示操作按鈕；分享 modal(QR + 複製手機連結 + 大螢幕 QR 開關）。
+- **Caddy**(`/var/snap/caddy/common/Caddyfile`):`redir /labs/game → /labs/game/`、`handle /labs/game/* → :3000`、`handle /uploads/* → :3000`（模組產生的牌面 HTML 內以根路徑引用素材）。
+- **systemd**:`/etc/systemd/system/imgame.service.d/labs.conf` 注入 `BASE_PATH` / `PUBLIC_ORIGIN` / `LOGIN_URL` + `EnvironmentFile=/root/imgame/.env`。
+
+---
+
+## 9.6 P2P 的 ICE / TURN 設定
+
+P2P 主持模式(host 瀏覽器當權威、WebRTC DataChannel 直連手機/大螢幕)靠 ICE 建連。ICE 候選有三種路徑,自動依序退避、同一次協商裡並行嘗試:
+
+| 階 | 路徑 | 何時用 | 同區網+client isolation(酒店) |
+|---|---|---|---|
+| host | 區網 IP 直連 | 一般區網(無隔離)| ✗ 被 L2 擋 |
+| srflx | STUN 查到的公網 IP + hairpin 折返 | 跨 NAT | ✗ 同一條路,一樣被擋 |
+| relay | TURN 中繼(雙方各自 outbound 到公網中繼)| 直連全失敗 | ✓ 唯一能通 |
+
+**重點:** 同區網沒隔離時靠 **host candidate(區網 IP)直連,STUN 根本用不到**;酒店那種 **client isolation** 會把 host 直連和 STUN hairpin **同時擋掉**,只有 **TURN** 能穿(因為是各自往外連公網中繼,不走被封的 client-to-client 路徑)。
+
+**設定機制(憑證不進 git):**
+- 前端 `p2p.js` 的 iceServers 來自 `window.IMGAME_ICE`;`config.js` 一載入就抓 `GET {BASE}/api/ice` 填入(P2P 連線在使用者開房時才建,遠晚於此)。
+- 伺服器 `GET /api/ice`(`server/index.js`)依 env 組 iceServers,優先序:**Cloudflare > 本機 coturn > 純 STUN**。沒設 TURN → 只回 STUN(零 regression)。env 見 `.env.example`。
+
+**方案 A(推薦,生產用):Cloudflare Realtime TURN** — 全球 anycast 就近中繼、含 **TURN over TLS 443**(穿透最強)、免費 1TB/月。
+1. dash.cloudflare.com → **Realtime(Calls)→ TURN Key** → 取得 **Key ID** + **API Token**(⚠ 不是 Cloudflare **Tunnel**,那是別的產品)。
+2. drop-in 設 `CF_TURN_KEY_ID` / `CF_TURN_API_TOKEN` → `/api/ice` 伺服器端代取 iceServers(24h 短效憑證,快取 20 分鐘),Token 只留伺服器、client 拿短效憑證。
+
+**方案 B(備援/自架):本機 coturn**（單點中繼,離客戶端遠則慢)。`/api/ice` 在 Cloudflare 取用失敗時退回此。
+- 裝 `coturn`,`/etc/turnserver.conf`:`use-auth-secret` + `static-auth-secret=<秘密>` + `external-ip=<公網IPv4>` + `min-port/max-port`(中繼埠範圍)+ `denied-peer-ip`(禁中繼進私網,防 SSRF)。`/etc/default/coturn` 設 `TURNSERVER_ENABLED=1`,`systemctl enable --now coturn`。
+- drop-in 設 `TURN_URLS`(逗號分隔,含 `?transport=tcp`)+ `TURN_SECRET`(= static-auth-secret)→ `/api/ice` 用 coturn REST API 演算法產生短效憑證(username=到期時間戳、credential=HMAC-SHA1)。
+- **雲端防火牆**要放行 UDP 3478 + 中繼埠範圍(+ TCP 3478 給只擋 UDP 的網路)。機器內部只能驗到「relay 分配成功」;外網可達性要從**行動網路**用 Trickle ICE 測試頁驗(貼 `/api/ice` 內容 → 看有無 `relay` 候選)。
+
+驗證:`iceTransportPolicy:'relay'` 強制只收 relay 候選,有出現即代表 TURN 可用。
 
 ---
 

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gesture Lab — LLM 寫動作</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #12101e; color: #eee;
+    font-family: system-ui, "PingFang TC", sans-serif; overflow: hidden; }
+  #app { display: flex; height: 100%; }
+  #stage { flex: 1; position: relative; min-width: 0; }
+  #cv { width: 100%; height: 100%; display: block; touch-action: none; }
+  #stageInfo { position: absolute; top: 12px; left: 14px; color: #9b8fc9; font-size: 13px; pointer-events: none; }
+  #roleBar { position: absolute; top: 34px; left: 14px; display: flex; gap: 6px; }
+  #roleSel { background: #241d45; color: #eee; border: 1px solid #453a78; border-radius: 8px; padding: 4px 8px; font-size: 13px; }
+  #nowPlaying { position: absolute; bottom: 12px; left: 14px; font-size: 14px; color: #c9b6ff; }
+  #panel { width: 400px; display: flex; flex-direction: column; background: #191430; border-left: 1px solid #2c2450;
+    transition: margin-right .25s ease; }
+  #panel.collapsed { margin-right: -400px; }
+  #panelToggle { position: absolute; top: 50%; right: 12px; transform: translateY(-50%);
+    width: 40px; height: 64px; border-radius: 12px; background: rgba(109,91,208,.85); color: #fff;
+    border: none; font-size: 18px; cursor: pointer; z-index: 5; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+  #panelToggle:hover { filter: brightness(1.2); }
+  @media (max-width: 760px) {
+    #panel { position: absolute; right: 0; top: 0; bottom: 0; width: min(400px, 92vw); z-index: 4;
+      box-shadow: -6px 0 24px rgba(0,0,0,.5); }
+    #panel.collapsed { margin-right: calc(-1 * min(400px, 92vw)); }
+  }
+  #presets { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 8px; }
+  .preset { background: none; border: 1px dashed #453a78; color: #9b8fc9; border-radius: 14px;
+    padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  .preset:hover { background: #241d45; color: #cfc4f5; }
+  .thinking::after { content: '⋯'; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: '·'; } 33% { content: '··'; } 66% { content: '···'; } 100% { content: '·'; } }
+  #panel h1 { font-size: 15px; padding: 12px 14px 8px; color: #c9b6ff; }
+  #aiStatus { font-size: 11px; color: #7a6fae; padding: 0 14px 8px; }
+  #chips { padding: 0 12px 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: #2c2450; border: 1px solid #453a78; border-radius: 14px; padding: 4px 10px;
+    font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+  .chip:hover { background: #3a2f66; }
+  .chip .x { color: #8a7fc0; font-weight: 700; padding: 0 2px; }
+  .chip .x:hover { color: #ff7b7b; }
+  .chip .tag { font-size: 9px; color: #8a7fc0; }
+  #log { flex: 1; overflow-y: auto; padding: 8px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+    padding: 8px 10px; border-radius: 10px; max-width: 95%; }
+  .msg.user { background: #34406b; align-self: flex-end; }
+  .msg.ai { background: #241d45; align-self: flex-start; }
+  .msg.sys { background: none; color: #7a6fae; font-size: 12px; align-self: center; }
+  .msg.err { background: #4a2030; color: #ffb3b3; align-self: flex-start; font-size: 12px; }
+  #codeWrap { border-top: 1px solid #2c2450; }
+  #codeHead { display: flex; align-items: center; padding: 6px 12px; gap: 8px; font-size: 12px; color: #9b8fc9; }
+  #codeHead button { margin-left: auto; }
+  #code { width: 100%; height: 110px; background: #0e0c1a; color: #b8e08a; border: none; resize: vertical;
+    font: 11px/1.4 ui-monospace, monospace; padding: 8px 12px; display: none; }
+  #inputRow { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #2c2450; }
+  #input { flex: 1; background: #0e0c1a; color: #eee; border: 1px solid #2c2450; border-radius: 8px;
+    padding: 8px 10px; font-size: 13px; resize: none; height: 60px; }
+  button { background: #6d5bd0; color: #fff; border: none; border-radius: 8px; padding: 6px 14px;
+    font-size: 13px; cursor: pointer; }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.ghost { background: #2c2450; }
+  #hint { font-size: 10px; color: #6a5f9e; padding: 0 14px 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="stageInfo">拖曳旋轉 · 動作存在伺服器動作庫,遊戲可直接取用</div>
+    <div id="roleBar">
+      <select id="roleSel"></select>
+      <button class="ghost" id="roleDice" title="隨機造型">🎲</button>
+    </div>
+    <div id="nowPlaying"></div>
+    <button id="panelToggle" title="收合/展開面板">⏵</button>
+  </div>
+  <div id="panel">
+    <h1>🎭 Gesture Lab — 用說的做動作</h1>
+    <div id="aiStatus">連線中…</div>
+    <div id="chips"></div>
+    <div id="log"></div>
+    <div id="codeWrap">
+      <div id="codeHead">
+        <span id="codeTitle">JSON(點手勢籤可檢視/編輯)</span>
+        <button class="ghost" id="toggleCode">展開</button>
+        <button id="applyCode">套用</button>
+      </div>
+      <textarea id="code" spellcheck="false"></textarea>
+    </div>
+    <div id="presets">
+      <button class="preset">👋 興奮地揮手</button>
+      <button class="preset">🙇 恭敬地鞠躬</button>
+      <button class="preset">🥱 疲倦地伸懶腰</button>
+      <button class="preset">💃 勝利之舞(循環)</button>
+      <button class="preset">🤔 抱胸思考(循環)</button>
+      <button class="preset">😱 嚇一大跳</button>
+    </div>
+    <div id="inputRow">
+      <textarea id="input" placeholder="描述一個動作,例如:興奮地揮手打招呼 / 疲倦地伸懶腰 / 勝利的舞蹈(循環)"></textarea>
+      <button id="send">送出</button>
+    </div>
+    <div id="hint">Cmd/Ctrl+Enter 送出 · 手勢自動存在本機,重整不消失</div>
+  </div>
+</div>
+<script src="../shared/vendor/three.min.js"></script>
+<script src="../shared/vendor/lowpoly.js"></script>
+<script src="../shared/gesture-kit.js"></script>
+<script>
+'use strict';
+// ── 3D 預覽 ──
+const cv = document.getElementById('cv');
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x161228);
+const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+cam.position.set(0, 1.6, 5.4);
+if (LowPoly.addLights) LowPoly.addLights(scene);
+else { scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2)); const d = new THREE.DirectionalLight(0xffffff, .7); d.position.set(3, 6, 4); scene.add(d); }
+const ground = new THREE.Mesh(new THREE.CircleGeometry(2.6, 40), new THREE.MeshLambertMaterial({ color: 0x241d45 }));
+ground.rotation.x = -Math.PI / 2; scene.add(ground);
+// 角色可換(換人重建 animator → 動作庫 clips 要重掛)
+let ac = null, A = null, curRole = 'knight', curSeed = 7;
+function buildCharacter() {
+  if (ac) scene.remove(ac.root);
+  ac = LowPoly.animatedCharacter({ role: curRole, seed: curSeed });
+  scene.add(ac.root);
+  A = ac.animator;
+  for (const [name, spec] of lib) { const r = GestureKit.compile(spec); if (r.ok) A.clips[name] = r.clip; }
+  A.play('idle');
+  document.getElementById('nowPlaying').textContent = '';
+}
+const roleSel = document.getElementById('roleSel');
+for (const r of (LowPoly.roles || ['knight'])) {
+  const o = document.createElement('option'); o.value = r;
+  o.textContent = (LowPoly.ROLES && LowPoly.ROLES[r] && LowPoly.ROLES[r].name) || r;
+  roleSel.appendChild(o);
+}
+roleSel.value = curRole;
+roleSel.onchange = () => { curRole = roleSel.value; buildCharacter(); };
+document.getElementById('roleDice').onclick = () => { curSeed = (Math.random() * 1e9 | 0) || 1; buildCharacter(); };
+let faceY = 0.5, dragging = false, lastX = 0;
+cv.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; });
+addEventListener('pointerup', () => { dragging = false; });
+addEventListener('pointermove', e => { if (dragging) { faceY += (e.clientX - lastX) * 0.01; lastX = e.clientX; } });
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (!ac) { requestAnimationFrame(loop); return; }
+  ac.root.rotation.y = faceY;
+  A.update(dt);
+  const w = cv.clientWidth || 400, h = cv.clientHeight || 400;
+  renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+  cam.lookAt(0, 1.1, 0);
+  renderer.render(scene, cam);
+  requestAnimationFrame(loop);
+})(last);
+
+// ── 手勢庫(伺服器端 /api/gestures;遊戲共用)──
+const lib = new Map();   // name -> spec
+async function loadLibrary({ playName = null } = {}) {
+  try {
+    const specs = await (await fetch('../api/gestures')).json();
+    lib.clear();
+    for (const s of specs) {
+      const r = GestureKit.compile(s);
+      if (r.ok) { lib.set(s.name, s); if (A) A.clips[s.name] = r.clip; }
+    }
+    renderChips();
+    if (playName && lib.has(playName)) playGesture(playName);
+  } catch (e) { addMsg('err', '動作庫載入失敗:' + e.message); }
+}
+async function persistSpec(spec) {   // 手改 JSON 套用時也存回伺服器
+  try {
+    const r = await fetch('../api/gestures', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec) });
+    if (!r.ok) addMsg('err', '存檔失敗:' + ((await r.json()).error || r.status));
+  } catch (e) { addMsg('err', '存檔失敗:' + e.message); }
+}
+function playGesture(name) {
+  if (!lib.has(name)) return;
+  const spec = lib.get(name);
+  if (spec.type === 'loop') { A.play(name); }
+  else { A.play('idle'); A.play(name); }   // oneshot 疊在 idle 上,播完自動收回
+  document.getElementById('nowPlaying').textContent = '▶ ' + (spec.label || name) + (spec.type === 'loop' ? '(循環中,點「站好」停止)' : '');
+  showCode(spec);
+}
+function registerSpec(spec, { play = true, silent = false, persist = false } = {}) {
+  const r = GestureKit.compile(spec);
+  if (!r.ok) { if (!silent) addMsg('err', '「' + (spec && spec.name) + '」驗證失敗:\n' + r.errors.join('\n')); return false; }
+  if (A) A.clips[spec.name] = r.clip;
+  lib.set(spec.name, spec); renderChips();
+  if (persist) persistSpec(spec);
+  if (r.warnings && r.warnings.length && !silent) addMsg('sys', '⚠ ' + r.warnings.join(';'));
+  if (play) playGesture(spec.name);
+  return true;
+}
+function renderChips() {
+  const el = document.getElementById('chips');
+  el.innerHTML = '';
+  const stand = document.createElement('div');
+  stand.className = 'chip'; stand.textContent = '🧍 站好';
+  stand.onclick = () => { A.play('idle'); document.getElementById('nowPlaying').textContent = ''; };
+  el.appendChild(stand);
+  for (const [name, spec] of lib) {
+    const c = document.createElement('div'); c.className = 'chip';
+    c.innerHTML = `<span>${spec.label || name}</span><span class="tag">${spec.type === 'loop' ? '循環' : '單次'}</span><span class="x">✕</span>`;
+    c.querySelector('.x').onclick = async (e) => {
+      e.stopPropagation();
+      lib.delete(name); if (A) delete A.clips[name]; renderChips();
+      try { await fetch('../api/gestures/' + encodeURIComponent(name), { method: 'DELETE' }); } catch (err) {}
+    };
+    c.onclick = () => playGesture(name);
+    el.appendChild(c);
+  }
+}
+// 初始化:建角色 → 載伺服器動作庫 → 把舊 localStorage 手勢搬遷上去(一次性)
+buildCharacter();
+(async () => {
+  await loadLibrary();
+  try {
+    const legacy = JSON.parse(localStorage.getItem('gestureLab.gestures') || '[]');
+    let moved = 0;
+    for (const s of legacy) if (s && s.name && !lib.has(s.name)) { await persistSpec(s); moved++; }
+    if (moved) { localStorage.removeItem('gestureLab.gestures'); await loadLibrary(); addMsg('sys', '已把 ' + moved + ' 個本機手勢搬進伺服器動作庫'); }
+  } catch (e) {}
+})();
+
+// ── JSON 檢視/編輯 ──
+const codeEl = document.getElementById('code');
+function showCode(spec) { codeEl.value = JSON.stringify(spec, null, 1); }
+document.getElementById('toggleCode').onclick = function () {
+  const open = codeEl.style.display !== 'block';
+  codeEl.style.display = open ? 'block' : 'none';
+  this.textContent = open ? '收合' : '展開';
+};
+document.getElementById('applyCode').onclick = () => {
+  try { registerSpec(JSON.parse(codeEl.value), { persist: true }); } catch (e) { addMsg('err', 'JSON 解析失敗:' + e.message); }
+};
+
+// ── 對話 ──
+const logEl = document.getElementById('log');
+const history = [];   // {role, content} 給 Kimi 的原文歷史
+function addMsg(cls, text) {
+  const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text;
+  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+}
+fetch('../api/ai/status').then(r => r.json()).then(d => {
+  document.getElementById('aiStatus').textContent = d.configured ? ('Kimi ' + d.model + ' · 就緒') : '⚠ 未設定 AI(server/ai/ai-config.json)';
+}).catch(() => { document.getElementById('aiStatus').textContent = '⚠ 無法連到伺服器'; });
+
+// 面板收合(全螢幕看角色)
+const panel = document.getElementById('panel');
+const panelToggle = document.getElementById('panelToggle');
+panelToggle.onclick = () => {
+  const collapsed = panel.classList.toggle('collapsed');
+  panelToggle.textContent = collapsed ? '⏴' : '⏵';
+  panelToggle.title = collapsed ? '展開面板' : '收合面板';
+};
+
+// 範例快捷:點了直接送出(第一次上手免打字)
+for (const b of document.querySelectorAll('.preset')) {
+  b.onclick = () => { inputEl.value = b.textContent.replace(/^\S+\s/, ''); send(); };
+}
+
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+let thinkingEl = null;
+function showThinking() {
+  thinkingEl = document.createElement('div');
+  thinkingEl.className = 'msg ai thinking';
+  thinkingEl.textContent = 'Kimi 設計動作中';
+  logEl.appendChild(thinkingEl); logEl.scrollTop = logEl.scrollHeight;
+}
+function hideThinking() { if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; } }
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text || sendBtn.disabled) return;
+  inputEl.value = '';
+  addMsg('user', text);
+  history.push({ role: 'user', content: text });
+  sendBtn.disabled = true; sendBtn.textContent = '…';
+  showThinking();
+  try {
+    const r = await fetch('../api/ai/gesture', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history }),
+    });
+    const d = await r.json();
+    hideThinking();
+    if (!r.ok) { addMsg('err', d.error || ('HTTP ' + r.status)); }
+    else {
+      history.push({ role: 'assistant', content: d.text });
+      addMsg('ai', (d.text || '').replace(/```(?:json)?[\s\S]*?```/g, '〔JSON〕').trim() || '(完成)');
+      if (d.saved && d.saved.length) {
+        addMsg('sys', '💾 已存入動作庫:' + d.saved.join('、'));
+        await loadLibrary({ playName: d.saved[d.saved.length - 1] });
+      } else {
+        for (const s of (d.specs || [])) if (!s.ok) addMsg('err', '規格未過驗證:\n' + s.errors.join('\n'));
+        if (!(d.specs || []).length) addMsg('sys', '(這輪沒有存檔動作 —— 可要求它「用 save_gesture 存檔」)');
+      }
+    }
+  } catch (e) { hideThinking(); addMsg('err', '連線失敗:' + e.message); }
+  sendBtn.disabled = false; sendBtn.textContent = '送出';
+}
+sendBtn.onclick = send;
+// 中文 IME:只在 Cmd/Ctrl+Enter 送出,絕不裸 Enter
+inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } });
+addMsg('sys', '描述動作 → Kimi 依 LowPoly 動作契約寫出手勢 JSON → 立刻在左邊試播。可繼續對話迭代(「再誇張一點」「慢一點」)。');
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "apiKey": "sk-kimi-xxxxxxxx（到 kimi.com 訂閱後取得）",
+  "baseUrl": "https://api.kimi.com/coding/v1",
+  "model": "k3",
+  "maxTokens": 32768
+}

@@ -139,6 +139,18 @@ app.get(BASE + '/api/modules', (req, res) => {
   res.json(moduleLoader.listModules());
 });
 
+// ── 動作手勢庫(Gesture Lab 產出;遊戲端可全量載入當內建動作)──
+const gestureStore = require('./gestures');
+app.get(BASE + '/api/gestures', (req, res) => res.json(gestureStore.list()));
+app.post(BASE + '/api/gestures', auth.requireAuthAPI, (req, res) => {
+  const v = gestureStore.save(req.body);
+  if (!v.ok) return res.status(400).json({ error: v.errors.join(';') });
+  res.json({ ok: true, warnings: v.warnings || [] });
+});
+app.delete(BASE + '/api/gestures/:name', auth.requireAuthAPI, (req, res) => {
+  res.json({ ok: gestureStore.remove(req.params.name) });
+});
+
 // P2P 的 ICE 設定:STUN 一律有;TURN 只在 env 有設時加(憑證留伺服器、不進 client 原始碼庫)。
 // env:STUN_URLS(逗號分隔,可覆蓋預設)、TURN_URLS(逗號分隔)、TURN_USERNAME、TURN_CREDENTIAL。
 // 沒設 TURN → 只回 STUN(等同現況,零 regression)。無 isolation 場地走直連;酒店等隔離場地才用得到 TURN。

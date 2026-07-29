@@ -103,6 +103,7 @@
     };
     const hash = (i, j) => { const x = Math.sin((((i % nU) + nU) % nU) * 12.9898 + j * 78.233) * 43758.5453; return x - Math.floor(x); };
     const bumpAt = (ui, li) => hair.curl * Math.max(0, hash(ui, li) * 1.7 - 0.5);
+    let fallPinY = -Infinity;   // 垂片錨環最高 y(mesh-local)→ 動畫層柔軟系統的鉸點(其上全剛性貼頭)
     const nodes = [];
     for (let li = 0; li <= nLat; li++) {
       const lf = li / nLat, onHead = lf <= useLat, row = [];
@@ -123,6 +124,7 @@
           present = th > 0.006;
           const off = present ? th + bumpAt(ui, li) : 0;
           const outer = anchor.clone().addScaledVector(anchor.clone().normalize(), off);
+          if (present && outer.y > fallPinY) fallPinY = outer.y;
           const taper = 1 + 0.05 * s;
           v = new THREE.Vector3(outer.x * taper, outer.y - fallLen * s, outer.z * taper);
         }
@@ -143,6 +145,8 @@
     geo.setIndex(indices); geo.computeVertexNormals();
     const m = new THREE.Mesh(geo, mat(hair.col, { side: THREE.DoubleSide }));
     m.name = 'hairShell';
+    // 長髮:標記垂片鉸點 → 動畫層以此註冊柔軟(pinY 以上剛性貼頭、以下隨速度/落下飄動)
+    if (longHair && fallPinY > -Infinity) m.userData.hairFall = { pinY: fallPinY };
     return m;
   }
   function braidChain(THREE, mat, col, grp, anchor, opts) {
@@ -1338,12 +1342,15 @@
     // 飄動目標註冊:mesh 類(披風/背髮簾)走 deformMesh 頂點變形;group 類(辮子)走剛體擺盪。
     // topY/botY 從各 mesh bbox 算(領口釘死/下擺全開),換造型自適應。
     // 擴包围球 +0.35:變形會超出原範圍,不擴會被 frustum culling 誤剔除(飄出螢幕邊緣消失)
-    function regMesh(mesh, K, name) {
+    function regMesh(mesh, K, name, pinY) {
       if (!mesh || !mesh.geometry || !mesh.geometry.attributes) return;
       const geo = mesh.geometry, attr = geo.attributes.position, arr = attr.array;
       // topY/botY(領口釘死/下擺全開)直接從頂點 array 掃 → 不依賴 computeBoundingBox,真假 mesh 都穩
       let topY = -Infinity, botY = Infinity;
       for (let i = 1; i < arr.length; i += 3) { if (arr[i] > topY) topY = arr[i]; if (arr[i] < botY) botY = arr[i]; }
+      // pinY 覆蓋(模組化髮殼:垂片錨環以上是貼頭剛性區,鉸點在錨環而非 mesh 頂):
+      // deform 權重 clamp(topY-y) → 高於 pinY 的頂點 w=0 全剛性,deform 碼零改動。
+      if (pinY != null) topY = pinY;
       A._flutter.push({ kind: 'mesh', name, attr, base: Float32Array.from(arr),
         K: Object.assign({}, K, { topY: topY, botY: botY }),
         theta: 0, v: 0, wave: 0, s: { theta: 0, wavePhase: 0, waveAmp: 0, sway: 0 } });
@@ -1363,10 +1370,48 @@
         baseRot: segs.map(n => ({ x: n.rotation.x, y: n.rotation.y, z: n.rotation.z })),
         theta: 0, v: 0 });                  // 既有欄位:每幀同步 = th[0]/vv[0](測試/外掛相容)
     }
+    // 扁平 puff 串(模組化辮子:一群獨立小球)→ 重掛成巢狀關節鏈,之後與舊辮子同一套 braidStep 積分。
+    // side=null(hairTwin)→ 依 x 正負拆成左右兩條。重掛只做一次(標 _flutterized 防重複)。
+    function regPuffChain(grp, side, name) {
+      if (!grp || !grp.children || grp.userData._flutterized) return;
+      grp.userData._flutterized = true;
+      const puffs = grp.children.filter(c => c.isMesh).slice();
+      if (puffs.length < 2) return;
+      const chains = side == null
+        ? [[puffs.filter(p => p.position.x < 0), -1, name + 'L'], [puffs.filter(p => p.position.x >= 0), 1, name + 'R']]
+        : [[puffs, side, name]];
+      for (const [list, sd, nm] of chains) {
+        if (list.length < 2) continue;
+        list.sort((a, b) => b.position.y - a.position.y);   // 由上(根)到下(尾)
+        const segs = [];
+        let parent = grp, prev = null;
+        for (const p of list) {
+          const g = new THREE.Group();
+          const wp = p.position.clone();
+          g.position.copy(prev ? wp.clone().sub(prev) : wp);
+          prev = wp;
+          parent.add(g);
+          p.position.set(0, 0, 0); g.add(p);   // add() 自動從原 parent 移出
+          parent = g; segs.push(g);
+        }
+        const NJ = Math.max(0, Math.min((BRAID.joints | 0) || 0, segs.length - 1));
+        A._flutter.push({ kind: 'group', name: nm, group: segs[0], side: sd, segs, NJ, K: BRAID,
+          th: new Array(NJ + 1).fill(0), vv: new Array(NJ + 1).fill(0),
+          baseRot: segs.map(n => ({ x: n.rotation.x, y: n.rotation.y, z: n.rotation.z })),
+          theta: 0, v: 0 });
+      }
+    }
     regMesh(parts.cape, CAPE, 'cape');
     regMesh(src.getObjectByName ? src.getObjectByName('hairBack') : null, HAIR, 'hairBack');
     regBraid(src.getObjectByName ? src.getObjectByName('hairBraidL') : null, -1, 'hairBraidL');
     regBraid(src.getObjectByName ? src.getObjectByName('hairBraidR') : null, 1, 'hairBraidR');
+    // 模組化髮型:長髮垂片(hairShell 的 userData.hairFall 鉸點)+ 兜帽垂布 + 辮子 puff 串
+    const _shell = src.getObjectByName ? src.getObjectByName('hairShell') : null;
+    if (_shell && _shell.userData && _shell.userData.hairFall) regMesh(_shell, HAIR, 'hairShell', _shell.userData.hairFall.pinY);
+    const _hood = src.getObjectByName ? src.getObjectByName('hood') : null;
+    if (_hood && _hood.userData && _hood.userData.hairFall) regMesh(_hood, HAIR, 'hood', _hood.userData.hairFall.pinY);
+    regPuffChain(src.getObjectByName ? src.getObjectByName('hairBraid') : null, 0, 'hairBraid');
+    regPuffChain(src.getObjectByName ? src.getObjectByName('hairTwin') : null, null, 'hairTwin');
 
     A.register = function (name, clip) { this.clips[name] = clip; return this; };
     A.setCombo = function (family, chain) { this.combos[family] = chain; this._cIdx[family] = 0; return this; };
@@ -1406,7 +1451,10 @@
       const triggered = (resolved !== name);
       if (resolved === this.current && !triggered && !(o && o.restart)) return resolved;
       const prevLoop = this._lastBase;
-      if (BASE_NAMES[resolved]) {
+      // 自訂 loop clip(如 GestureKit 註冊的循環手勢)同樣是 base:v2 混合器底層採樣 _lastBase,
+      // 不更新的話 current 換了但畫面仍播舊 base → 循環手勢完全不動。內建非 oneShot 全在 BASE_NAMES,行為不變。
+      const isCustomLoop = this.clips[resolved] && !this.clips[resolved].oneShot;
+      if (BASE_NAMES[resolved] || isCustomLoop) {
         // rig v2:loop 切換啟動 cross-fade(回同一 loop 或 one-shot 結束回落不觸發)
         if (this.rig && resolved !== prevLoop) {
           this._prevLoop = prevLoop; this._prevW = 1;

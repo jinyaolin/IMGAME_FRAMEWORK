@@ -52,10 +52,31 @@
       d = d || {};
       const s = this.session;
       switch (event) {
-        case 'join_room':
-          s.addPlayer(d.playerId, d.playerName, from);
+        case 'join_room': {
+          // 與 server/index.js join_room 同形:滿房檢查(重連豁免)+ room_joined 帶
+          // currentStage/inCurrentGame/playerState → 手機重整/重連能直接 resume。
+          // room_state 為舊測試頁相容保留(mobile/p2p.html、p2p-engine-test)。
+          const isExisting = s.players.get(d.playerId);
+          if (!isExisting && s.manifest && s.manifest.maxPlayers) {
+            const connected = s.players.all().filter(p => p.isConnected).length;
+            if (connected >= s.manifest.maxPlayers) {
+              this._sendTo(from, 'error', { message: `房間已滿，最多 ${s.manifest.maxPlayers} 人` });
+              break;
+            }
+          }
+          const player = s.addPlayer(d.playerId, d.playerName, from);
+          const curStage = (s.phase === 'playing' && s.currentModule && s.currentModule.getCurrentStageInfo)
+            ? s.currentModule.getCurrentStageInfo() : null;
+          const inCurrentGame = (s.phase === 'playing' && s.currentModule)
+            ? s.currentModule.players.some(p => p.id === player.id) : false;
+          this._sendTo(from, 'room_joined', {
+            roomId: this.roomId, playerId: player.id, phase: s.phase, moduleName: s.moduleName || null,
+            players: s.players.publicList(), sharedState: s.sharedState,
+            playerState: player.toPrivate(), currentStage: curStage, inCurrentGame,
+          });
           this._sendTo(from, 'room_state', { phase: s.phase, sharedState: s.sharedState, players: s.players.publicList() });
           break;
+        }
         case 'join_display': {
           s.displaySocketIds.add(from);
           // 回 display_joined(與 server/index.js 同形)→ 大螢幕才會關掉「加入顯示端…」轉圈 overlay

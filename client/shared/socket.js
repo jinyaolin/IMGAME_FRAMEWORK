@@ -151,13 +151,36 @@ class GameClient {
 }
 
 // Per-tab player ID — sessionStorage so each browser tab is a separate player
-function getOrCreatePlayerId() {
-  let id = sessionStorage.getItem('playerId');
-  if (!id) {
-    id = 'p_' + Math.random().toString(36).slice(2, 10);
-    sessionStorage.setItem('playerId', id);
-  }
-  return id;
+// 玩家身份持久化(resume 用):帶 roomId 時同「房間+名字」→ 同 playerId,存 localStorage
+// (跨分頁、重開瀏覽器都能以同身份重連,吃 GameSession 的重連復原);24h 過期惰性清理。
+// key 含名字 → 同一瀏覽器開多個分頁測試時,用不同 ?name= 就是不同玩家,互不搶身份。
+// 不帶 roomId = 舊行為(sessionStorage,分頁隔離);localStorage 不可用(隱私模式)也退回舊行為。
+function getOrCreatePlayerId(roomId, name) {
+  const fallback = () => {
+    let id = sessionStorage.getItem('playerId');
+    if (!id) {
+      id = 'p_' + Math.random().toString(36).slice(2, 10);
+      try { sessionStorage.setItem('playerId', id); } catch (e) {}
+    }
+    return id;
+  };
+  if (!roomId) return fallback();
+  const PRE = 'imgame.pid.', TTL = 24 * 3600 * 1000;
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {   // 惰性清過期房間
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(PRE)) continue;
+      try { const v = JSON.parse(localStorage.getItem(k)); if (!v || Date.now() - (v.ts || 0) > TTL) localStorage.removeItem(k); }
+      catch (e) { localStorage.removeItem(k); }
+    }
+    const key = PRE + String(roomId).toUpperCase() + '.' + (name || '');
+    let rec = null;
+    try { rec = JSON.parse(localStorage.getItem(key)); } catch (e) {}
+    if (!rec || !rec.id) rec = { id: 'p_' + Math.random().toString(36).slice(2, 10) };
+    rec.ts = Date.now();
+    localStorage.setItem(key, JSON.stringify(rec));
+    return rec.id;
+  } catch (e) { return fallback(); }
 }
 
 function getRoomFromUrl() {

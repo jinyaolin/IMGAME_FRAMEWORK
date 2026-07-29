@@ -854,7 +854,7 @@
     const params     = new URLSearchParams(window.location.search);
     const roomId     = params.get('room') || '';
     const playerName = params.get('name') || '玩家';
-    const playerId   = getOrCreatePlayerId();
+    const playerId   = getOrCreatePlayerId(roomId, playerName);   // 同房+同名 → 同身份(可 resume)
 
     let myHand        = [];
     let myIdentity    = null;
@@ -1010,6 +1010,24 @@
     client.on('connect', () => client.joinRoom(roomId, playerId, playerName));
     if (useP2P) {
       client.connectP2P(roomId).catch(e => { console.error('[Mobile] P2P 連線失敗', e); setStatus('P2P 連線失敗:' + (e && e.message)); });
+      // P2P 斷線自動重連:背景分頁解凍/host 短暫失聯後自動歸隊(join 走 resume 機制,同身份接回)。
+      // 背景時不重試(反正被節流),回前景 4 秒內接回。
+      let p2pRetryTimer = null, p2pRetryBusy = false;
+      client.on('disconnect', () => {
+        setStatus('連線中斷,自動重連中…');
+        if (p2pRetryTimer) return;
+        p2pRetryTimer = setInterval(() => {
+          if (document.hidden || p2pRetryBusy) return;
+          if (client.p2p && client.p2p.openPeers() >= 1) { clearInterval(p2pRetryTimer); p2pRetryTimer = null; return; }
+          p2pRetryBusy = true;
+          try { client.p2p && client.p2p.close(); } catch (e) {}
+          try { client._signalSocket && client._signalSocket.disconnect(); } catch (e) {}
+          client.connectP2P(roomId)
+            .then(() => { clearInterval(p2pRetryTimer); p2pRetryTimer = null; })
+            .catch(() => {})
+            .finally(() => { p2pRetryBusy = false; });
+        }, 4000);
+      });
     } else {
       client.connect();
     }
@@ -1017,14 +1035,16 @@
     client.on('room_joined', (data) => {
       phase = data.phase;
       document.getElementById('hdrRoom').textContent = `房間 ${data.roomId}`;
-      document.getElementById('hdrName').textContent = playerName;
+      // 以伺服器定案的名字為準(同名自動編號:小明 → 小明②)
+      document.getElementById('hdrName').textContent = (data.playerState && data.playerState.name) || playerName;
       renderPlayers(data.players);
       if (data.playerState) updateMyState(data.playerState);
       if (data.sharedState) updateStatus(data.sharedState);
       if (data.phase === 'playing') {
         enterGameScreen();
-        if (data.currentStage?.stageType === 'game') {
-          // Joined mid-game during a game stage — show waiting message, not controller
+        // 只有「不在本局名單」的中途新加入者才觀戰;回歸玩家(inCurrentGame)的遊戲畫面
+        // 由稍早的 stage_started(isReconnect,帶 gameConfig)重建,這裡不能蓋掉。
+        if (data.currentStage?.stageType === 'game' && !data.inCurrentGame) {
           hideControllerZone();
           setStatus(t('mobile.waiting_game'));
         }
@@ -1431,7 +1451,14 @@
         hideIdentityOverlay();
         if ((data.gameConfig || {}).layout === 'custom') {
           hideControllerZone();
-          startCustomGame(data.gameConfig || {});
+          // 斷線瞬回(頁面沒重載,畫面還在跑):不拆掉重建,NetKit 由快照自動追上。
+          // 頁面重載後 mg=null,照常重建。
+          if (data.isReconnect && mg && lastGameStageId === data.stageId) {
+            console.log('[Mobile] 重連且遊戲畫面仍在,跳過重建');
+          } else {
+            startCustomGame(data.gameConfig || {});
+            lastGameStageId = data.stageId;
+          }
         } else {
           stopCustomGame();
           showControllerZone(data.gameConfig || {});
@@ -1973,6 +2000,7 @@
     }
     const mgFmtErr = (e) => e.message + (e.stack ? ' @' + (e.stack.split('\n')[1] || '').trim().slice(0, 120) : '');
     let mg = null;   // { overlay, box, canvas, ctx, raf, updateFn, cleanups, msgHandlers, pendingState, flushTimer, resizeFn, errored }
+    let lastGameStageId = null;   // 目前掛載的 game 階段 id(重連時判斷畫面是否已在跑)
 
     function mgLoadScript(url, key) {
       if (mgLoadedLibs[key]) return Promise.resolve();

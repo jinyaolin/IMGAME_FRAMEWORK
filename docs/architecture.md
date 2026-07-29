@@ -194,6 +194,18 @@ _countdownTimer, _autoAdvanceTimer           timer 管理
 | `module_selected` | all | 大廳中選定模組（未啟動）;`{ moduleId, manifest }`,display 顯示「已載入…」|
 | `modules_updated` | host | 模組清單變動（編輯器存檔／刪除後）|
 
+**斷線重連（resume）**：手機 playerId 以「房間+名字」為 key 存 localStorage（`getOrCreatePlayerId(roomId, name)`，24h 過期；
+同瀏覽器多分頁測試用不同 `?name=` 即為不同玩家）。重整/重開瀏覽器以同 playerId 重連 → `GameSession.reconnectPlayer`
+（30s 寬限內）復原私有狀態並由 `BaseModule.onReconnect` 補發手牌/身份；`join_room` 回覆 `room_joined` 帶
+`currentStage`/`inCurrentGame`（Node 與 P2P `game-host.js` 同形；P2P 另保留 `room_state` 供舊測試頁）。
+遊戲階段中回歸：`onReconnect` 補發 `stage_started`（isReconnect + gameConfig）→ 手機重建遊戲畫面（`room_joined` 只對
+「不在本局名單」者顯示觀戰；斷線瞬回且畫面仍掛載時跳過重建）；NetKit 由 `onPlayerJoinedGame` 重生實體（斷線時
+`onPlayerDisconnected` 已 despawn）。寬限（30s）過期後回歸：模組開局名單仍在 → `addPlayer` 視同重連補發＋重生。
+同名玩家自動編號（小明→小明②，`requestedName` 保重連識別）。
+P2P 斷線韌性：WebRTC `connectionState:'disconnected'` 是暫態（背景分頁節流/凍結常見）——p2p.js 給 25s 寬限等自行恢復，
+只有 `failed`/`closed` 立即踢；手機端 P2P 斷線後每 4s 自動重連（背景分頁不重試，回前景才連），join 走 resume 同身份接回。
+迴歸：`node test-resume-node.js` / `node test-resume-p2p.js` / `node test-resume-p2p-game.js` / `node test-resume-p2p-reconnect.js`。
+
 **保留事件（遊戲 → 框架計分/參數）**：兩條權威來源都在轉發層被攔截寫回框架玩家資料 —
 NetKit sim 的 `Sim.emit('score', {pid, add|score})` / `Sim.emit('set_attr', {pid, attrId, value})`（`NetKitHost` bcast 前攔截），
 與舊式遊戲 display 端的 `GameAPI.broadcast({t:'score', ...})` / `({t:'set_attr', ...})`（`display_game_broadcast` 轉發前經

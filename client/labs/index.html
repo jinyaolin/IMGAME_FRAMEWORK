@@ -332,12 +332,12 @@ window.__noSimWorker = new URLSearchParams(location.search).get('sw') === '0';
 // P2P 模式:手機開完整遊戲頁走 WebRTC 直連(?p2p=1);一般模式走 Node
 function mobileUrl() {
   return p2pMode
-    ? location.origin + IMGAME_BASE + '/mobile/game.html?room=' + roomId + '&p2p=1' + RP
+    ? location.origin + IMGAME_BASE + '/mobile?room=' + roomId + '&p2p=1' + RP
     : location.origin + IMGAME_BASE + '/mobile?room=' + roomId;
 }
 function qrSrc() {
   return p2pMode
-    ? IMGAME_BASE + '/api/rooms/' + roomId + '/qr?path=' + encodeURIComponent('/mobile/game.html?room=' + roomId + '&p2p=1' + RP)
+    ? IMGAME_BASE + '/api/rooms/' + roomId + '/qr?path=' + encodeURIComponent('/mobile?room=' + roomId + '&p2p=1' + RP)
     : IMGAME_BASE + '/api/rooms/' + roomId + '/qr';
 }
 

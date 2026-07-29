@@ -103,7 +103,9 @@
       if (name.length < 1) { showErr(t('mobile.join.error_name')); return; }
 
       localStorage.setItem('playerName', name);
-      window.location.href = `/mobile/game.html?room=${room}&name=${encodeURIComponent(name)}`;
+      // p2p / rp 透傳:P2P 房的加入連結指到本頁(輸入名字),參數帶進遊戲頁才會走 WebRTC 直連
+      const passthru = (_params.get('p2p') === '1' ? '&p2p=1' : '') + (_params.get('rp') === '1' ? '&rp=1' : '');
+      window.location.href = `game.html?room=${room}&name=${encodeURIComponent(name)}${passthru}`;
     }
 
     function showErr(msg) {

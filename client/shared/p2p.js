@@ -80,7 +80,21 @@
       pc.onicecandidate = (e) => { if (e.candidate) this._signal(peerId, { candidate: e.candidate }); };
       pc.onconnectionstatechange = () => {
         const st = pc.connectionState;
-        if (st === 'failed' || st === 'closed' || st === 'disconnected') this._dropPeer(peerId);
+        if (st === 'failed' || st === 'closed') { this._dropPeer(peerId); return; }
+        // 'disconnected' 是「暫態」:背景分頁節流/凍結、ICE 短暫失聯都會出現,瀏覽器會自行恢復;
+        // 立刻踢掉會把同機背景分頁的玩家誤殺(真的死了會轉 'failed',由上面處理)。
+        // → 給 25s 寬限,期間恢復 connected 就取消。
+        const entry = this.peers.get(peerId);
+        if (st === 'disconnected') {
+          if (entry && !entry.discTimer) {
+            entry.discTimer = setTimeout(() => {
+              entry.discTimer = null;
+              if (pc.connectionState !== 'connected') this._dropPeer(peerId);
+            }, 25000);
+          }
+        } else if (st === 'connected') {
+          if (entry && entry.discTimer) { clearTimeout(entry.discTimer); entry.discTimer = null; }
+        }
       };
       return pc;
     }
@@ -152,6 +166,7 @@
     _dropPeer(peerId) {
       const p = this.peers.get(peerId);
       if (!p) return;
+      if (p.discTimer) { clearTimeout(p.discTimer); p.discTimer = null; }
       try { p.pc && p.pc.close(); } catch (e) {}
       this.peers.delete(peerId);
       for (const cb of this._closeCbs) try { cb(peerId); } catch (e) {}

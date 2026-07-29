@@ -390,13 +390,13 @@
       renderPlayers(data.players || []);
       updateShared(data.sharedState || {});
 
-      // Show QR — P2P 模式要帶完整遊戲頁 + &p2p=1(手機才會走 WebRTC 直連 host);rp=1 一起帶下去
+      // Show QR — P2P 模式帶 &p2p=1(名字輸入頁會透傳進遊戲頁,手機才會走 WebRTC 直連 host);rp=1 一起帶下去
       const rpQS = (new URLSearchParams(location.search).get('rp') === '1') ? '&rp=1' : '';
       const mobileUrl = useP2P
-        ? (Config.mobileUrl(data.roomId).replace('/mobile?room=', '/mobile/game.html?room=') + '&p2p=1' + rpQS)
+        ? (Config.mobileUrl(data.roomId) + '&p2p=1' + rpQS)
         : Config.mobileUrl(data.roomId);
       const qrUrl = useP2P
-        ? (IMGAME_BASE + '/api/rooms/' + data.roomId + '/qr?path=' + encodeURIComponent('/mobile/game.html?room=' + data.roomId + '&p2p=1' + rpQS))
+        ? (IMGAME_BASE + '/api/rooms/' + data.roomId + '/qr?path=' + encodeURIComponent('/mobile?room=' + data.roomId + '&p2p=1' + rpQS))
         : Config.qrSrc(data.roomId);
       document.getElementById('joinUrl').textContent = mobileUrl;
       document.getElementById('mobileLink').href = mobileUrl;

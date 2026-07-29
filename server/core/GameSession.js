@@ -33,14 +33,41 @@ class GameSession {
   addPlayer(playerId, name, socketId) {
     const existing = this.players.get(playerId);
     // Same ID but different name = collision (same-device tabs before sessionStorage fix)
-    // Assign a new unique ID so they become a separate player
-    if (existing && existing.name !== name) {
+    // Assign a new unique ID so they become a separate player.
+    // requestedName = 去重前的原始名字 — 被自動編號過的玩家(小明→小明②)重連時報的是原名,不能誤判成撞機。
+    if (existing && existing.name !== name && existing.requestedName !== name) {
       playerId = 'p_' + Math.random().toString(36).slice(2, 10);
     } else if (existing) {
       return this.reconnectPlayer(playerId, socketId);
     }
+    const requestedName = name;
+
+    // 同名去重:與既有「其他玩家」撞名 → 自動編號(小明 → 小明②),大螢幕/投票才分得清誰是誰。
+    // 重連走上面的 reconnectPlayer 不會進到這裡,resume 不改名;身份本來就以隨機 playerId 區分,不受同名影響。
+    const taken = new Set(this.players.all().filter(p => p.id !== playerId).map(p => p.name));
+    if (taken.has(name)) {
+      const CIRC = ['②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+      let cand = null;
+      for (const c of CIRC) { if (!taken.has(name + c)) { cand = name + c; break; } }
+      if (!cand) { let n = 11; while (taken.has(name + '#' + n)) n++; cand = name + '#' + n; }
+      name = cand;
+    }
 
     const player = this.players.add(playerId, name, socketId);
+    player.requestedName = requestedName;
+
+    // 寬限(30s)過期後才回來的玩家:PlayerManager 已移除,但模組開局名單與私有狀態
+    // (手牌/身份,存在 BaseModule maps)還在 → 視同重連:補發私有狀態 + 重生 NetKit 實體。
+    // 全新的中途加入者不在模組名單,不會進到這裡(維持觀戰到下一階段)。
+    if (this.phase === 'playing' && this.currentModule &&
+        Array.isArray(this.currentModule.players) && this.currentModule.players.some(p => p.id === playerId)) {
+      if (typeof this.currentModule.onReconnect === 'function') {
+        try { this.currentModule.onReconnect(playerId, this); } catch (e) { console.error('[GameSession] onReconnect(晚回歸) 失敗:', e); }
+      }
+      if (typeof this.currentModule.onPlayerJoinedGame === 'function') {
+        this.currentModule.onPlayerJoinedGame(playerId);
+      }
+    }
 
     // 🆕 初始化玩家屬性（支援新類型）
     if (this.manifest?.playerAttributes) {
@@ -101,6 +128,11 @@ class GameSession {
       // Re-send module private state (hand, identity) held in BaseModule maps
       if (typeof this.currentModule.onReconnect === 'function') {
         this.currentModule.onReconnect(playerId, this);
+      }
+      // NetKit:斷線時 onPlayerDisconnected 已把實體 leave 掉,回歸的「模組內」玩家要重新 join
+      // 生成實體(否則畫面重建了但自己的角色不存在)。非模組成員(中途新加入)維持觀戰,不進 sim。
+      if (inCurrentGame && typeof this.currentModule.onPlayerJoinedGame === 'function') {
+        this.currentModule.onPlayerJoinedGame(playerId);
       }
     }
     this.broadcastAll('player_reconnected', { playerId });

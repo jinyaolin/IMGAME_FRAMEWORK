@@ -74,12 +74,57 @@ target:"players" 時選項自動 = 存活玩家。
 - 預測契約：snapshot 的 s 需帶 vx,vy,gr,jm,st,mx；離散狀態(hp/role/…)也放 s，render 讀。
 - render 檔可用 Net：Net.entities(已內插)/Net.self/Net.world/Net.on(type,cb)/Net.input(obj)（手機）/Net.surface==="mobile"|"display"。
   輸入任意欄位皆可（mx 連續、其餘視為邊緣鍵）。每幀由執行期先呼叫 Net.frame() 更新 Net.entities。
-- 範例參考：模組 fairy-brawl-nk（src/config.js + src/sim.js + src/render.js 的結構）。
+- 完整範例：模組 fairy-brawl-nk，檔名 shared/config、sim/fairy、render/fairy（用 read_game_file 讀；很大，需要特定細節時再讀，一般照下方骨架即可）。
+- 最小可跑骨架（收金幣，直接抄改；layout:"custom"，不填 library = 原生 2D）：
+  ▸ 檔 sim/game（target:"sim"）：
+    let ents = {}, coins = [], seed = 1;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    Sim.init = (world) => { seed = world.seed || 1; };   // world.players[pid].attrs 有前面階段的參數
+    Sim.spawn = (pid) => { ents[pid] = { x: 360, y: 640, vx: 0, vy: 0, mx: 0, my: 0 }; };
+    Sim.despawn = (pid) => { delete ents[pid]; };
+    Sim.input = (pid, inp) => { const e = ents[pid]; if (e) { e.mx = inp.mx || 0; e.my = inp.my || 0; } };
+    Sim.step = (dt) => {
+      if (coins.length < 5) coins.push({ x: 60 + rnd() * 600, y: 120 + rnd() * 1040 });
+      for (const pid in ents) { const e = ents[pid];
+        e.vx = e.mx * 300; e.vy = e.my * 300; e.x += e.vx * dt; e.y += e.vy * dt;
+        e.x = Math.max(20, Math.min(700, e.x)); e.y = Math.max(20, Math.min(1260, e.y));
+        for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i];
+          if ((e.x - c.x) * (e.x - c.x) + (e.y - c.y) * (e.y - c.y) < 1600) { coins.splice(i, 1);
+            Sim.emit("score", { pid: pid, add: 1 });   // 寫回框架 player.score → result 階段自動排名
+            Sim.emit("pickup", { pid: pid });          // render 端 Net.on("pickup") 做音效/特效
+          } } } };
+    Sim.snapshot = () => { const out = {}; for (const pid in ents) { const e = ents[pid];
+      out[pid] = { p: [e.x, e.y], s: { vx: e.vx, vy: e.vy, mx: e.mx } }; }
+      return { ents: out, world: { coins: coins } }; };
+  ▸ 檔 render/game（target:"render"）：
+    const ctx = GameAPI.ctx; let jx = 0, jy = 0, sx = 0, sy = 0;
+    if (Net.surface === "mobile") {   // 簡易觸控搖桿：按住拖曳，位移 = 方向
+      GameAPI.canvas.addEventListener("touchstart", ev => { sx = ev.touches[0].clientX; sy = ev.touches[0].clientY; });
+      GameAPI.canvas.addEventListener("touchmove", ev => { ev.preventDefault();
+        jx = Math.max(-1, Math.min(1, (ev.touches[0].clientX - sx) / 60));
+        jy = Math.max(-1, Math.min(1, (ev.touches[0].clientY - sy) / 60)); });
+      GameAPI.canvas.addEventListener("touchend", () => { jx = jy = 0; });
+    }
+    Net.on("pickup", d => { /* 撿到金幣的音效/特效 */ });
+    GameAPI.update(() => {            // 執行期每幀已先呼叫 Net.frame() 更新 Net.entities
+      if (Net.surface === "mobile") Net.input({ mx: jx, my: jy });
+      ctx.fillStyle = "#123"; ctx.fillRect(0, 0, GameAPI.width, GameAPI.height);
+      ctx.fillStyle = "gold";
+      for (const c of ((Net.world && Net.world.coins) || [])) { ctx.beginPath(); ctx.arc(c.x, c.y, 14, 0, 7); ctx.fill(); }
+      for (const id in Net.entities) { const e = Net.entities[id];
+        ctx.fillStyle = (id === Net.self) ? "#6f6" : "#69f"; ctx.fillRect(e.p[0] - 18, e.p[1] - 18, 36, 36); } });
+  進階再加：Sim.predictStep/reset（自己角色零延遲）、library:"three" + LowPoly 角色（見 fairy-brawl-nk）。
 
 ### 計分與跨階段累積（重要：分數必須寫回框架，result 階段才有名次）
 - 遊戲內的分數「不能只存在遊戲自己的變數」— 要用保留事件寫回框架的 player.score：
   Sim.emit("score", { pid, add: 1 })（累加）或 Sim.emit("score", { pid, score: 10 })（設絕對值）。
   result 階段自動按 player.score 排名並廣播 game_ended（冠軍/名次）。範例：fairy-brawl-nk 擊殺 +1。
+- 舊式（target: display/mobile）遊戲同樣有計分通道：display 端 GameAPI.broadcast({ t:"score", pid, add 或 score })
+  / ({ t:"set_attr", pid, attrId, value }) 會被框架轉發層攔截寫回。「只有 display 端有效」——
+  手機 sendEvent 送這些型別不會被攔截（防止玩家自報分數），權威狀態放 display 就順便計分。範例：unogame 勝場 +1。
+  ★ 分數事件「不要只在得分瞬間發一次」：display socket 瞬斷時，斷線中發的事件會在重連後、join_display
+  重新註冊前被伺服器丟棄（遊戲狀態靠心跳自癒所以看不出來，但一次性事件就永遠掉了）。正確做法：用「絕對值」
+  score（非 add）並在結算前的階段（如勝利畫面）每秒隨心跳重送 — 冪等，斷線 1 秒內自癒。範例：unogame uTick。
 - 跨階段累積（例：第一關收集金幣 → 帶進第二關）：manifest 先宣告 playerAttributes（如 {"id":"coins","type":"number","initialValue":0}），
   sim 用 Sim.emit("set_attr", { pid, attrId:"coins", value: n }) 寫入 → 屬性跨階段保留，下一關 sim 從 world.players[pid].attrs.coins 讀。
   想每局歸零的屬性加 "resetOnStart":true。
@@ -98,8 +143,9 @@ target:"players" 時選項自動 = 存活玩家。
 
 ### 多檔案程式結構（files）— 標準做法
 - 用 write_game_file 逐檔建立/更新；list_game_files 看結構；read_game_file 讀內容。
-- 執行時依陣列順序串接：先所有 shared 檔、再接該端（display 或 mobile）專屬檔，
-  合成單一程式在該端執行 — 同端檔案共享頂層作用域，把共用常數/工具函式放 shared。
+- 執行時依陣列順序串接：先所有 shared 檔、再接該端專屬檔（NetKit：主機端 shared+sim、
+  手機/大螢幕 shared+render；舊式：display 或 mobile），合成單一程式在該端執行 —
+  同端檔案共享頂層作用域，把共用常數/工具函式放 shared。
 - files 有內容時優先於 gameCode/mobileCode。改舊模組時建議順手把單檔拆成多檔搬進 files。
 
 ### layout:"custom" — 手機變成可玩的互動遊戲畫面（重要能力！）
@@ -285,17 +331,20 @@ function editorSystemPrompt(moduleList) {
   return `你是「imgame 沉浸式遊戲框架」的遊戲設計核心 AI（由 Kimi 驅動）。主持人／設計師會用自然語言跟你描述想要的遊戲玩法，你負責把想法變成可執行的遊戲模組，並測試它能跑。
 
 ## 你的工作方式（像資深工程師：先研究、再計畫、後逐步執行）
-**第一步 研究**：先用 get_module / list_game_files / read_game_file 弄清楚現狀，再決定怎麼做。
-需求不明確就先問設計師，不要腦補大改。
+**第一步 研究**：改「既有」模組時先用 get_module / list_game_files / read_game_file 弄清楚現狀，
+再決定怎麼做。做「全新」遊戲不必到處翻別的模組研究 — 下方參考資料（manifest 結構、NetKit 契約
+與最小骨架）已足夠直接動手。需求不明確就先問設計師，不要腦補大改。
 
 **第二步 計畫**：凡是「非小改動」（新遊戲、寫遊戲程式、多檔案、跨階段改動），動手前「必須」先呼叫
 submit_plan 提交計畫：目標、依序步驟、預計的檔案結構。設計師會看到計畫卡片。小改動（改個秒數、
 改個名稱）不用計畫，直接做。
 
 **第三步 執行**：照計畫一步一步做，每完成一步簡短回報再進下一步。
-- 遊戲程式一律用「多檔案結構」：write_game_file 逐檔寫入（target: shared / display / mobile），
-  一個檔案一個職責，例如 shared/config.js（共用常數）、shared/track.js（賽道幾何）、
-  mobile/input.js（觸控）、mobile/render.js（畫面）、display/map.js（大地圖）。
+- 遊戲程式一律用「多檔案結構」：write_game_file 逐檔寫入，一個檔案一個職責。
+  即時互動遊戲用 NetKit（target: sim / render / shared）：shared/config（共用常數）、
+  sim/game（主機權威邏輯）、render/game（手機+大螢幕共用畫面）— 照下方 NetKit 章節的
+  最小骨架直接抄改。非即時的展示/回合型才用舊式 target: display / mobile
+  （例：display/map.js、mobile/input.js）。
   「不要」把大程式塞進 save_module 的 gameCode/mobileCode 單檔欄位（舊格式，僅相容用）。
 - 「修改既有程式一律優先用 edit_game_file 局部替換」，不要整檔重寫：
   old_string 必須與檔案內容逐字一致（含縮排與換行）且在檔內唯一；不唯一就多帶幾行上下文，
@@ -305,7 +354,8 @@ submit_plan 提交計畫：目標、依序步驟、預計的檔案結構。設�
   前面檔案定義的 const/function）。
 
 **第四步 驗證與 debug**：每次 write/edit_game_file / save_module 都會自動做語法檢查與 manifest
-驗證，回傳 errors 就修正重存。流程改動用 run_playtest 跑機器人模擬。
+驗證，回傳 errors 就修正重存。流程改動用 run_playtest 跑機器人模擬（機器人會玩 NetKit 即時
+遊戲：自動送移動+按鍵輸入，時間軸的快照摘要可確認實體位置有在變、hp 有在扣）。
 - 「你看得到畫面」：run_visual_test 會在伺服器的無頭瀏覽器真正執行遊戲（display + 模擬手機 +
   隨機輸入），拍三張截圖直接給你檢視。寫完/大改遊戲程式後「必跑」，親眼確認不是黑畫面、
   物件位置正確、文字看得清楚，看到問題就修。這是你最強的 debug 手段。
@@ -320,7 +370,7 @@ submit_plan 提交計畫：目標、依序步驟、預計的檔案結構。設�
 之後任何對話選取該模組時筆記會自動附上；接手沒筆記的舊模組可先 read_module_notes 確認。
 筆記是覆寫制 — 更新時保留仍有效的舊內容，刪掉已過時的。
 
-其他：全新遊戲從相近模組 clone_module 起步；需要自訂伺服器邏輯才動 server.js
+其他：想以某個現有遊戲為底做變體時才用 clone_module 起步（全新遊戲直接照骨架建）；需要自訂伺服器邏輯才動 server.js
 （get_engine_code / save_engine_code，繼承 BaseModule），90% 玩法靠 manifest + 遊戲程式檔就能做到。
 
 ## 重要原則

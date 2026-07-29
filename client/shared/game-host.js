@@ -78,9 +78,12 @@
         }
         case 'player_action': s.handlePlayerAction(d.playerId, d.action, d.data); break;
         // 舊 netcode(未遷 NetKit 的遊戲):display gameCode 的 broadcast() → 全體手機 onMessage。
-        // 與 server/index.js 同形:僅接受已註冊的 display peer。
+        // 與 server/index.js 同形:僅接受已註冊的 display peer;保留事件({t:'score'|'set_attr'})先寫回框架。
         case 'display_game_broadcast':
-          if (s.displaySocketIds.has(from)) s.broadcastPlayers('game_broadcast', { data: d.data });
+          if (s.displaySocketIds.has(from)) {
+            if (s.applyReservedGameEvent) s.applyReservedGameEvent(d.data);
+            s.broadcastPlayers('game_broadcast', { data: d.data });
+          }
           break;
         case 'player_submit': s.handlePlayerSubmit(d.playerId, d.data); break;
         case 'play_card': s.handlePlayerAction(d.playerId, 'play_card', { cardId: d.cardId, target: d.target }); break;

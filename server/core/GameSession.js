@@ -2,10 +2,17 @@
 
 const { PlayerManager } = require('./PlayerManager');
 
+/**
+ * Transport 契約(Phase 0 傳輸抽象):GameSession 對外只透過 `transport.to(id).emit(event, data)` 送訊息。
+ *   id = this.roomId → 廣播給房內全部;id = 某 socket/peer id → 定向。無 ack/回呼、無 socket.io 專屬特性。
+ * - Node(現行):直接餵 socket.io 的 `io`,`io.to(roomId|socketId).emit()` 原生符合此介面 → 行為零變。
+ * - 瀏覽器(Phase 2 P2P):餵一個 P2PRouter,to(roomId)=送全部 DataChannel、to(peerId)=送單一 peer。
+ * GameSession / BaseModule 感知不到傳輸差別;所有出口都經下方 6 個 broadcast/send helper。
+ */
 class GameSession {
-  constructor(roomId, io) {
+  constructor(roomId, transport) {
     this.roomId = roomId;
-    this.io = io;
+    this.transport = transport;
     this.players = new PlayerManager();
     this.displaySocketIds = new Set();
     this.hostSocketId = null;
@@ -13,6 +20,7 @@ class GameSession {
     this.moduleName = null;
     this.manifest = null;     // set at room creation when moduleId is provided
     this.phase = 'lobby';           // lobby | playing | result
+    this.ownerUserId = null;        // 開房者(zai_session userId;'local'=本機);非擁有者不能主持
     this.sharedState = {};
     this.globalParams = {};         // 🆕 全局參數定義
     this.createdAt = Date.now();
@@ -43,7 +51,7 @@ class GameSession {
       }
     }
 
-    this.io.to(this.roomId).emit('player_joined', { player: player.toPublic(), players: this.players.publicList() });
+    this.transport.to(this.roomId).emit('player_joined', { player: player.toPublic(), players: this.players.publicList() });
     return player;
   }
 
@@ -300,6 +308,31 @@ class GameSession {
     });
   }
 
+  // 舊式(非 NetKit)遊戲的保留事件:display gameCode broadcast({ t:'score'|'set_attr', ... })
+  // 在轉發層攔截寫回框架玩家資料(對齊 NetKitHost applyReserved 的語意;NetKit 走 Sim.emit)。
+  // 只認 display(權威端)來源 — 呼叫端負責驗證 socket 是已註冊的 display,手機 game_event 不走這裡
+  // (否則任何玩家手機都能自報分數)。回傳 true = 是保留事件(已處理;照常轉發無妨,手機會忽略)。
+  //   { t:'score', pid, score }        → 設絕對分數;{ t:'score', pid, add } → 累加(result 階段排名用)
+  //   { t:'set_attr', pid, attrId, value } → setPlayerParam(驗 manifest 宣告,跨階段保留)
+  applyReservedGameEvent(d) {
+    try {
+      if (!d || typeof d !== 'object') return false;
+      if (d.t === 'score') {
+        const p = this.players.get(String(d.pid));
+        if (p) {
+          if (typeof d.score === 'number') p.score = d.score;
+          else if (typeof d.add === 'number') p.score = (p.score || 0) + d.add;
+        }
+        return true;
+      }
+      if (d.t === 'set_attr' && d.attrId) {
+        this.setPlayerParam(String(d.pid), d.attrId, d.value);
+        return true;
+      }
+    } catch (e) { console.warn('[GameSession] 保留事件失敗:', d && d.t, e && e.message); }
+    return false;
+  }
+
   getPlayerParam(playerId, paramId) {
     const player = this.players.get(playerId);
     if (!player) {
@@ -335,6 +368,11 @@ class GameSession {
 
   // Reset back to lobby (e.g. after game ends and host picks new module)
   resetToLobby() {
+    // 先讓模組清掉自己的計時器（中途中止時尤其重要，否則殘留的自動推進會打到已卸下的模組）
+    if (this.currentModule && typeof this.currentModule.dispose === 'function') {
+      try { this.currentModule.dispose(); }
+      catch (e) { console.error('[GameSession] module dispose error:', e.message); }
+    }
     this.currentModule = null;
     this.moduleName    = null;
     this.phase         = 'lobby';
@@ -352,19 +390,23 @@ class GameSession {
   // ── Broadcast helpers ─────────────────────────────────────────
 
   broadcastAll(event, data) {
-    this.io.to(this.roomId).emit(event, { roomId: this.roomId, ...data });
+    this.transport.to(this.roomId).emit(event, { roomId: this.roomId, ...data });
+    // AI 主持觀察者（server/ai）：訂閱遊戲事件以決定是否介入
+    if (this.aiObserver) {
+      try { this.aiObserver(event, data); } catch (e) { console.error('[AI] observer error:', e.message); }
+    }
   }
 
   broadcastDisplay(event, data) {
     for (const sid of this.displaySocketIds) {
-      this.io.to(sid).emit(event, { roomId: this.roomId, ...data });
+      this.transport.to(sid).emit(event, { roomId: this.roomId, ...data });
     }
   }
 
   broadcastPlayers(event, data) {
     for (const player of this.players.all()) {
       if (player.isConnected) {
-        this.io.to(player.socketId).emit(event, { roomId: this.roomId, ...data });
+        this.transport.to(player.socketId).emit(event, { roomId: this.roomId, ...data });
       }
     }
   }
@@ -372,13 +414,13 @@ class GameSession {
   sendToPlayer(playerId, event, data) {
     const player = this.players.get(playerId);
     if (player && player.isConnected) {
-      this.io.to(player.socketId).emit(event, { roomId: this.roomId, ...data });
+      this.transport.to(player.socketId).emit(event, { roomId: this.roomId, ...data });
     }
   }
 
   sendToHost(event, data) {
     if (this.hostSocketId) {
-      this.io.to(this.hostSocketId).emit(event, { roomId: this.roomId, ...data });
+      this.transport.to(this.hostSocketId).emit(event, { roomId: this.roomId, ...data });
     }
   }
 

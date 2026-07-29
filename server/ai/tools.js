@@ -83,7 +83,7 @@ function createTools(deps) {
       properties: { id: { type: 'string' }, code: { type: 'string', description: '完整 server.js 內容' } },
       required: ['id', 'code'],
     }),
-    fn('run_playtest', '用機器人玩家實際跑一輪遊戲（無頭模擬），回傳事件時間軸。重大修改後務必執行。', {
+    fn('run_playtest', '用機器人玩家實際跑一輪遊戲（無頭模擬），回傳事件時間軸。重大修改後務必執行。機器人會自動：抽身份/出牌/投票、select 階段選角按確定、NetKit 即時遊戲送隨機移動+按鍵輸入（時間軸含快照摘要，可看實體有沒有動）。', {
       type: 'object',
       properties: {
         moduleId: { type: 'string' },
@@ -123,8 +123,8 @@ function createTools(deps) {
       properties: {
         moduleId: { type: 'string' },
         stageId: { type: 'string', description: '省略 = 第一個 game 階段' },
-        name: { type: 'string', description: '檔名（建議 shared/xx.js、display/xx.js、mobile/xx.js）' },
-        target: { type: 'string', enum: ['shared', 'display', 'mobile'], description: '執行端（新檔必填）' },
+        name: { type: 'string', description: '檔名（NetKit 建議 shared/config、sim/game、render/game；舊式建議 display/xx.js、mobile/xx.js）' },
+        target: { type: 'string', enum: ['shared', 'display', 'mobile', 'sim', 'render'], description: '執行端（新檔必填）。即時遊戲用 NetKit：sim=主機權威邏輯、render=手機+大螢幕共用畫面、shared=共用常數。非即時的舊式為 display / mobile。' },
         code: { type: 'string', description: '完整檔案內容' },
       },
       required: ['moduleId', 'name', 'code'],
@@ -349,8 +349,8 @@ function createTools(deps) {
             existing.code = args.code;
             if (args.target) existing.target = args.target;
           } else {
-            if (!['shared', 'display', 'mobile'].includes(args.target)) {
-              return { error: '新檔案必須指定 target（shared / display / mobile）' };
+            if (!['shared', 'display', 'mobile', 'sim', 'render'].includes(args.target)) {
+              return { error: '新檔案必須指定 target（NetKit：sim / render / shared；舊式：display / mobile）' };
             }
             gc.files.push({ name: args.name, target: args.target, code: args.code });
           }

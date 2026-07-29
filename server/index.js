@@ -1195,6 +1195,7 @@ io.on('connection', (socket) => {
   socket.on('display_game_broadcast', ({ roomId, data }) => {
     const session = sessions.get(roomId);
     if (!session || !session.displaySocketIds.has(socket.id)) return;
+    session.applyReservedGameEvent(data);   // { t:'score'|'set_attr' } → 寫回框架(舊式遊戲的計分通道)
     session.broadcastPlayers('game_broadcast', { data });
   });
 

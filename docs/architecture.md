@@ -194,6 +194,12 @@ _countdownTimer, _autoAdvanceTimer           timer 管理
 | `module_selected` | all | 大廳中選定模組（未啟動）;`{ moduleId, manifest }`,display 顯示「已載入…」|
 | `modules_updated` | host | 模組清單變動（編輯器存檔／刪除後）|
 
+**保留事件（遊戲 → 框架計分/參數）**：兩條權威來源都在轉發層被攔截寫回框架玩家資料 —
+NetKit sim 的 `Sim.emit('score', {pid, add|score})` / `Sim.emit('set_attr', {pid, attrId, value})`（`NetKitHost` bcast 前攔截），
+與舊式遊戲 display 端的 `GameAPI.broadcast({t:'score', ...})` / `({t:'set_attr', ...})`（`display_game_broadcast` 轉發前經
+`GameSession.applyReservedGameEvent`，Node 與 P2P `game-host.js` 兩路同形）。`score` 寫 `player.score`（result 階段排名依據）、
+`set_attr` 走 `setPlayerParam`（驗 manifest `playerAttributes` 宣告，跨階段保留）。手機端 `sendEvent` 不在攔截範圍（防自報分數）。
+
 ---
 
 ## 5. 推進條件 (advance trigger)

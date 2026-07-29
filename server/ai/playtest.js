@@ -10,6 +10,7 @@ function runPlaytest({ moduleId, playerCount = 4, port = 3000, basePath = '', ma
   const base = `http://127.0.0.1:${port}`;
   const timeline = [];
   const sockets = [];
+  const bots = [];
   let lastEventAt = Date.now();
   let forcedAdvances = 0;
   let hostState = null;
@@ -29,6 +30,7 @@ function runPlaytest({ moduleId, playerCount = 4, port = 3000, basePath = '', ma
       done = true;
       clearInterval(watchdog);
       clearTimeout(hardStop);
+      for (const b of bots) { if (b.state && b.state.nkTimer) { clearInterval(b.state.nkTimer); b.state.nkTimer = null; } }
       try { if (host && roomId) host.emit('host_close_room', { roomId }); } catch {}
       setTimeout(() => { for (const s of sockets) { try { s.disconnect(); } catch {} } }, 300);
       resolve({ ...result, timeline, forcedAdvances, elapsedSeconds: +((Date.now() - t0) / 1000).toFixed(1) });
@@ -75,7 +77,6 @@ function runPlaytest({ moduleId, playerCount = 4, port = 3000, basePath = '', ma
     });
 
     // 3) 機器人玩家
-    const bots = [];
     for (let i = 0; i < playerCount; i++) {
       const bot = ioClient(base, { path: basePath + '/socket.io', transports: ['websocket'] });
       sockets.push(bot);
@@ -100,8 +101,9 @@ function runPlaytest({ moduleId, playerCount = 4, port = 3000, basePath = '', ma
       bot.on('round_started', () => setTimeout(() => playIfPossible(), 300 + i * 150));
       bot.on('stage_started', (d) => {
         state.voted = false;
+        stopNetkit();   // 換階段 → 停掉上一個 NetKit 輸入迴圈
         if (d.stageType === 'game') {
-          // 亂按幾下搖桿
+          // 舊式遊戲:亂按幾下搖桿(NetKit 遊戲另走 net_snapshot 觸發的輸入迴圈)
           for (let k = 0; k < 3; k++) {
             setTimeout(() => {
               bot.emit('player_action', { roomId, playerId: pid, action: 'game', data: { key: 'btn1', state: 'down', seq: k } });
@@ -109,7 +111,47 @@ function runPlaytest({ moduleId, playerCount = 4, port = 3000, basePath = '', ma
             }, 400 + k * 500 + i * 80);
           }
         }
+        // select 階段:選個角色+按確定(用框架通用的 set_player_attr)
+        if (d.stageType === 'select') {
+          setTimeout(() => {
+            bot.emit('player_action', { roomId, playerId: pid, action: 'set_player_attr', data: { attrId: 'seed', value: i + 1 } });
+            bot.emit('player_action', { roomId, playerId: pid, action: 'set_player_attr', data: { attrId: 'ready', value: true } });
+            log(`${name} 選角完成按下確定`);
+          }, 500 + i * 200);
+        }
       });
+      // NetKit 即時遊戲:收到 net_snapshot = 主機權威 sim 在跑 → 以 10Hz 送隨機移動+偶發按鍵
+      bot.on('net_snapshot', (pkt) => {
+        if (done) return;
+        if (!state.nkTimer) {
+          if (i === 0) log(`NetKit 即時遊戲開始(快照含 ${Object.keys(pkt.ents || {}).length} 實體)`);
+          state.nkSeq = 0;
+          state.nkTimer = setInterval(() => {
+            state.nkSeq++;
+            const input = { seq: state.nkSeq, mx: Math.sin((Date.now() - t0) / 900 + i * 2) > 0 ? 1 : -1 };
+            if (Math.random() < 0.15) input.jump = true;
+            if (Math.random() < 0.10) input.atk = true;
+            if (Math.random() < 0.06) input.kick = true;
+            if (Math.random() < 0.06) input.skill = true;
+            bot.emit('player_action', { roomId, playerId: pid, action: 'net_input', data: input });
+          }, 100);
+        }
+        // 第 0 隻 bot 每 4 秒摘要實體位置/狀態(給 AI 看遊戲有沒有真的在動),
+        // 最多 5 張後停止 → 讓看門狗接手推進,長回合的即時遊戲才不會拖滿 maxSeconds
+        if (i === 0 && (state.nkLogCount || 0) < 5 && Date.now() - (state.nkLastLog || 0) > 4000) {
+          state.nkLastLog = Date.now();
+          state.nkLogCount = (state.nkLogCount || 0) + 1;
+          const ids = Object.keys(pkt.ents || {});
+          const summary = ids.slice(0, 4).map(id => {
+            const e = pkt.ents[id];
+            const pos = (e.p || []).map(v => Math.round(v)).join(',');
+            const hp = e.s && e.s.hp != null ? ` hp${e.s.hp}` : '';
+            return `${id}@(${pos})${hp}`;
+          }).join(' ');
+          log(`NetKit 快照: ${summary}`);
+        }
+      });
+      function stopNetkit() { if (state.nkTimer) { clearInterval(state.nkTimer); state.nkTimer = null; } state.nkLogCount = 0; state.nkLastLog = 0; }
       bot.on('vote_started', (d) => {
         if (state.voted) return;
         const opts = (d.options || []).filter(o => o.id !== pid || d.voteConfig?.allowSelfVote);

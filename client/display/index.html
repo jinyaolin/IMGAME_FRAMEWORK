@@ -354,6 +354,7 @@
     const useP2P = new URLSearchParams(location.search).get('p2p') === '1';   // P2P 主持:直連 host 瀏覽器
 
     const client = new GameClient();
+    try { window.__dispClient = client; } catch (e) {}   // 測試掛鉤(與 mobile __mgClient 對稱)
     if (useP2P) {
       client.connectP2P(roomId).catch(e => { document.getElementById('connectMsg').textContent = 'P2P 連線失敗:' + (e && e.message); });
     } else {

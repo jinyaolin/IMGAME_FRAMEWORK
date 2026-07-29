@@ -106,6 +106,7 @@ app.post(BASE + '/api/rooms', auth.requireAuthAPI, (req, res) => {
   if (moduleId) {
     const manifest = moduleLoader.getManifest(moduleId);
     if (!manifest) return res.status(400).json({ error: `Module "${moduleId}" not found` });
+    if (!modVisible(manifest, auth.reqIsSuper(req))) return res.status(403).json({ error: '模組尚未開放' });
     // Fork: deep-clone manifest so this session is isolated from future editor saves
     session.manifest = JSON.parse(JSON.stringify(manifest));
     session.moduleName = moduleId;
@@ -134,9 +135,36 @@ app.get(BASE + '/api/rooms/:roomId', (req, res) => {
   res.json(session.toSummary());
 });
 
-// Available modules (summary list)
+// ── 模組「開放」旗標:manifest.published !== true 的模組只有 superuser 看得到/載得動 ──
+// (未完成/測試中的模組不會出現在一般使用者的 /labs/game 模組清單;本地開發 auth 關閉 = 全開)
+const modVisible = (m, isSuper) => isSuper || m.published === true;
+const filterModules = (list, isSuper) => list.filter(m => modVisible(m, isSuper));
+
+// Available modules (summary list;一般使用者只看到已開放的)
 app.get(BASE + '/api/modules', (req, res) => {
-  res.json(moduleLoader.listModules());
+  res.json(filterModules(moduleLoader.listModules(), auth.reqIsSuper(req)));
+});
+
+// 目前使用者身分(labs/editor 用來決定要不要顯示 superuser 控制項)
+app.get(BASE + '/api/me', (req, res) => {
+  const uid = auth.getUserIdFromReq(req);
+  res.json({ userId: uid, superuser: auth.isSuperUserId(uid) });
+});
+
+// 開放/收回模組(superuser 專用):寫 manifest.published + 重掃登錄表
+app.post(BASE + '/api/modules/:id/publish', auth.requireAuthAPI, (req, res) => {
+  if (!auth.reqIsSuper(req)) return res.status(403).json({ error: '需要 superuser 權限' });
+  const id = req.params.id;
+  const manifestPath = path.join(__dirname, 'modules', id, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) return res.status(404).json({ error: '找不到模組' });
+  try {
+    const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    m.published = req.body && req.body.published === true;
+    atomicWriteJSON(manifestPath, m);
+    moduleLoader._scanModules();
+    console.log(`[Module] ${id} published=${m.published} by ${auth.getUserIdFromReq(req)}`);
+    res.json({ ok: true, published: m.published });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── 動作手勢庫(Gesture Lab 產出;遊戲端可全量載入當內建動作)──
@@ -425,6 +453,7 @@ app.get(BASE + '/api/modules/:id', (req, res) => {
   if (!fs.existsSync(manifestPath)) return res.status(404).json({ error: '模組不存在' });
   try {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (!modVisible(manifest, auth.reqIsSuper(req))) return res.status(403).json({ error: '模組尚未開放' });
     res.json(manifest);
   } catch (err) {
     res.status(500).json({ error: 'manifest 解析失敗：' + err.message });
@@ -709,7 +738,7 @@ function validateManifest(m) {
               if (!f.name || !String(f.name).trim()) push(`${fp}.name`, '程式檔需要名稱');
               else if (fnames.has(f.name)) push(`${fp}.name`, `程式檔名重複：${f.name}`);
               else fnames.add(f.name);
-              if (!['shared', 'display', 'mobile'].includes(f.target))
+              if (!['shared', 'display', 'mobile', 'sim', 'render'].includes(f.target))
                 push(`${fp}.target`, 'target 必須是 shared、display 或 mobile');
               if (typeof f.code !== 'string') push(`${fp}.code`, '程式檔需要 code 字串');
               else if (f.code) {
@@ -796,7 +825,7 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
 
     const updatedList = moduleLoader.listModules();
     for (const session of sessions.values()) {
-      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: updatedList });
+      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, auth.isSuperUserId(session.ownerUserId)) });
     }
 
     console.log(`[Module] Saved: ${id}`);
@@ -827,7 +856,7 @@ app.delete(BASE + '/api/modules/:id', (req, res) => {
 
     const updatedList = moduleLoader.listModules();
     for (const session of sessions.values()) {
-      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: updatedList });
+      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, auth.isSuperUserId(session.ownerUserId)) });
     }
 
     console.log(`[Module] Deleted: ${id}`);
@@ -900,7 +929,7 @@ app.post(BASE + '/api/modules/:sourceId/clone', (req, res) => {
     const updatedList = moduleLoader.listModules();
     for (const session of sessions.values()) {
       if (session.hostSocketId) {
-        io.to(session.hostSocketId).emit('modules_updated', { modules: updatedList });
+        io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, auth.isSuperUserId(session.ownerUserId)) });
       }
     }
 
@@ -1091,6 +1120,7 @@ io.on('connection', (socket) => {
       if (moduleName && moduleName !== snapshotId) {
         const fresh = moduleLoader.getManifest(moduleName);
         if (!fresh) { socket.emit('error', { message: `Module "${moduleName}" not found` }); return; }
+        if (!modVisible(fresh, auth.socketIsSuper(socket))) { socket.emit('error', { message: '模組尚未開放' }); return; }
         session.manifest   = JSON.parse(JSON.stringify(fresh));   // 深拷貝：與日後編輯器存檔隔離
         session.moduleName = moduleName;
         session.engineCode = moduleLoader.readEngineCode(moduleName);

@@ -35,6 +35,7 @@ const SCHEMA_DOC = `
 | loop | 子階段迴圈 | children:[子階段], maxIterations, entryCondition?, exitCondition? |
 | goto | 條件跳轉到指定階段 | target:"<stageId>", condition? |
 | result | 結算名次、廣播 game_ended | - |
+| select | 選角/準備階段：手機內建 3D 選角(LowPoly 角色+🎲造型+確定)，大螢幕即時看板 | 需搭配 playerAttributes role/seed/ready（見「選角階段」） |
 
 ## 推進設定（advance）
 "advance": { "trigger":"<觸發器>", "duration":秒數, "fallback":"host" }
@@ -45,6 +46,7 @@ host_reveal / auto_next / round_timer / vote_ended
 - timer 會廣播倒數給三端；auto 不顯示倒數
 - fallback:"host" = 自動推進之外主持人仍可強制推進（建議都加）
 - vote 階段配 "vote_ended"；identity_draw 配 "all_confirmed"
+- select 階段配 "all_ready"：所有玩家的 playerAttribute ready 為 true 時自動推進（玩家端用 set_player_attr 寫入）
 
 ## 投票設定（voteConfig）
 { "voteTitle","voteDescription","target":"players"|"options","options":[{id,label}],
@@ -57,9 +59,42 @@ target:"players" 時選項自動 = 存活玩家。
   "buttonLabels":{ "btn1":"跳", ... },
   "library":"three"|"babylon"|"p5"（選填，不填 = 原生 Canvas 2D；display 與手機共用）,
   "aspectRatio":"16:9"|"4:3"|"1:1"（選填，預設 16:9，僅 display）,
-  "files":[ { "name":"shared/track.js", "target":"shared"|"display"|"mobile", "code":"..." } ],
+  "files":[ { "name":"shared/track.js", "target":"shared"|"display"|"mobile"|"sim"|"render", "code":"..." } ],
   "gameCode":"<舊格式單檔（相容用，新程式一律用 files）>",
   "mobileCode":"<舊格式單檔（相容用）>" }
+
+### NetKit（即時多人遊戲的「標準」寫法 — 新即時遊戲一律用這個，不要再寫舊 sendState/onPlayerState）
+主機權威單一模擬：手機只送輸入、所有端渲染內插快照。免寫 netcode，結構性無瞬移、自帶客戶端預測。
+- files 用 target:"sim"(權威邏輯,主機執行,純 JS 無 DOM/THREE) + "render"(手機+大螢幕共用畫面) + "shared"(常數)。需 layout:"custom"。
+- sim 檔頂層以 Sim 物件裝配（與 shared 同作用域）：
+  Sim.init(world)  // world = { seed, players:{ pid:{ attrs, name, num } } } ← 前面階段寫的 playerAttributes 在 attrs
+  Sim.spawn(pid) / Sim.despawn(pid) / Sim.input(pid, inp) / Sim.step(dt) / Sim.snapshot() → { ents:{pid:{p:[x,y],s:{...}}}, world:{...} }
+  Sim.emit(type, data)  // 離散事件（攻擊/KO…）→ render 的 Net.on
+  （選配，強烈建議）Sim.predictStep(entState, inp, dt) 純運動學一步 + Sim.reset(pid, state) → 自己角色零延遲預測
+- 預測契約：snapshot 的 s 需帶 vx,vy,gr,jm,st,mx；離散狀態(hp/role/…)也放 s，render 讀。
+- render 檔可用 Net：Net.entities(已內插)/Net.self/Net.world/Net.on(type,cb)/Net.input(obj)（手機）/Net.surface==="mobile"|"display"。
+  輸入任意欄位皆可（mx 連續、其餘視為邊緣鍵）。每幀由執行期先呼叫 Net.frame() 更新 Net.entities。
+- 範例參考：模組 fairy-brawl-nk（src/config.js + src/sim.js + src/render.js 的結構）。
+
+### 計分與跨階段累積（重要：分數必須寫回框架，result 階段才有名次）
+- 遊戲內的分數「不能只存在遊戲自己的變數」— 要用保留事件寫回框架的 player.score：
+  Sim.emit("score", { pid, add: 1 })（累加）或 Sim.emit("score", { pid, score: 10 })（設絕對值）。
+  result 階段自動按 player.score 排名並廣播 game_ended（冠軍/名次）。範例：fairy-brawl-nk 擊殺 +1。
+- 跨階段累積（例：第一關收集金幣 → 帶進第二關）：manifest 先宣告 playerAttributes（如 {"id":"coins","type":"number","initialValue":0}），
+  sim 用 Sim.emit("set_attr", { pid, attrId:"coins", value: n }) 寫入 → 屬性跨階段保留，下一關 sim 從 world.players[pid].attrs.coins 讀。
+  想每局歸零的屬性加 "resetOnStart":true。
+- 階段邊界的參數運算（不需 sim 介入的）用 stage.paramActions（setValue/addValue/storeVoteWinner…）。
+
+### 選角階段（type:"select"）與跨階段參數
+- manifest.playerAttributes 宣告 { "id":"role","type":"select","options":[...12 角] } + { "id":"seed","type":"number" } + { "id":"ready","type":"boolean","initialValue":false,"resetOnStart":true }
+  → 手機在 select 階段自動出現內建 3D 選角介面（換角/🎲造型/確定），大螢幕自動顯示每人選擇的即時看板。
+- resetOnStart:true 的屬性在每局開始重置回 initialValue（ready 類）；沒標的（role/seed 類）跨局保留 = 記住上次選擇。
+- 玩家端寫參數的通用動作：player_action "set_player_attr" { attrId, value }（只接受 manifest 有宣告的 id）。
+- 遊戲階段的 sim 可從 Sim.init 的 world.players[pid].attrs 讀到這些值（例：用選好的 role/seed 生成角色）。
+
+### 動作手勢庫（GestureKit）
+- GET /api/gestures 取全庫（Gesture Lab 產出的動作規格 JSON）；render 端 GestureKit.compile(spec) → ok 時 animator.clips[spec.name]=r.clip; animator.play(spec.name)。
+- oneshot 播完自動回底層迴圈；loop 型會成為當前 base。適合勝利動作/嘲諷/emote。
 
 ### 多檔案程式結構（files）— 標準做法
 - 用 write_game_file 逐檔建立/更新；list_game_files 看結構；read_game_file 讀內容。
@@ -83,6 +118,8 @@ letterbox 自動縮放），gameCode 同時在大螢幕跑總覽畫面（大地�
     原因：LowPoly.animatedCharacter/createAnimator 的走路步速與跳躍是「靠 root 每幀的位移量」推導的；直接 set 會讓 root 以 10Hz
     跳格 → 快照之間每幀位移=0（步伐凍住）、快照那幀暴衝（誤判跑/跳）→ 抖動，且 redraw FPS 越高越明顯。逐幀插值給動畫層連續速度就順了。
     首次出現的角色直接就位（別從原點滑過來）；大位移（重生/瞬移）可加門檻直接吸附。自己的角色本機每幀模擬即時，可直接 set。
+    【網路角色建議用 simple 模式】LowPoly.createAnimator(lp, { body, root, simple:true }) + 每幀 animator.setSpeed(Math.abs(s.vx))：
+    罐頭走跑循環（含彎膝）由「外部速度」推相位，不從位置反推、不貼地 → 位置抖動下動作依然穩（NetKit render 標準做法）。
   palette — 玩家配色陣列（display／手機／預覽三端一致）；玩家顏色 = palette[idx % palette.length] /
   update(fn(ts)) / onEnd(fn)。觸控事件直接在 GameAPI.canvas 上 addEventListener（touch-action 已設 none）。
 - 大螢幕 GameAPI 額外有：onPlayerState(fn(playerId, state, player)) — 收手機 sendState/sendEvent；
@@ -234,7 +271,7 @@ exitCondition 可加 "checkAfter":"each_iteration"（預設）|"each_stage"
 
 ## 參數（globalParams[] / playerAttributes[]）
 { "id","label","type":"number|string|boolean|player|card|array"(attr 另支援 select),
-  "initialValue", "subType":"integer|float"?, "min"?, "max"?, "itemType"?(array 必填), "options"?(select 必填) }
+  "initialValue", "subType":"integer|float"?, "min"?, "max"?, "itemType"?(array 必填), "options"?(select 必填), "resetOnStart"?:true(每局開始重置回 initialValue；準備/已提交類狀態用) }
 
 ## 參數動作（stage.paramActions[]）
 { "trigger":"onStageStart"|"onStageEnd", "action":"<動作>", "targetParam"/"targetPlayerParam", "value"? }

@@ -552,6 +552,10 @@ async function openModuleModal() {
   }
 }
 function closeModuleModal() { $('moduleModal').classList.remove('open'); }
+// superuser 判定(/api/me):決定要不要顯示「測試中」徽章與 開放/收回 切換
+let meSuper = false;
+fetch((window.IMGAME_BASE || '') + '/api/me').then(r => r.json()).then(d => { meSuper = !!d.superuser; }).catch(() => {});
+
 function renderModuleGrid(mods) {
   const grid = $('moduleGrid');
   grid.innerHTML = '';
@@ -559,13 +563,33 @@ function renderModuleGrid(mods) {
   mods.forEach(m => {
     const card = document.createElement('div');
     card.className = 'modCard' + (m.id === selectedModuleId ? ' sel' : '');
-    card.innerHTML = `<h3>${escapeHtml(m.name || m.id)}</h3>
+    const pub = m.published === true;
+    const badge = meSuper ? (pub
+      ? '<span style="font-size:11px;color:#52e05a;">● 已開放</span>'
+      : '<span style="font-size:11px;color:#ffb84d;">🧪 測試中</span>') : '';
+    const toggle = meSuper ? `<button class="pubToggle" data-id="${escapeHtml(m.id)}" data-pub="${pub ? 1 : 0}"
+      style="margin-left:auto;font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid #453a78;background:${pub ? '#3a2f2f' : '#2f3a2f'};color:#ddd;cursor:pointer;">${pub ? '收回' : '開放'}</button>` : '';
+    card.innerHTML = `<h3 style="display:flex;align-items:center;gap:8px;">${escapeHtml(m.name || m.id)} ${badge} ${toggle}</h3>
       <div class="desc">${escapeHtml(m.description || '')}</div>
       <div class="meta">${m.minPlayers}–${m.maxPlayers} 人 · ${m.stageCount ?? '?'} 階段</div>`;
     card.onclick = () => {
       closeModuleModal();
       client.selectModule(m.id);
       toast(`載入「${m.name || m.id}」…`);
+    };
+    const tbtn = card.querySelector('.pubToggle');
+    if (tbtn) tbtn.onclick = async (e) => {
+      e.stopPropagation();   // 不觸發選模組
+      const want = tbtn.dataset.pub !== '1';
+      try {
+        const r = await fetch((window.IMGAME_BASE || '') + '/api/modules/' + encodeURIComponent(m.id) + '/publish', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ published: want }) });
+        const d = await r.json();
+        if (!r.ok) { toast('⚠ ' + (d.error || r.status)); return; }
+        m.published = d.published;
+        toast(d.published ? `「${m.name || m.id}」已開放` : `「${m.name || m.id}」已收回(僅 superuser 可見)`);
+        renderModuleGrid(mods);
+      } catch (err) { toast('⚠ ' + err.message); }
     };
     grid.appendChild(card);
   });

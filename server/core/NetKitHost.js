@@ -28,7 +28,26 @@ class NetKitHost {
     const test = {}; (new Function('Sim', code))(test);
     if (typeof test.step !== 'function' || typeof test.snapshot !== 'function') throw new Error('NetKit sim 缺少 step/snapshot');
     const seed = (Math.floor(Date.now() / 1000) >>> 0);
-    const bcast = (pkt) => { session.broadcastPlayers('net_snapshot', pkt); session.broadcastDisplay('net_snapshot', pkt); };
+    // 保留事件:sim 權威寫回框架玩家資料(計分/跨階段參數)。快照廣播前攔截,Node 與瀏覽器 Worker 兩路共用。
+    //   Sim.emit('score', { pid, score })     → 設絕對分數;{ pid, add } → 累加。result 階段按 player.score 排名。
+    //   Sim.emit('set_attr', { pid, attrId, value }) → session.setPlayerParam(驗 manifest 宣告)→ 跨階段保留、下一關 sim 從 world.players 讀。
+    const applyReserved = (pkt) => {
+      if (!pkt || !Array.isArray(pkt.evts)) return;
+      for (const ev of pkt.evts) {
+        try {
+          if (ev.type === 'score' && ev.data) {
+            const p = session.players.get(String(ev.data.pid));
+            if (p) {
+              if (typeof ev.data.score === 'number') p.score = ev.data.score;
+              else if (typeof ev.data.add === 'number') p.score = (p.score || 0) + ev.data.add;
+            }
+          } else if (ev.type === 'set_attr' && ev.data && ev.data.attrId) {
+            session.setPlayerParam(String(ev.data.pid), ev.data.attrId, ev.data.value);
+          }
+        } catch (e) { console.warn('[NetKit] 保留事件失敗:', ev.type, e && e.message); }
+      }
+    };
+    const bcast = (pkt) => { applyReserved(pkt); session.broadcastPlayers('net_snapshot', pkt); session.broadcastDisplay('net_snapshot', pkt); };
 
     // 每位玩家的公開資訊 + 參數(playerAttributes)一併帶進 sim.init 的 world → sim 可用前面 stage 寫入的參數
     // (如選角階段的 role/seed)。通用:框架只轉發,由各遊戲 sim 決定怎麼用。快照於遊戲階段開始時取,參數已定案。

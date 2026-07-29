@@ -37,7 +37,8 @@
 
       // 遠端 peer 的入站事件 → 統一 dispatch(from = peerId)
       const EVENTS = ['join_room', 'join_display', 'join_host', 'player_ready', 'player_action',
-        'player_submit', 'play_card', 'host_load_module', 'host_select_module', 'host_next_phase', 'host_change_module'];
+        'player_submit', 'play_card', 'host_load_module', 'host_select_module', 'host_next_phase', 'host_change_module',
+        'display_game_broadcast'];
       for (const ev of EVENTS) p2p.on(ev, (d, from) => self._dispatch(ev, d, from));
       p2p.onPeerClose((peerId) => { try { self.session.disconnectPlayer(peerId); } catch (e) {} });
     }
@@ -76,6 +77,11 @@
           break;
         }
         case 'player_action': s.handlePlayerAction(d.playerId, d.action, d.data); break;
+        // 舊 netcode(未遷 NetKit 的遊戲):display gameCode 的 broadcast() → 全體手機 onMessage。
+        // 與 server/index.js 同形:僅接受已註冊的 display peer。
+        case 'display_game_broadcast':
+          if (s.displaySocketIds.has(from)) s.broadcastPlayers('game_broadcast', { data: d.data });
+          break;
         case 'player_submit': s.handlePlayerSubmit(d.playerId, d.data); break;
         case 'play_card': s.handlePlayerAction(d.playerId, 'play_card', { cardId: d.cardId, target: d.target }); break;
         case 'host_next_phase': s.handleHostNextPhase(d.data || {}); break;

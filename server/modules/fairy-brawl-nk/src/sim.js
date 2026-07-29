@@ -59,7 +59,11 @@ function buildFairySim(Sim, CFG, SKILLS, ROLES) {
     o.hp -= dmg;
     o.vx = knockDir * knock; o.vy = Math.max(o.vy, lift); o.grounded = false;
     o.stun = CFG.HIT_STUN;
-    if (o.hp <= 0) { o.ko = true; o.respawn = CFG.RESPAWN_TIME; o.hp = 0; o.slp = 0; o.ice = 0; o.stone = 0; o.castT = 0; Sim.emit('ko', { by: pid, target: oid }); }
+    if (o.hp <= 0) {
+      o.ko = true; o.respawn = CFG.RESPAWN_TIME; o.hp = 0; o.slp = 0; o.ice = 0; o.stone = 0; o.castT = 0;
+      Sim.emit('ko', { by: pid, target: oid });
+      Sim.emit('score', { pid: pid, add: 1 });   // 擊殺 +1 → 框架 player.score(result 階段自動排名)
+    }
     else Sim.emit('hit', { by: pid, target: oid, skill: !!fromSkill });
   }
   // 瞬發技結算(範圍/錐/狀態/治療/位移/石化)。proj/multi/ring 為投射物 → 下一階段,目前僅冷卻+cast 特效。
@@ -140,7 +144,7 @@ function buildFairySim(Sim, CFG, SKILLS, ROLES) {
       for (const pid in ents) {
         const o = ents[pid]; if (pid === rainOwner || o.ko || o.inv > 0 || o.stone > 0) continue;
         o.hp -= (IT.RAIN_DPS || 0) * dt;
-        if (o.hp <= 0) { o.ko = true; o.respawn = CFG.RESPAWN_TIME; o.hp = 0; o.slp = 0; o.ice = 0; o.stone = 0; o.castT = 0; Sim.emit('ko', { by: rainOwner, target: pid }); }
+        if (o.hp <= 0) { o.ko = true; o.respawn = CFG.RESPAWN_TIME; o.hp = 0; o.slp = 0; o.ice = 0; o.stone = 0; o.castT = 0; Sim.emit('ko', { by: rainOwner, target: pid }); Sim.emit('score', { pid: rainOwner, add: 1 }); }
       }
     }
     if (items.length === 0) {

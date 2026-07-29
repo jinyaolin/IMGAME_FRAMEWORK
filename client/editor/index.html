@@ -4,6 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>模組編輯器</title>
+  <script>
+    // 子路徑部署前綴(頁面內嵌腳本在 config.js 載入前就會跑,這段必須最先執行)
+    window.IMGAME_BASE = location.pathname.indexOf('/labs/game') === 0 ? '/labs/game' : '';
+    if (window.IMGAME_BASE) {
+      const _fetch = window.fetch;
+      window.fetch = (u, o) => _fetch(
+        (typeof u === 'string' && /^\/(?!\/)/.test(u) && !u.startsWith(window.IMGAME_BASE + '/'))
+          ? window.IMGAME_BASE + u : u, o);
+      window.__imgameFetchWrapped = true;
+    }
+  </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -310,6 +321,173 @@
     .child-stage-row { background: #10102a; border: 1px solid #2a2a55; border-left: 3px solid #6633bb; border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; margin-left: 12px; }
     .child-stage-row.disabled { opacity: .55; }
     .child-stage-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-top: 8px; }
+
+    /* ── AI 聊天側欄 ─────────────────────────────── */
+    .ai-sidebar { width: 380px; flex-shrink: 0; border-left: 1px solid #2a2a5a; background: #0d0d20;
+                  display: flex; flex-direction: column; height: calc(100vh - 57px); }
+    .ai-head { padding: 12px 14px; border-bottom: 1px solid #2a2a5a; display: flex; align-items: center; gap: 8px; }
+    .ai-head h3 { font-size: .9rem; color: #ddddf0; margin: 0; flex: 1; }
+    .ai-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+    .ai-dot.on { background: #33bb66; box-shadow: 0 0 6px #33bb66; }
+    .ai-model { font-size: .68rem; color: #8888bb; }
+    .ai-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .ai-msg { border-radius: 10px; padding: 9px 12px; font-size: .82rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .ai-msg.user { background: #23234d; color: #ddddf0; align-self: flex-end; max-width: 90%; }
+    .ai-msg.bot  { background: #14142a; border: 1px solid #2a2a5a; color: #ccccee; align-self: flex-start; max-width: 95%; }
+    .ai-msg.err  { background: #2a1420; border: 1px solid #663; color: #ff9999; }
+    .ai-tool { font-size: .72rem; color: #8888bb; padding: 2px 12px; font-family: ui-monospace, monospace; }
+    .ai-tool .ok { color: #33bb66; } .ai-tool .fail { color: #ff6666; }
+    .ai-typing { font-size: .75rem; color: #6666aa; padding: 0 12px; }
+    .ai-attach { display: flex; gap: 6px; padding: 8px 12px 0; flex-wrap: wrap; }
+    .ai-attach .thumb { position: relative; width: 52px; height: 52px; border-radius: 8px; overflow: hidden;
+                        border: 1px solid #2a2a5a; }
+    .ai-attach .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ai-attach .thumb .rm { position: absolute; top: 0; right: 0; background: #000a; color: #ff9999;
+                            border: none; cursor: pointer; font-size: .7rem; padding: 0 4px; border-radius: 0 0 0 6px; }
+    .ai-attach .asset-chip { display: flex; align-items: center; gap: 5px; background: #1a1a3a; border: 1px solid #2a2a5a;
+                             border-radius: 14px; padding: 3px 9px; font-size: .7rem; color: #aaccee; max-width: 220px; }
+    .ai-attach .asset-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai-attach .asset-chip button { background: none; border: none; color: #ff9999; cursor: pointer; font-size: .7rem; padding: 0; }
+    .ai-msg .att img { max-width: 140px; border-radius: 8px; margin: 4px 4px 0 0; border: 1px solid #3a3a6a; cursor: pointer; }
+    .ai-inputrow { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #2a2a5a; }
+    .ai-inputrow textarea { flex: 1; background: #14142a; border: 1px solid #2a2a5a; border-radius: 8px;
+                            color: #ddddf0; padding: 9px 11px; font-size: .82rem; resize: none; height: 60px; font-family: inherit; }
+    .ai-inputrow textarea:focus { outline: none; border-color: #5555ff; }
+    .ai-hint { font-size: .68rem; color: #55558a; padding: 0 14px 10px; }
+
+    /* ── 總覽 tab ─────────────────────────────────── */
+    .ov-section { background: #14142a; border: 1px solid #2a2a5a; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+    .ov-title { font-size: .78rem; color: #aaaaff; font-weight: 700; letter-spacing: .05em; margin-bottom: 10px; }
+    .ov-stage { display: flex; gap: 10px; padding: 8px 10px; border-left: 3px solid #3a3a6a; background: #0e0e22;
+                border-radius: 6px; margin-bottom: 6px; font-size: .82rem; }
+    .ov-stage.child { margin-left: 26px; border-left-color: #6633bb; }
+    .ov-stage.off { opacity: .45; }
+    .ov-stage .num { color: #6666aa; font-weight: 700; min-width: 20px; }
+    .ov-stage .body { flex: 1; }
+    .ov-stage .sname { color: #ddddf0; font-weight: 600; }
+    .ov-stage .stype { color: #8888bb; font-size: .72rem; margin-left: 6px; }
+    .ov-stage .sdesc { color: #9999cc; font-size: .76rem; margin-top: 3px; line-height: 1.5; }
+    .ov-adv { color: #77aaff; font-size: .74rem; margin-top: 3px; }
+    .ov-pa  { color: #cc99ff; font-size: .72rem; margin-top: 2px; }
+    .ov-meta { color: #ccccee; font-size: .82rem; line-height: 1.7; }
+    .ov-deck { font-size: .8rem; color: #ccccee; padding: 6px 0; border-bottom: 1px dashed #2a2a4a; }
+    .ov-deck:last-child { border-bottom: none; }
+    .ov-empty { color: #6666aa; font-size: .8rem; }
+    .ov-notes { white-space: pre-wrap; font-size: .78rem; color: #ccccee; line-height: 1.6;
+                max-height: 260px; overflow-y: auto; font-family: ui-monospace, monospace; }
+
+    /* ── 故事板:手機縮圖（.pm-*）── */
+    .ov-stage { cursor: pointer; align-items: stretch; }
+    .ov-stage:hover { background: #12122c; border-left-color: #5555ff; }
+    .pm-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0; }
+    .pm-frame { width: 150px; background: #0a0a1a; border: 2px solid #2a2a5a; border-radius: 16px;
+                padding: 6px; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 2px 10px #0006; }
+    .pm-topbar { display: flex; justify-content: space-between; align-items: center; font-size: .6rem;
+                 color: #8888bb; background: #14142a; border-radius: 8px; padding: 3px 6px; }
+    .pm-status { font-size: .58rem; color: #aaaadd; text-align: center; background: #1a1a3a; border-radius: 6px; padding: 2px 4px; }
+    .pm-body { min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 4px 0; }
+    .pm-action { font-size: .62rem; text-align: center; border-radius: 8px; padding: 5px; background: #20204a; color: #7777aa; }
+    .pm-action-on { background: #5555ff; color: #fff; }
+    .pm-caption { font-size: .56rem; color: #6666aa; }
+    .pm-vote-opt { width: 88%; font-size: .6rem; color: #ccccee; text-align: center; background: #14142a;
+                   border: 1px solid #2a2a5a; border-radius: 8px; padding: 4px; }
+    .pm-hand { display: flex; gap: 4px; }
+    .pm-hand i { width: 22px; height: 32px; border-radius: 4px; background: linear-gradient(160deg,#2a2a6a,#3a2a7a); border: 1px solid #4a4a8a; }
+    .pm-idcard, .pm-mid, .pm-result { text-align: center; font-size: .62rem; color: #ddddf0; }
+    .pm-idcard .big, .pm-mid .big, .pm-result .big { font-size: 1.4rem; }
+    .pm-idcard b, .pm-result b { display: block; color: #ffdd44; margin: 2px 0; }
+    .pm-sub { color: #8888bb; }
+    .pm-loop { border: 1px dashed #6633bb; border-radius: 8px; padding: 6px 8px; font-size: .62rem; color: #cc99ff; text-align: center; }
+    .pm-goto { font-size: .66rem; color: #77aaff; text-align: center; }
+    .pm-pad { display: grid; gap: 3px; width: 80%; }
+    .pm-pad.c4 { grid-template-columns: repeat(4,1fr); }
+    .pm-pad.c2 { grid-template-columns: repeat(2,1fr); }
+    .pm-pad b { height: 16px; background: #20204a; border: 1px solid #3a3a6a; border-radius: 4px; }
+    .pm-ctrl { display: flex; gap: 8px; align-items: center; justify-content: center; }
+    .pm-stick { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #3a3a6a; background: radial-gradient(circle at 50% 40%,#2a2a5a,#161636); }
+    .pm-abcol { display: flex; flex-direction: column; gap: 4px; }
+    .pm-abcol b { width: 22px; height: 22px; border-radius: 50%; background: #20204a; border: 1px solid #3a3a6a;
+                  display: flex; align-items: center; justify-content: center; font-size: .6rem; color: #aaa; }
+    .pm-cross { width: 36px; height: 36px; position: relative; }
+    .pm-cross b { position: absolute; width: 12px; height: 12px; background: #20204a; border: 1px solid #3a3a6a; }
+    .pm-cross b.u{top:0;left:12px}.pm-cross b.d{bottom:0;left:12px}.pm-cross b.l{top:12px;left:0}.pm-cross b.r{top:12px;right:0}
+
+    /* 故事板卡片之間的連接線 */
+    .ov-connector { width: 3px; height: 14px; margin: -4px 0 2px 26px;
+                    background: repeating-linear-gradient(to bottom, #3a3a6a 0 3px, transparent 3px 6px); }
+
+    /* 階段表單列裡的迷你縮圖 */
+    .sr-minimock { zoom: .38; -moz-transform: scale(.38); pointer-events: none; flex-shrink: 0; }
+
+    /* 跳轉高亮 */
+    @keyframes stageFlash { 0%,100% { box-shadow: none; } 30% { box-shadow: 0 0 0 3px #5555ff; } }
+    .stage-flash { animation: stageFlash 1.6s ease 2; }
+
+    /* AI 剛更新過的元素：反白亮起 → 淡出 */
+    @keyframes aiFlash {
+      0%   { background-color: rgba(85, 85, 255, .38); box-shadow: 0 0 0 2px #7788ff, 0 0 18px #5555ff88; }
+      100% { background-color: transparent; box-shadow: none; }
+    }
+    .ai-flash { animation: aiFlash 2.4s ease-out; }
+
+    /* ── 意圖精靈 modal ── */
+    .wizard-overlay { position: fixed; inset: 0; background: #000a; z-index: 200; display: flex;
+                      align-items: center; justify-content: center; }
+    .wizard-panel { background: #14142a; border: 1px solid #3a3a6a; border-radius: 14px; padding: 22px 24px;
+                    width: min(620px, 92vw); max-height: 85vh; overflow-y: auto; }
+    .wizard-title { font-size: 1rem; color: #ddddf0; font-weight: 700; margin-bottom: 4px; }
+    .wizard-sub { font-size: .78rem; color: #8888bb; margin-bottom: 16px; }
+    .wizard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .wizard-card { background: #0e0e22; border: 1px solid #2a2a4a; border-radius: 10px; padding: 14px 12px;
+                   cursor: pointer; text-align: center; transition: all .12s; }
+    .wizard-card:hover { border-color: #5555ff; background: #16163a; transform: translateY(-2px); }
+    .wizard-card .wi { font-size: 1.6rem; }
+    .wizard-card .wt { font-size: .82rem; color: #ddddf0; font-weight: 600; margin-top: 6px; }
+    .wizard-card .wd { font-size: .68rem; color: #8888bb; margin-top: 4px; line-height: 1.5; }
+
+    /* ── 遊戲預覽（本機模擬多人）── */
+    .pv-overlay { position: fixed; inset: 0; background: #05050f; z-index: 300; display: flex; flex-direction: column; }
+    .pv-topbar { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid #2a2a5a; flex-shrink: 0; }
+    .pv-title { color: #aaaaff; font-weight: 700; font-size: .9rem; }
+    .pv-status { color: #ff8866; font-size: .75rem; flex: 1; }
+    .pv-stagearea { height: 46vh; position: relative; background: #000; flex-shrink: 0; }
+    .pv-stagebox { position: absolute; inset: 0; margin: auto; overflow: hidden; background: #000010; box-shadow: 0 0 30px #0009; }
+    .pv-stagebox canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
+    .pv-ctrls { flex: 1; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 14px; padding: 16px;
+                justify-content: center; align-content: flex-start; background: #0a0a1a; }
+    .pv-ctrl { background: #10102a; border: 2px solid var(--c, #5555ff); border-radius: 12px; padding: 10px 12px; }
+    .pv-ctrl-name { font-size: .78rem; font-weight: 700; margin-bottom: 8px; color: #ddddf0; display: flex; align-items: center; gap: 6px; }
+    .pv-ctrl-name i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); display: inline-block; }
+    .pv-btnrow { display: flex; gap: 12px; align-items: center; justify-content: center; }
+    .pv-grid { display: grid; gap: 6px; }
+    .pv-grid.c4 { grid-template-columns: repeat(4, 1fr); }
+    .pv-grid.c2 { grid-template-columns: repeat(2, 1fr); }
+    .pv-btn { background: #20204a; border: 1px solid #3a3a6a; border-radius: 8px; color: #ccccee; font-size: .8rem;
+              padding: 10px 8px; text-align: center; user-select: none; -webkit-user-select: none; cursor: pointer;
+              min-width: 42px; touch-action: none; }
+    .pv-btn.on { background: var(--c, #5555ff); color: #fff; border-color: var(--c, #5555ff); }
+    .pv-dpad { display: grid; grid-template-columns: repeat(3, 36px); grid-template-rows: repeat(3, 36px); gap: 4px; }
+    .pv-dpad .pv-btn { padding: 0; line-height: 36px; min-width: 0; }
+    .pv-dpad .blank { visibility: hidden; }
+    .pv-phonebox { position: relative; width: 162px; height: 288px; background: #000010;
+                   border: 2px solid #2a2a5a; border-radius: 12px; overflow: hidden; touch-action: none; }
+    .pv-phonebox canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; touch-action: none; }
+
+    /* ── 遊戲程式檔案列表 ── */
+    .gf-row { background: #0d0d20; border: 1px solid #26264a; border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
+    .gf-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; user-select: none; }
+    .gf-head:hover { background: #12122c; }
+    .gf-name { font-size: .8rem; color: #ccccee; font-family: ui-monospace, monospace; }
+    .gf-chip { font-size: .64rem; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+    .gf-chip.gf-shared  { background: #2a2050; color: #cc99ff; }
+    .gf-chip.gf-display { background: #1a2a50; color: #77aaff; }
+    .gf-chip.gf-mobile  { background: #1a3a2a; color: #55dd88; }
+    .gf-size { font-size: .68rem; color: #6666aa; }
+    .gf-btn { background: none; border: none; color: #8888bb; cursor: pointer; font-size: .72rem; padding: 2px 4px; }
+    .gf-btn:hover { color: #ddddf0; } .gf-btn:disabled { opacity: .3; cursor: default; }
+    .gf-btn.gf-del:hover { color: #ff6666; }
+    .gf-code { font-family: ui-monospace, monospace; font-size: .76rem; border-radius: 0;
+               border-left: none; border-right: none; border-bottom: none; width: 100%; }
   </style>
 </head>
 <body>
@@ -318,7 +496,7 @@
   <h1>📝 模組編輯器</h1>
   <div class="links">
     <button class="undo-btn" id="undoBtn" onclick="undo()" disabled>↶ Undo<kbd>⌘Z</kbd></button>
-    <a href="/host" target="_blank">→ Host 控制台</a>
+    <a href="../host" target="_blank">→ Host 控制台</a>
   </div>
 </header>
 
@@ -374,6 +552,7 @@
           <button class="btn btn-success" id="saveBtn"  onclick="saveCurrent()" disabled>💾 儲存（覆寫原檔）<kbd style="margin-left:6px;color:#cce">⌘S</kbd></button>
           <button class="btn btn-primary" id="cloneBtn" onclick="saveAsNew()">📦 另存為新模組…</button>
           <button class="btn btn-ghost"   id="resetBtn" onclick="reloadCurrent()" disabled>↺ 放棄修改</button>
+          <button class="btn btn-ghost"   id="pubBtn"   onclick="togglePublish()" style="display:none" title="開放後一般使用者才能在 /labs/game 選到這個模組"></button>
           <button class="btn btn-danger"  id="delBtn"   onclick="deleteCurrent()" style="margin-left:auto">🗑 刪除模組</button>
         </div>
       </div>
@@ -387,21 +566,73 @@
       <!-- Tabs -->
       <div id="configEditor">
         <div class="cfg-tabs">
+          <button class="cfg-tab active" onclick="switchCfgTab('overview')">🎬 故事板</button>
           <button class="cfg-tab"        onclick="switchCfgTab('params')"   data-i18n="tab.params">參數</button>
-          <button class="cfg-tab active" onclick="switchCfgTab('decks')"    data-i18n="tab.decks">牌組</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('decks')"    data-i18n="tab.decks">牌組</button>
           <button class="cfg-tab"        onclick="switchCfgTab('stages')"   data-i18n="tab.stages">階段</button>
           <button class="cfg-tab"        onclick="switchCfgTab('advanced')" data-i18n="tab.advanced">進階</button>
         </div>
+        <div id="cfgOverview" class="cfg-tab-content active"></div>
         <div id="cfgParams"   class="cfg-tab-content"></div>
-        <div id="cfgDecks"    class="cfg-tab-content active"></div>
+        <div id="cfgDecks"    class="cfg-tab-content"></div>
         <div id="cfgStages"   class="cfg-tab-content"></div>
         <div id="cfgAdvanced" class="cfg-tab-content"></div>
       </div>
     </div>
   </main>
+
+  <aside class="ai-sidebar">
+    <div class="ai-head">
+      <span class="ai-dot" id="aiDot"></span>
+      <h3>🤖 Kimi 設計師</h3>
+      <span class="ai-model" id="aiModel"></span>
+      <button class="btn btn-ghost btn-sm" onclick="resetAiChat()" title="清除對話">🗑</button>
+    </div>
+    <div class="ai-log" id="aiLog">
+      <div class="ai-msg bot">嗨！我是 Kimi 設計核心。直接用中文跟我說你想要的玩法，我會幫你建立或修改遊戲模組、跑模擬測試。例如：「幫我做一個 6 人狼人殺，兩輪投票之間加討論時間」。
+💡 對話很長時輸入 /compact 可壓縮記憶；每個模組有我的長期筆記（KIMI.md），重要脈絡不會忘。</div>
+    </div>
+    <div class="ai-typing hidden" id="aiTyping">思考中…</div>
+    <div class="ai-attach hidden" id="aiAttach"></div>
+    <div class="ai-inputrow">
+      <button class="btn btn-ghost" id="aiAttachBtn" onclick="document.getElementById('aiFileInput').click()"
+              title="上傳素材（圖片/音效）給 Kimi 判斷與使用" style="align-self:flex-end">📎</button>
+      <input type="file" id="aiFileInput" multiple accept="image/*,audio/*" class="hidden"
+             onchange="aiUploadAssets(this.files); this.value='';">
+      <textarea id="aiInput" placeholder="描述你想要的玩法或修改…（⌘+Enter 送出；可貼截圖、📎 上傳素材）"></textarea>
+      <button class="btn btn-primary" id="aiSendBtn" onclick="sendAiChat()">送出</button>
+    </div>
+    <div class="ai-hint" id="aiHint"></div>
+  </aside>
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- 意圖精靈：新增階段 -->
+<div id="stageWizard" class="wizard-overlay hidden" onclick="if(event.target===this)closeStageWizard()">
+  <div class="wizard-panel">
+    <div class="wizard-title">➕ 這一關,玩家要做什麼?</div>
+    <div class="wizard-sub">選一種玩法,我會帶好常用預設值;之後都可以在表單微調,或直接跟右側的 Kimi 說。</div>
+    <div class="wizard-grid" id="wizardGrid"></div>
+  </div>
+</div>
+
+<!-- 遊戲預覽：本機模擬多人控制器 -->
+<div id="gamePreview" class="pv-overlay hidden">
+  <div class="pv-topbar">
+    <span class="pv-title">🕹 遊戲預覽</span>
+    <span class="pv-status" id="pvStatus"></span>
+    <label style="font-size:.75rem;color:#8888bb;display:flex;align-items:center;gap:6px;">玩家數
+      <select id="pvCount" class="field-input" style="width:60px;padding:4px 6px;" onchange="pvBuild()">
+        <option>2</option><option>3</option><option selected>4</option><option>6</option>
+      </select>
+    </label>
+    <button class="btn btn-ghost" onclick="pvBuild()" title="套用最新的 gameCode 重跑">🔄 重新載入</button>
+    <button class="btn btn-neutral" onclick="closeGamePreview()">✕ 關閉</button>
+  </div>
+  <div class="pv-stagearea" id="pvStageArea"></div>
+  <div class="pv-ctrls" id="pvCtrls"></div>
+</div>
 
 <script>
   // ═══════════════════════════════════════════════════════════════
@@ -420,7 +651,7 @@
   let originalServerCode = '';      // original server.js code for dirty check
 
   const HIST_LIMIT = 30;
-  const STAGE_TYPE_VALUES = ['identity_draw','card_play','vote','result','game','intermission','loop','goto'];
+  const STAGE_TYPE_VALUES = ['identity_draw','card_play','vote','result','game','intermission','loop','goto','select'];
   function getStageTypes() {
     return STAGE_TYPE_VALUES.map(v => ({ value: v, label: (typeof t === 'function' ? t('stage.'+v) : v) }));
   }
@@ -545,6 +776,35 @@
     } catch (e) { toast('載入模組列表失敗：' + e.message, 'err'); }
   }
 
+  // ── 模組「開放」旗標(published):superuser 才看得到切換與徽章 ──
+  let meSuper = false;
+  fetch('/api/me').then(r => r.json()).then(d => { meSuper = !!d.superuser; updatePubBtn(); renderModuleList(); }).catch(() => {});
+  function updatePubBtn() {
+    const b = document.getElementById('pubBtn');
+    if (!b) return;
+    if (!meSuper || !currentId || !manifest) { b.style.display = 'none'; return; }
+    const pub = manifest.published === true;
+    b.style.display = '';
+    b.textContent = pub ? '● 已開放（點擊收回）' : '🧪 測試中（點擊開放）';
+    b.style.color = pub ? '#66dd99' : '#ffb84d';
+  }
+  async function togglePublish() {
+    if (!currentId || !manifest) return;
+    const want = manifest.published !== true;
+    try {
+      const r = await fetch(`/api/modules/${encodeURIComponent(currentId)}/publish`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ published: want }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || r.status);
+      // 同步進工作副本與快照(切換不算「未儲存修改」,之後儲存也不會把旗標蓋回去)
+      manifest.published = d.published;
+      try { const snap = JSON.parse(originalSnapshot); snap.published = d.published; originalSnapshot = JSON.stringify(snap); } catch (e) {}
+      const mi = modules.find(m => m.id === currentId); if (mi) mi.published = d.published;
+      updatePubBtn(); renderModuleList();
+      toast(d.published ? '✓ 已開放 — 一般使用者現在可在 /labs/game 選到' : '已收回 — 僅 superuser 可見', 'ok');
+    } catch (e) { toast('切換失敗：' + e.message, 'err'); }
+  }
+
   function renderModuleList() {
     const wrap = document.getElementById('modList');
     const filter = (document.getElementById('filterInput')?.value || '').toLowerCase();
@@ -562,7 +822,7 @@
       const isMark = isSel && isDirty();
       return `<div class="mod-item ${isSel ? 'selected' : ''} ${isMark ? 'dirty' : ''}"
                    onclick="selectModule('${escapeH(m.id)}')">
-        <div class="mi-name">${escapeH(m.name)}</div>
+        <div class="mi-name">${escapeH(m.name)}${meSuper ? (m.published === true ? ' <span style="font-size:10px;color:#66dd99">●</span>' : ' <span style="font-size:10px">🧪</span>') : ''}</div>
         <div class="mi-id">${escapeH(m.id)}</div>
         ${m.description ? `<div class="mi-desc">${escapeH(m.description)}</div>` : ''}
         <div class="mi-meta">${m.minPlayers}–${m.maxPlayers} 人 · v${escapeH(m.version || '')}</div>
@@ -594,6 +854,7 @@
       history          = [];
       openDecks        = new Set();
       rawMode          = false;
+      updatePubBtn();
 
       // Load server.js if exists
       await loadServerCode(id);
@@ -620,6 +881,7 @@
 
   function rerenderAll() {
     renderHeader();
+    renderOverviewTab();
     renderParamsTab();
     renderDecksTab();
     renderStagesTab();
@@ -666,17 +928,591 @@
   function switchCfgTab(name) {
     activeTab = name;
     document.querySelectorAll('.cfg-tab').forEach((t, i) => {
-      t.classList.toggle('active', ['params','decks','stages','advanced'][i] === name);
+      t.classList.toggle('active', ['overview','params','decks','stages','advanced'][i] === name);
     });
     document.querySelectorAll('.cfg-tab-content').forEach(el => el.classList.remove('active'));
     document.getElementById('cfg' + name[0].toUpperCase() + name.slice(1)).classList.add('active');
 
     // Render the activated tab content
-    if (name === 'params') renderParamsTab();
+    if (name === 'overview') renderOverviewTab();
+    else if (name === 'params') renderParamsTab();
     else if (name === 'decks') renderDecksTab();
     else if (name === 'stages') renderStagesTab();
     else if (name === 'advanced') renderAdvancedTab();
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  TAB: OVERVIEW（給主持人看的人話版模組說明）
+  // ═══════════════════════════════════════════════════════════════
+  const OV_TRIGGER_LABELS = {
+    host: '主持人手動推進', all_played: '全員出牌後自動', all_confirmed: '全員確認後自動',
+    all_voted: '全員投票後自動', all_submitted: '全員送出後自動', all_ready: '全員準備後自動',
+    auto: '固定延遲後自動', timer: '倒數計時後自動', identity_timer: '全員確認後倒數',
+    play_timer: '全員出牌後倒數', generic_timer: '倒數計時後自動', auto_restart: '立即重新開始',
+    restart_timer: '倒數後重新開始', host_reveal: '主持人手動揭牌', auto_next: '揭示後立即推進',
+    round_timer: '揭示後倒數推進', vote_ended: '投票結束後自動',
+  };
+  const OV_STAGE_ICONS = {
+    identity_draw: '🎭', card_play: '🃏', vote: '🗳️', intermission: '⏸️', select: '👤',
+    game: '🎮', loop: '🔁', goto: '↪️', result: '🏁',
+  };
+
+  function ovAdvText(adv) {
+    if (!adv || !adv.trigger) return '';
+    let s = OV_TRIGGER_LABELS[adv.trigger] || adv.trigger;
+    if (adv.duration != null) s += `（${adv.duration} 秒）`;
+    if (adv.fallback === 'host') s += '，主持人可強制';
+    return s;
+  }
+
+  function ovCondText(c) {
+    if (!c) return '';
+    const ops = { eq: '=', neq: '≠', lt: '<', lte: '≤', gt: '>', gte: '≥' };
+    return `${c.param || c.type || '?'} ${ops[c.operator] || c.operator || '?'} ${c.value}`;
+  }
+
+  function ovStageDetails(s) {
+    const bits = [];
+    if (s.deckId) bits.push(`使用牌組「${s.deckId}」`);
+    if (s.type === 'card_play') {
+      if (s.maxRounds) bits.push(`共 ${s.maxRounds} 回合`);
+      if (s.refillMode && s.refillMode !== 'none') bits.push(`補牌：${s.refillMode === 'per_round' ? `每回合 ${s.refillAmount ?? '?'} 張` : `低於 ${s.refillThreshold} 補到 ${s.refillTo}`}`);
+    }
+    if (s.type === 'vote' && s.voteConfig) {
+      const v = s.voteConfig;
+      bits.push(`投票對象：${v.target === 'options' ? '自訂選項' : '玩家'}`);
+      if (v.countdownSeconds) bits.push(`倒數 ${v.countdownSeconds} 秒`);
+      if (v.anonymous !== false) bits.push('匿名');
+      if (v.multiSelect) bits.push(`可複選 ${v.maxSelections || ''}`);
+      if (v.allowSelfVote) bits.push('可投自己');
+    }
+    if (s.type === 'game' && s.gameConfig) {
+      bits.push(s.gameConfig.layout === 'custom' ? '🕹 手機互動介面' : `搖桿版型：${s.gameConfig.layout || 'dpad-2btn'}`);
+      const nFiles = (s.gameConfig.files || []).length;
+      if (nFiles) bits.push(`程式檔 ${nFiles} 個`);
+      else if (s.gameConfig.gameCode || s.gameConfig.mobileCode) bits.push('含自訂畫面程式');
+    }
+    if (s.type === 'loop') {
+      bits.push(`最多 ${s.maxIterations || '∞'} 輪`);
+      if (s.entryCondition) bits.push(`進入條件：${ovCondText(s.entryCondition)}`);
+      if (s.exitCondition) bits.push(`離開條件：${ovCondText(s.exitCondition)}`);
+    }
+    if (s.type === 'goto') {
+      bits.push(`跳到「${s.target || '?'}」`);
+      if (s.condition) bits.push(`條件：${ovCondText(s.condition)}`);
+    }
+    return bits.join('｜');
+  }
+
+  // ── 手機縮圖：畫出「這一關玩家手機上會看到什麼」（唯讀）──
+  function pmDeckName(id) {
+    const d = (manifest?.decks || []).find(d => d.id === id);
+    return d ? (d.name || d.id) : (id || '?');
+  }
+
+  function pmGameLayout(cfg) {
+    const L = (cfg && cfg.layout) || 'pad-4', lb = (cfg && cfg.buttonLabels) || {};
+    if (L === 'custom') return '<div class="pm-sub" style="text-align:center">🕹 自訂互動畫面<br>（手機上直接玩）</div>';
+    if (L === 'pad-8') return '<div class="pm-pad c4">' + '<b></b>'.repeat(8) + '</div>';
+    if (L === 'pad-4') return '<div class="pm-pad c2">' + '<b></b>'.repeat(4) + '</div>';
+    if (L === 'pad-2') return '<div class="pm-pad c2"><b></b><b></b></div>';
+    if (L === 'dpad-2btn') return '<div class="pm-ctrl"><div class="pm-stick"></div>' +
+      '<div class="pm-abcol"><b>' + escapeH(lb.btn1 || 'A') + '</b><b>' + escapeH(lb.btn2 || 'B') + '</b></div></div>';
+    if (L === 'dpad-dpad') return '<div class="pm-ctrl">' +
+      '<div class="pm-cross"><b class="u"></b><b class="d"></b><b class="l"></b><b class="r"></b></div>' +
+      '<div class="pm-cross"><b class="u"></b><b class="d"></b><b class="l"></b><b class="r"></b></div></div>';
+    return '';
+  }
+
+  function pmFrame(status, body, action) {
+    return '<div class="pm-frame">' +
+      '<div class="pm-topbar"><span>🎭</span><span>玩家</span><span>⭐0</span></div>' +
+      (status ? '<div class="pm-status">' + status + '</div>' : '') +
+      '<div class="pm-body">' + body + '</div>' +
+      (action || '') + '</div>';
+  }
+
+  function renderPhoneMock(s) {
+    const on = 'class="pm-action pm-action-on"', off = 'class="pm-action"';
+    switch (s.type) {
+      case 'identity_draw':
+        return pmFrame('你的身份',
+          `<div class="pm-idcard"><span class="big">🎭</span><b>身份卡</b><span class="pm-sub">從「${escapeH(pmDeckName(s.deckId))}」抽</span></div>`,
+          `<div ${on}>確認身份</div>`);
+      case 'card_play':
+        return pmFrame(`第 1/${s.maxRounds || 1} 回合`,
+          '<div class="pm-hand"><i></i><i></i><i></i></div>',
+          `<div ${off}>請選擇一張牌</div>`);
+      case 'vote': {
+        const v = s.voteConfig || {};
+        const sec = v.countdownSeconds ? ` · 00:${String(v.countdownSeconds).padStart(2, '0')}` : '';
+        return pmFrame(escapeH(v.voteTitle || s.name || '投票') + sec,
+          '<div class="pm-vote-opt">小明</div><div class="pm-vote-opt">小華</div><div class="pm-vote-opt">小美</div>',
+          `<div ${on}>送出投票</div>`);
+      }
+      case 'intermission':
+        return pmFrame('',
+          `<div class="pm-mid"><span class="big">⏸️</span><div>${escapeH(s.description || '遊戲暫停中')}</div></div>`, '');
+      case 'game':
+        return pmFrame('操作你的控制器', pmGameLayout(s.gameConfig), '');
+      case 'result':
+        return pmFrame('',
+          '<div class="pm-result"><span class="big">🏆</span><b>遊戲結束</b><div class="pm-sub">1. 小明　2. 小華</div></div>', '');
+      case 'loop':
+        return `<div class="pm-loop">🔁 循環 ×${s.maxIterations || '∞'}<br><span class="pm-sub">內含 ${(s.children || s.stages || []).length} 個子關</span></div>`;
+      case 'goto':
+        return `<div class="pm-goto">↪️<br>跳到「${escapeH(s.target || '?')}」</div>`;
+      default:
+        return pmFrame('', `<div class="pm-sub">${escapeH(s.type || '?')}</div>`, '');
+    }
+  }
+
+  // 點故事板卡片 → 跳到「階段」表單對應列
+  function jumpToStageForm(si) {
+    switchCfgTab('stages');
+    requestAnimationFrame(() => {
+      const row = document.getElementById('stage_row_' + si);
+      if (!row) return;
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row.classList.remove('stage-flash');
+      void row.offsetWidth;
+      row.classList.add('stage-flash');
+    });
+  }
+
+  function ovRenderStage(s, num, isChild, topIdx) {
+    const pa = (s.paramActions || []).map(p =>
+      `<div class="ov-pa">⚡ ${p.trigger === 'onStageStart' ? '開始時' : '結束時'}：${escapeH(p.action)}${p.targetParam ? ' → ' + escapeH(p.targetParam) : ''}${p.value !== undefined ? '（' + escapeH(JSON.stringify(p.value)) + '）' : ''}</div>`).join('');
+    const details = ovStageDetails(s);
+    const adv = ovAdvText(s.advance);
+    let html = `
+      <div class="ov-stage${isChild ? ' child' : ''}${s.enabled ? '' : ' off'}" data-stage-id="${escapeH(s.id || '')}" onclick="jumpToStageForm(${topIdx})" title="點擊跳到對應的階段表單">
+        <span class="num">${num}</span>
+        <div class="body">
+          <span class="sname">${OV_STAGE_ICONS[s.type] || '▫️'} ${escapeH(s.name || s.id)}</span>
+          <span class="stype">${escapeH(s.type)}${s.enabled ? '' : '（已停用）'}</span>
+          ${s.description ? `<div class="sdesc">${escapeH(s.description)}</div>` : ''}
+          ${details ? `<div class="sdesc">${escapeH(details)}</div>` : ''}
+          ${adv ? `<div class="ov-adv">→ ${escapeH(adv)}</div>` : ''}
+          ${pa}
+        </div>
+        <div class="pm-wrap">${renderPhoneMock(s)}<div class="pm-caption">${s.type === 'loop' || s.type === 'goto' ? '流程控制' : '玩家手機'}</div></div>
+      </div>`;
+    const children = s.children || s.stages || [];
+    children.forEach((c, i) => { html += ovRenderStage(c, `${num}.${i + 1}`, true, topIdx); });
+    return html;
+  }
+
+  function renderOverviewTab() {
+    const el = document.getElementById('cfgOverview');
+    if (!el) return;
+    if (!manifest) { el.innerHTML = ''; return; }
+
+    const decksHtml = (manifest.decks || []).map(d => {
+      const src = d.ref
+        ? `引用全域牌組「${d.ref}」${d.selectedCards ? `，選用 ${Object.keys(d.selectedCards).length} 種卡` : '（整副）'}`
+        : `內嵌 ${(d.cards || []).length} 張卡`;
+      return `<div class="ov-deck">🎴 <b>${escapeH(d.name || d.id)}</b>（${escapeH(d.id)}）— ${escapeH(src)}｜每人抽 ${d.drawCount ?? '?'} 張${d.allowDuplicate ? '，可重複' : ''}${d.enabled === false ? '｜<span style="color:#ff8866">已停用</span>' : ''}</div>`;
+    }).join('') || '<div class="ov-empty">（沒有牌組）</div>';
+
+    const stagesHtml = (manifest.stages || []).map((s, i) => ovRenderStage(s, String(i + 1), false, i)).join('<div class="ov-connector"></div>')
+      || '<div class="ov-empty">（沒有階段）</div>';
+
+    const gp = (manifest.globalParams || []).map(p =>
+      `<div class="ov-deck">🌐 <b>${escapeH(p.label || p.id)}</b>（${escapeH(p.id)}）— ${escapeH(p.type)}，初始值 ${escapeH(JSON.stringify(p.initialValue ?? null))}</div>`).join('');
+    const pa = (manifest.playerAttributes || []).map(p =>
+      `<div class="ov-deck">👤 <b>${escapeH(p.label || p.id)}</b>（${escapeH(p.id)}）— ${escapeH(p.type)}</div>`).join('');
+    const paramsHtml = (gp + pa) || '<div class="ov-empty">（沒有自訂參數）</div>';
+
+    el.innerHTML = `
+      <div class="ov-section">
+        <div class="ov-title">📋 基本資料</div>
+        <div class="ov-meta">
+          <b>${escapeH(manifest.name || currentId)}</b>（${escapeH(currentId || manifest.id || '')}）｜${manifest.minPlayers ?? '?'}–${manifest.maxPlayers ?? '?'} 人｜v${escapeH(manifest.version || '1.0.0')}${manifest.engine ? `｜引擎：${escapeH(manifest.engine)}` : ''}
+          ${manifest.description ? `<div style="color:#9999cc;margin-top:4px;">${escapeH(manifest.description)}</div>` : ''}
+        </div>
+      </div>
+      <div class="ov-section">
+        <div class="ov-title">🎬 遊戲流程（依序執行）</div>
+        ${stagesHtml}
+      </div>
+      <div class="ov-section">
+        <div class="ov-title">🎴 牌組</div>
+        ${decksHtml}
+      </div>
+      <div class="ov-section">
+        <div class="ov-title">⚙️ 參數</div>
+        ${paramsHtml}
+      </div>
+      <div class="ov-section">
+        <div class="ov-title">🤖 Kimi 筆記（KIMI.md — 它的長期記憶）</div>
+        <div id="ovKimiNotes" class="ov-empty">載入中…</div>
+      </div>
+      <div class="ov-hint ov-empty" style="margin-top:4px;">💡 每張卡右側是玩家手機會看到的畫面。<b>點卡片</b>可跳到對應表單微調；或直接在右側跟 Kimi 說，例如「投票改成 60 秒、可以改票」。</div>`;
+    loadOvNotes();
+  }
+
+  // Kimi 筆記顯示（快取；AI 有動作時清快取重抓）
+  let ovNotesCache = { id: null, text: null };
+  function loadOvNotes() {
+    const el = document.getElementById('ovKimiNotes');
+    if (!el || !currentId) return;
+    if (ovNotesCache.id === currentId) {
+      el.textContent = ovNotesCache.text || '（尚無筆記 — Kimi 完成重要工作後會自動記在這，作為它跨對話的記憶）';
+      el.className = ovNotesCache.text ? 'ov-notes' : 'ov-empty';
+      return;
+    }
+    const forId = currentId;
+    fetch(`/api/modules/${encodeURIComponent(forId)}/notes`)
+      .then(r => r.ok ? r.text() : null)
+      .then(t => {
+        ovNotesCache = { id: forId, text: t };
+        const el2 = document.getElementById('ovKimiNotes');
+        if (el2 && currentId === forId) {
+          el2.textContent = t || '（尚無筆記 — Kimi 完成重要工作後會自動記在這，作為它跨對話的記憶）';
+          el2.className = t ? 'ov-notes' : 'ov-empty';
+        }
+      }).catch(() => {});
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  AI 聊天（Kimi 設計核心）
+  // ═══════════════════════════════════════════════════════════════
+  let aiSocket = null, aiBusy = false;
+  const aiToolEls = [];   // 依序記錄 tool_start 元素，tool_done 依序回填
+  // 持久對話 ID：頁面刷新/socket 重連後仍能收到進行中任務的進度
+  const aiChatId = sessionStorage.getItem('ai_chat_id') ||
+    (() => { const id = 'chat_' + Math.random().toString(36).slice(2, 12); sessionStorage.setItem('ai_chat_id', id); return id; })();
+
+  function initAiChat() {
+    fetch('/api/ai/status').then(r => r.json()).then(s => {
+      document.getElementById('aiDot').classList.toggle('on', !!s.configured);
+      document.getElementById('aiModel').textContent = s.configured ? s.model : '';
+      if (!s.configured) {
+        document.getElementById('aiHint').textContent = '⚠️ 尚未設定 Kimi API key（server/ai/ai-config.json），聊天無法使用。';
+        document.getElementById('aiInput').disabled = true;
+        document.getElementById('aiSendBtn').disabled = true;
+      }
+    }).catch(() => {});
+    aiSocket = io({ path: (window.IMGAME_BASE || '') + '/socket.io' });
+    aiSocket.on('ai_update', handleAiUpdate);
+    aiSocket.on('connect', () => aiSocket.emit('ai_join', { chatId: aiChatId }));  // 含重連
+  }
+
+  function aiAppend(cls, text) {
+    const log = document.getElementById('aiLog');
+    const div = document.createElement('div');
+    div.className = cls.startsWith('ai-') ? cls : 'ai-msg ' + cls;
+    div.textContent = text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  }
+
+  function handleAiUpdate(evt) {
+    if (evt.type === 'tool_start') {
+      const el = aiAppend('ai-tool', '');
+      el.innerHTML = `<b>${escapeH(evt.label || evt.name)}</b>…`;
+      aiToolEls.push({ name: evt.name, el, args: evt.args || {} });
+      aiProgressText = (evt.label || evt.name) + '…';
+      updateAiTypingLine();
+    } else if (evt.type === 'tool_done') {
+      const rec = aiToolEls.reverse().find(r => r.name === evt.name && !r.done); aiToolEls.reverse();
+      if (rec) {
+        rec.done = true;
+        rec.el.innerHTML = `${evt.ok ? '<span class="ok">✔</span>' : '<span class="fail">✘</span>'} ${escapeH(evt.label || evt.name)} ${escapeH(evt.brief || '')}`;
+      }
+      aiProgressText = '思考下一步…';
+      updateAiTypingLine();
+      handleAiSideEffects(evt, rec ? rec.args : null);
+    } else if (evt.type === 'progress') {
+      aiProgressText = evt.message;
+      if (!aiBusy) setAiBusy(true);   // 重連續上進行中任務時也會走到這
+      updateAiTypingLine();
+    } else if (evt.type === 'screenshots') {
+      // Kimi 的視覺測試截圖 — 設計師也看得到它看到的畫面
+      const el = aiAppend('bot', '');
+      el.innerHTML = '<b>📸 視覺測試截圖</b>' + (evt.images || []).map(src =>
+        `<img src="${src}" style="width:100%;border-radius:8px;margin-top:6px;border:1px solid #2a2a5a;cursor:pointer" onclick="window.open(this.src)">`).join('');
+    } else if (evt.type === 'plan') {
+      // Kimi 的執行計畫：顯示成結構化卡片
+      const p = evt.plan || {};
+      const el = aiAppend('bot', '');
+      el.innerHTML = `<b>📋 ${escapeH(p.goal || '執行計畫')}</b><br>` +
+        (p.steps || []).map((s, i) => `${i + 1}. ${escapeH(s)}`).join('<br>') +
+        ((p.files && p.files.length) ? `<br><span style="color:#8888bb;font-size:.74rem">📁 ${p.files.map(escapeH).join('、')}</span>` : '');
+    } else if (evt.type === 'assistant') {
+      aiAppend('bot', evt.text);
+    } else if (evt.type === 'status') {
+      aiAppend('ai-typing', evt.message);
+      setAiBusy(true);   // 重連續上進行中的任務 → 維持忙碌狀態直到 done
+    } else if (evt.type === 'error') {
+      aiAppend('err', '❌ ' + evt.message);
+      setAiBusy(false);
+    } else if (evt.type === 'done') {
+      setAiBusy(false);
+    }
+  }
+
+  // ── AI 變更的即時視覺回饋：比對新舊 manifest → 反白剛改過的元素 ──
+  function diffManifests(oldM, newM) {
+    const keys = new Set();
+    if (!oldM || !newM) return keys;
+    const j = o => JSON.stringify(o ?? null);
+    if (['name', 'description', 'minPlayers', 'maxPlayers', 'version'].some(k => j(oldM[k]) !== j(newM[k]))) keys.add('meta');
+    if (j(oldM.globalParams) !== j(newM.globalParams) || j(oldM.playerAttributes) !== j(newM.playerAttributes) ||
+        j(oldM.fieldConfig) !== j(newM.fieldConfig)) keys.add('params');
+    if (j(oldM.decks) !== j(newM.decks)) keys.add('decks');
+
+    // 階段：遞迴收集舊狀態（含 loop children），逐一比對；細到單一程式檔
+    const oldStageMap = new Map();
+    const collect = (stages) => (stages || []).forEach(s => { oldStageMap.set(s.id, s); collect(s.children || s.stages); });
+    collect(oldM.stages);
+    const walk = (stages, topId) => (stages || []).forEach(s => {
+      const top = topId || s.id;
+      const old = oldStageMap.get(s.id);
+      if (!old || j(old) !== j(s)) {
+        keys.add('stages');
+        keys.add('stage:' + top);
+        const oldFiles = new Map(((old && old.gameConfig && old.gameConfig.files) || []).map(f => [f.name, j(f)]));
+        for (const f of ((s.gameConfig && s.gameConfig.files) || [])) {
+          if (oldFiles.get(f.name) !== j(f)) keys.add('file:' + s.id + '|' + f.name);
+        }
+      }
+      walk(s.children || s.stages, top);
+    });
+    walk(newM.stages, null);
+    if ((oldM.stages || []).length !== (newM.stages || []).length) keys.add('stages');
+    return keys;
+  }
+
+  function aiFlashEl(el) {
+    if (!el) return;
+    el.classList.remove('ai-flash');
+    void el.offsetWidth;
+    el.classList.add('ai-flash');
+    setTimeout(() => el.classList.remove('ai-flash'), 2600);
+  }
+
+  function cfgTabButton(name) {
+    const idx = ['overview', 'params', 'decks', 'stages', 'advanced'].indexOf(name);
+    return idx >= 0 ? document.querySelectorAll('.cfg-tab')[idx] : null;
+  }
+
+  function flashAiChanges(keys) {
+    for (const key of keys) {
+      if (key === 'meta') aiFlashEl(document.querySelector('.ed-head'));
+      else if (key === 'params') { aiFlashEl(cfgTabButton('params')); aiFlashEl(document.getElementById('cfgParams')); }
+      else if (key === 'decks')  { aiFlashEl(cfgTabButton('decks'));  aiFlashEl(document.getElementById('cfgDecks')); }
+      else if (key === 'stages') aiFlashEl(cfgTabButton('stages'));
+      else if (key.startsWith('stage:')) {
+        const id = key.slice(6);
+        aiFlashEl(document.querySelector(`.ov-stage[data-stage-id="${CSS.escape(id)}"]`));
+        const si = (manifest.stages || []).findIndex(s => s.id === id);
+        if (si >= 0) aiFlashEl(document.getElementById('stage_row_' + si));
+      } else if (key.startsWith('file:')) {
+        aiFlashEl(document.querySelector(`.gf-row[data-gf="${CSS.escape(key.slice(5))}"]`));
+      }
+    }
+  }
+
+  // AI 動了模組檔案 → 同步編輯器畫面 + 反白剛改過的部分
+  function handleAiSideEffects(evt, args) {
+    if (!evt.ok || !args) return;
+    if (evt.name === 'write_module_notes') {   // 筆記更新 → 清快取重畫總覽
+      ovNotesCache = { id: null, text: null };
+      if (args.moduleId === currentId) renderOverviewTab();
+      return;
+    }
+    if (!['save_module', 'clone_module', 'save_engine_code', 'write_game_file', 'delete_game_file'].includes(evt.name)) return;
+    loadModuleList();
+    const id = args.id || args.newId || args.moduleId;
+    if (!id) return;
+    if (id === currentId) {
+      // 目前開啟的模組被 AI 更新：押一筆 undo 保留本地狀態後重載
+      fetch('/api/modules/' + id).then(r => r.json()).then(m => {
+        if (m && !m.error) {
+          const oldManifest = manifest;
+          if (manifest) pushHistory();
+          manifest = m;
+          originalSnapshot = JSON.stringify(m);
+          runValidation();
+          rerenderAll();
+          updateButtons();
+          flashAiChanges(diffManifests(oldManifest, m));
+          toast('🤖 Kimi 已更新此模組');
+        }
+      });
+    } else if (!currentId && evt.name !== 'save_engine_code') {
+      selectModule(id);   // 還沒開任何模組 → 直接打開 AI 剛做好的
+    }
+  }
+
+  let aiProgressText = '思考中…', aiBusyStart = 0, aiTypingTimer = null;
+
+  function updateAiTypingLine() {
+    if (!aiBusy) return;
+    const s = Math.floor((Date.now() - aiBusyStart) / 1000);
+    const mm = s >= 60 ? `${Math.floor(s / 60)}m${s % 60}s` : `${s}s`;
+    document.getElementById('aiTyping').textContent = `${aiProgressText}（${mm}）`;
+  }
+
+  function setAiBusy(b) {
+    aiBusy = b;
+    const btn = document.getElementById('aiSendBtn');
+    btn.disabled = false;
+    btn.textContent = b ? '⏹ 停止' : '送出';
+    btn.classList.toggle('btn-danger', b);
+    btn.classList.toggle('btn-primary', !b);
+    document.getElementById('aiTyping').classList.toggle('hidden', !b);
+    if (b) {
+      if (!aiBusyStart || !aiTypingTimer) aiBusyStart = Date.now();
+      aiProgressText = aiProgressText || '思考中…';
+      clearInterval(aiTypingTimer);
+      aiTypingTimer = setInterval(updateAiTypingLine, 1000);
+      updateAiTypingLine();
+    } else {
+      clearInterval(aiTypingTimer);
+      aiTypingTimer = null;
+      aiBusyStart = 0;
+      aiProgressText = '思考中…';
+    }
+  }
+
+  // ── 貼圖：Ctrl+V 貼上或拖放截圖，連同訊息送給 Kimi 視覺分析 ──
+  let aiPendingImages = [];   // dataURL（已縮圖壓縮）
+
+  function aiDownscaleImage(file) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1280;
+        const s = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * s);
+        c.height = Math.round(img.height * s);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(img.src);
+        resolve(c.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => resolve(null);
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  async function aiAddImageFiles(files) {
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) continue;
+      if (aiPendingImages.length >= 3) { toast('最多附 3 張圖', 'err'); break; }
+      const url = await aiDownscaleImage(f);
+      if (url) aiPendingImages.push(url);
+    }
+    renderAiAttach();
+  }
+
+  let aiPendingAssets = [];   // 已上傳素材 {path, url, type, sizeKB, preview?}
+
+  function renderAiAttach() {
+    const el = document.getElementById('aiAttach');
+    el.classList.toggle('hidden', !aiPendingImages.length && !aiPendingAssets.length);
+    el.innerHTML =
+      aiPendingImages.map((u, i) =>
+        `<div class="thumb"><img src="${u}"><button class="rm" onclick="aiRemoveImage(${i})">✕</button></div>`).join('') +
+      aiPendingAssets.map((a, i) =>
+        `<div class="asset-chip" title="${escapeH(a.path)}">📎<span>${escapeH(a.path)}</span><button onclick="aiRemoveAsset(${i})">✕</button></div>`).join('');
+  }
+
+  function aiRemoveImage(i) {
+    aiPendingImages.splice(i, 1);
+    renderAiAttach();
+  }
+
+  function aiRemoveAsset(i) {   // 只移出這則訊息，檔案仍留在素材庫
+    aiPendingAssets.splice(i, 1);
+    renderAiAttach();
+  }
+
+  // 📎 上傳素材：存進伺服器素材庫，圖片另附預覽給 Kimi 視覺判斷
+  async function aiUploadAssets(files) {
+    const list = [...files];
+    if (!list.length) return;
+    const fd = new FormData();
+    list.forEach(f => fd.append('files', f));
+    let res;
+    try {
+      res = await fetch('/api/assets', { method: 'POST', body: fd }).then(r => r.json());
+    } catch (e) { toast('素材上傳失敗', 'err'); return; }
+    for (const saved of (res.files || [])) {
+      aiPendingAssets.push(saved);
+      if (saved.type?.startsWith('image/')) {
+        const orig = list.find(f => saved.path.includes(f.name.replace(/[^\w\-.]/g, '_').replace(/\.[^.]*$/, ''))) || list[0];
+        if (orig && aiPendingImages.length < 3) {
+          const preview = await aiDownscaleImage(orig);
+          if (preview) aiPendingImages.push(preview);
+        }
+      }
+    }
+    renderAiAttach();
+    if ((res.files || []).length) toast(`已上傳 ${res.files.length} 個素材`);
+  }
+
+  document.getElementById('aiInput').addEventListener('paste', e => {
+    const files = [...(e.clipboardData?.items || [])]
+      .filter(it => it.kind === 'file' && it.type.startsWith('image/'))
+      .map(it => it.getAsFile()).filter(Boolean);
+    if (files.length) { e.preventDefault(); aiAddImageFiles(files); }
+  });
+  const aiSidebarEl = document.querySelector('.ai-sidebar');
+  aiSidebarEl.addEventListener('dragover', e => e.preventDefault());
+  aiSidebarEl.addEventListener('drop', e => {
+    e.preventDefault();
+    const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (files.length) aiAddImageFiles(files);
+  });
+
+  function sendAiChat() {
+    if (aiBusy) {   // 忙碌中按鈕 = ⏹ 停止
+      aiSocket.emit('ai_stop', { chatId: aiChatId });
+      const btn = document.getElementById('aiSendBtn');
+      btn.textContent = '停止中…';
+      btn.disabled = true;
+      return;
+    }
+    const ta = document.getElementById('aiInput');
+    let text = ta.value.trim();
+    if ((!text && !aiPendingImages.length && !aiPendingAssets.length) || !aiSocket) return;
+    const images = aiPendingImages.splice(0);
+    const assets = aiPendingAssets.splice(0);
+    if (assets.length) {
+      // 素材資訊附進訊息文字：Kimi 拿到正式 URL 可直接在程式引用/整理/加工
+      text += (text ? '\n\n' : '') + '[已上傳素材到素材庫]\n' +
+        assets.map(a => `- ${a.path}（${a.type || '?'}，${a.sizeKB}KB）→ ${a.url}`).join('\n');
+    }
+    renderAiAttach();
+    const bubble = aiAppend('user', text || '（附圖）');
+    if (images.length) {
+      const att = document.createElement('div');
+      att.className = 'att';
+      att.innerHTML = images.map(u => `<img src="${u}" onclick="window.open(this.src)">`).join('');
+      bubble.appendChild(att);
+    }
+    ta.value = '';
+    setAiBusy(true);
+    aiSocket.emit('ai_chat', { chatId: aiChatId, text, moduleId: currentId, images });
+  }
+
+  function resetAiChat() {
+    if (aiSocket) aiSocket.emit('ai_reset', { chatId: aiChatId });
+    document.getElementById('aiLog').innerHTML = '';
+    aiToolEls.length = 0;
+    aiAppend('bot', '對話已清除，重新開始吧。');
+    setAiBusy(false);
+  }
+
+  // ⌘/Ctrl+Enter 才送出 — 中文輸入法選字的 Enter 不會誤觸
+  document.getElementById('aiInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) { e.preventDefault(); sendAiChat(); }
+  });
 
   // ═══════════════════════════════════════════════════════════════
   //  TAB: PARAMS (globalParams + playerAttributes)
@@ -1204,6 +2040,7 @@
           </div>
           <input class="field-input" style="flex:1" placeholder="階段名稱"
                  value="${escapeH(s.name||'')}" oninput="setStageProp(${si},'name',this.value)">
+          <div class="sr-minimock">${renderPhoneMock(s)}</div>
           <label class="toggle-switch">
             <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="setStageProp(${si},'enabled',this.checked)">
             <span class="toggle-slider"></span>
@@ -1266,7 +2103,7 @@
         ${s.type === 'game' ? renderGameConfigBlock(si, s) : ''}
         ${s.type === 'loop'  ? renderLoopBlock(si, s) : ''}
         ${s.type === 'goto'  ? renderGotoBlock(si, s, 'top') : ''}
-      </div>`).join('') + `<button class="add-card-btn" onclick="addStage()">+ 新增階段</button>`;
+      </div>`).join('') + `<button class="add-card-btn" onclick="openStageWizard()">+ 新增階段</button>`;
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1592,6 +2429,7 @@
       { value: 'pad-2',     label: '2 個按鈕 (左右)' },
       { value: 'dpad-2btn', label: '方向鍵 + 2 鍵' },
       { value: 'dpad-dpad', label: '雙方向鍵' },
+      { value: 'custom',    label: '🕹 自訂（手機互動介面）' },
     ];
 
     const btnKeys = {
@@ -1600,16 +2438,27 @@
       'pad-2':     ['btn1','btn2'],
       'dpad-2btn': ['btn1','btn2'],
       'dpad-dpad': [],
+      'custom':    [],
     };
 
     const keysForLayout = btnKeys[layout] || [];
 
     return `<div class="vote-config-block" style="margin-top:10px">
-      <div class="vc-title">🎮 控制器設定</div>
+      <div class="vc-title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>🎮 控制器設定</span>
+        <button class="btn btn-primary btn-sm" onclick="openGamePreview(${si})">🕹 預覽（模擬多人）</button>
+      </div>
       <div class="field-row">
         <label class="field-label">控制器樣式</label>
         <select class="field-input" onchange="setGameConfigProp(${si},'layout',this.value)">
           ${layoutOptions.map(o => `<option value="${o.value}" ${layout===o.value?'selected':''}>${o.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field-row">
+        <label class="field-label">畫面比例（大螢幕）</label>
+        <select class="field-input" onchange="setGameConfigProp(${si},'aspectRatio',this.value==='16:9'?'':this.value)">
+          ${[['16:9','16:9（預設，1920×1080）'],['4:3','4:3（1600×1200）'],['1:1','1:1（1080×1080）']]
+            .map(([v,l]) => `<option value="${v}" ${(ic.aspectRatio||'16:9')===v?'selected':''}>${l}</option>`).join('')}
         </select>
       </div>
       ${keysForLayout.length ? `
@@ -1622,31 +2471,447 @@
               oninput="setGameBtnLabel(${si},'${k}',this.value)">
           </div>`).join('')}
       </div>` : ''}
-      <div class="field-row" style="flex-direction:column;align-items:flex-start;gap:6px">
-        <label class="field-label">Display 遊戲程式碼（選填）</label>
-        <div style="font-size:.72rem;color:#7777aa;margin-bottom:4px">
-          可接收 GameAPI: canvas, ctx, players, onInput(fn), update(fn)
-        </div>
-        <textarea class="field-input" rows="8" style="font-family:monospace;font-size:.78rem"
-          placeholder="// 範例：\nGameAPI.update(ts => {\n  const ctx = GameAPI.ctx;\n  ctx.clearRect(0,0,GameAPI.canvas.width,GameAPI.canvas.height);\n  // 自訂遊戲邏輯\n});"
-          oninput="setGameConfigProp(${si},'gameCode',this.value)">${ic.gameCode||''}</textarea>
+      <div class="field-row">
+        <label class="field-label">3D／繪圖函式庫</label>
+        <select class="field-input" onchange="setGameConfigProp(${si},'library',this.value==='none'?'':this.value)">
+          ${[['none','無（原生 Canvas 2D）'],['three','three.js（3D）'],['babylon','Babylon.js（3D）'],['p5','p5.js（創意繪圖）']]
+            .map(([v,l]) => `<option value="${v}" ${(ic.library||'none')===v?'selected':''}>${l}</option>`).join('')}
+        </select>
       </div>
+      ${renderGameFilesBlock(si, ic, layout)}
     </div>`;
   }
 
+  // ── 遊戲程式檔案管理（多檔案，預設收合不顯示程式碼）──────────────
+  const expandedGameFiles = new Set();   // 'si:fi' 或 'si:gameCode'
+
+  function gfFiles(si) {
+    const gc = manifest.stages[si].gameConfig = manifest.stages[si].gameConfig || {};
+    gc.files = gc.files || [];
+    return gc.files;
+  }
+
+  function renderGameFilesBlock(si, ic, layout) {
+    const files = Array.isArray(ic.files) ? ic.files : [];
+    const chip = t => ({ shared: '共用', display: '大螢幕', mobile: '手機', sim: '權威sim', render: '渲染' }[t] || t);
+    const rows = files.map((f, fi) => {
+      const key = si + ':' + fi;
+      const open = expandedGameFiles.has(key);
+      return `
+        <div class="gf-row" data-gf="${escapeH((manifest.stages[si]?.id || si) + '|' + (f.name || ''))}">
+          <div class="gf-head" onclick="toggleGameFile('${key}')">
+            <span class="gf-name">${open ? '📂' : '📄'} ${escapeH(f.name || '未命名')}</span>
+            <span class="gf-chip gf-${f.target}">${chip(f.target)}</span>
+            <span class="gf-size">${(f.code || '').length} 字</span>
+            <span style="flex:1"></span>
+            <button class="gf-btn" onclick="event.stopPropagation();moveGameFile(${si},${fi},-1)" ${fi === 0 ? 'disabled' : ''}>▲</button>
+            <button class="gf-btn" onclick="event.stopPropagation();moveGameFile(${si},${fi},1)" ${fi === files.length - 1 ? 'disabled' : ''}>▼</button>
+            <button class="gf-btn" onclick="event.stopPropagation();renameGameFile(${si},${fi})">✎</button>
+            <button class="gf-btn gf-del" onclick="event.stopPropagation();delGameFile(${si},${fi})">🗑</button>
+          </div>
+          ${open ? `<textarea class="field-input gf-code" rows="14" spellcheck="false"
+              oninput="setGameFileCode(${si},${fi},this.value)">${escapeH(f.code || '')}</textarea>` : ''}
+        </div>`;
+    }).join('');
+
+    const legacy = ['gameCode', 'mobileCode'].filter(k => ic[k]).map(k => {
+      const key = si + ':' + k;
+      const open = expandedGameFiles.has(key);
+      return `
+        <div class="gf-row">
+          <div class="gf-head" onclick="toggleGameFile('${key}')">
+            <span class="gf-name">${open ? '📂' : '📄'} ${k}（舊格式單檔）</span>
+            <span class="gf-chip gf-${k === 'mobileCode' ? 'mobile' : 'display'}">${k === 'mobileCode' ? '手機' : '大螢幕'}</span>
+            <span class="gf-size">${ic[k].length} 字</span>
+          </div>
+          ${open ? `<textarea class="field-input gf-code" rows="14" spellcheck="false"
+              oninput="setGameConfigProp(${si},'${k}',this.value)">${escapeH(ic[k])}</textarea>` : ''}
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="field-row" style="flex-direction:column;align-items:stretch;gap:6px">
+        <label class="field-label">📁 遊戲程式檔案</label>
+        <div style="font-size:.72rem;color:#7777aa">
+          程式碼建議交給右側的 Kimi 管理（它會自己規劃檔案結構、逐檔撰寫）。點檔名可展開手動編輯。
+          執行順序：共用（shared）檔先載入、再接該端專屬檔，同端檔案共享作用域。${layout === 'custom' ? '手機跑 mobile 檔、大螢幕跑 display 檔。' : ''}
+        </div>
+        <div>${rows}${legacy}${(!rows && !legacy) ? '<div style="color:#55558a;font-size:.76rem;padding:6px 0">（還沒有程式檔案 — 跟右側 Kimi 說你想要的玩法，或手動新增）</div>' : ''}</div>
+        <button class="btn btn-ghost btn-sm" style="align-self:flex-start" onclick="addGameFile(${si})">➕ 新增檔案</button>
+      </div>`;
+  }
+
+  function toggleGameFile(key) {
+    expandedGameFiles.has(key) ? expandedGameFiles.delete(key) : expandedGameFiles.add(key);
+    renderStagesTab();
+  }
+  function addGameFile(si) {
+    const name = prompt('檔案名稱（建議帶端別前綴，例如 shared/track.js、mobile/car.js、display/map.js）');
+    if (!name) return;
+    const guess = name.startsWith('mobile') ? 'mobile' : name.startsWith('shared') ? 'shared' : 'display';
+    const target = prompt('執行端：shared / display / mobile / sim / render', guess);
+    if (!['shared', 'display', 'mobile'].includes(target)) { toast('target 必須是 shared / display / mobile / sim / render', 'err'); return; }
+    pushHistory();
+    gfFiles(si).push({ name: name.trim(), target, code: '' });
+    expandedGameFiles.add(si + ':' + (gfFiles(si).length - 1));
+    renderStagesTab();
+    afterChange(true);
+  }
+  function delGameFile(si, fi) {
+    const f = gfFiles(si)[fi];
+    if (!confirm(`刪除檔案「${f.name}」？`)) return;
+    pushHistory();
+    gfFiles(si).splice(fi, 1);
+    renderStagesTab();
+    afterChange(true);
+  }
+  function moveGameFile(si, fi, dir) {
+    const arr = gfFiles(si), ni = fi + dir;
+    if (ni < 0 || ni >= arr.length) return;
+    pushHistory();
+    [arr[fi], arr[ni]] = [arr[ni], arr[fi]];
+    renderStagesTab();
+    afterChange(true);
+  }
+  function renameGameFile(si, fi) {
+    const f = gfFiles(si)[fi];
+    const name = prompt('新檔名', f.name);
+    if (!name) return;
+    pushHistory();
+    f.name = name.trim();
+    renderStagesTab();
+    afterChange(true);
+  }
+  function setGameFileCode(si, fi, v) {
+    pushHistory();
+    gfFiles(si)[fi].code = v;
+    afterChange(true);   // 打字中不重繪，避免失焦
+  }
+
   function setGameConfigProp(si, key, val) {
+    pushHistory();
     if (!manifest.stages[si].gameConfig) manifest.stages[si].gameConfig = {};
     manifest.stages[si].gameConfig[key] = val || undefined;
     if (!val) delete manifest.stages[si].gameConfig[key];
-    pushUndo(); renderStages();
+    // gameCode 在 textarea 逐字輸入，重繪會導致失焦 — 只有換版型/函式庫需要重繪
+    if (key !== 'gameCode') renderStagesTab();
+    afterChange(true);
   }
 
   function setGameBtnLabel(si, btnKey, val) {
+    pushHistory();
     if (!manifest.stages[si].gameConfig) manifest.stages[si].gameConfig = {};
     if (!manifest.stages[si].gameConfig.buttonLabels) manifest.stages[si].gameConfig.buttonLabels = {};
     if (val) manifest.stages[si].gameConfig.buttonLabels[btnKey] = val;
     else delete manifest.stages[si].gameConfig.buttonLabels[btnKey];
-    pushUndo();
+    afterChange(true);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  遊戲預覽：本機模擬多人（不經 server，直接執行 gameCode）
+  // ═══════════════════════════════════════════════════════════════
+  const PV_COLORS = ['#ff6644','#44aaff','#44ff88','#ffdd44','#ff44aa','#88aaff','#ffaa44','#44ffdd'];  // 與 display/mobile 同步
+  const PV_RES = { '16:9': [1920, 1080], '4:3': [1600, 1200], '1:1': [1080, 1080] };
+  const PV_LIB_URLS = { three: '/shared/vendor/three.min.js', babylon: '/shared/vendor/babylon.js', p5: '/shared/vendor/p5.min.js' };
+  const pvLoadedLibs = {};
+  let pvState = null;   // { si, raf, updateFn, handlers, cleanups, players, canvas, ctx, resizeFn, updateErrored }
+
+  function pvLoadScript(url, key) {
+    if (pvLoadedLibs[key]) return Promise.resolve();
+    return new Promise(resolve => {
+      const s = document.createElement('script');
+      s.src = Config.url(url);
+      s.onload  = () => { pvLoadedLibs[key] = true; resolve(); };
+      s.onerror = () => { pvStatus('函式庫載入失敗：' + url); resolve(); };
+      document.head.appendChild(s);
+    });
+  }
+  function pvLoadLib(lib) {
+    if (!lib || lib === 'none' || !PV_LIB_URLS[lib]) return Promise.resolve();
+    return pvLoadScript(PV_LIB_URLS[lib], lib).then(() =>
+      // three 一律附掛 LowPoly（角色）+ FX（特效）+ LowWorld（場景/物件生成庫）
+      lib === 'three'
+        ? pvLoadScript('/shared/vendor/lowpoly.js', '_lowpoly')
+            .then(() => pvLoadScript('/shared/vendor/fx.js', '_fx'))
+            .then(() => pvLoadScript('/shared/vendor/lowworld.js', '_lowworld'))
+        : null);
+  }
+
+  function pvStatus(msg) {
+    const el = document.getElementById('pvStatus');
+    if (el) el.textContent = msg || '';
+  }
+
+  // 預覽的 log 也回報 server（掛在目前模組名下）— Kimi debug 不必等真機
+  let pvLogBuf = [], pvLogTimer = null, pvLogModuleId = null;
+  function pvPushLog(src, level, msg) {
+    if (!pvLogModuleId || pvLogBuf.length >= 80) return;
+    pvLogBuf.push({ ts: Date.now(), src, level, msg: String(msg).slice(0, 500) });
+    if (!pvLogTimer) pvLogTimer = setTimeout(pvFlushLogs, 1500);
+  }
+  function pvFlushLogs() {
+    pvLogTimer = null;
+    if (!pvLogBuf.length || !aiSocket) return;
+    aiSocket.emit('game_log', { moduleId: pvLogModuleId, entries: pvLogBuf.splice(0) });
+  }
+  const pvFmtLog = (a) => a.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ');
+
+  function pvControllerHTML(pid, idx, cfg) {
+    const layout = cfg.layout || 'pad-4';
+    const lb = cfg.buttonLabels || {};
+    const color = PV_COLORS[idx % PV_COLORS.length];
+    const btn = (key, label) => `<div class="pv-btn"
+        onpointerdown="pvPress(event,this,'${pid}','${key}','down')"
+        onpointerup="pvPress(event,this,'${pid}','${key}','up')"
+        onpointerleave="pvPress(event,this,'${pid}','${key}','up')">${escapeH(String(label))}</div>`;
+    const dpad = (sfx) => `<div class="pv-dpad">
+        <div class="blank"></div>${btn('up' + sfx, '↑')}<div class="blank"></div>
+        ${btn('left' + sfx, '←')}<div class="blank"></div>${btn('right' + sfx, '→')}
+        <div class="blank"></div>${btn('down' + sfx, '↓')}<div class="blank"></div></div>`;
+    let inner = '';
+    if (layout === 'pad-8')      inner = `<div class="pv-grid c4">${[1,2,3,4,5,6,7,8].map(n => btn('btn'+n, lb['btn'+n] || n)).join('')}</div>`;
+    else if (layout === 'pad-4') inner = `<div class="pv-grid c2">${[1,2,3,4].map(n => btn('btn'+n, lb['btn'+n] || n)).join('')}</div>`;
+    else if (layout === 'pad-2') inner = `<div class="pv-grid c2">${btn('btn1', lb.btn1 || '1')}${btn('btn2', lb.btn2 || '2')}</div>`;
+    else if (layout === 'dpad-dpad') inner = `<div class="pv-btnrow">${dpad('')}${dpad('2')}</div>`;
+    else inner = `<div class="pv-btnrow">${dpad('')}<div class="pv-grid" style="grid-template-columns:1fr">${btn('btn1', lb.btn1 || 'A')}${btn('btn2', lb.btn2 || 'B')}</div></div>`;
+    return `<div class="pv-ctrl" style="--c:${color}"><div class="pv-ctrl-name"><i></i>玩家 ${idx + 1}</div>${inner}</div>`;
+  }
+
+  function pvPress(ev, el, pid, key, state) {
+    ev.preventDefault();
+    if (!pvState) return;
+    const p = pvState.players.get(pid);
+    if (!p) return;
+    if (state === 'down') {
+      if (p.inputs.has(key)) return;
+      p.inputs.add(key);
+    } else {
+      if (!p.inputs.has(key)) return;
+      p.inputs.delete(key);
+    }
+    el.classList.toggle('on', state === 'down');
+    for (const fn of pvState.handlers) {
+      try { fn(pid, key, state, p); } catch (e) { pvStatus('onInput 錯誤：' + e.message); }
+    }
+  }
+
+  function pvTeardownRun() {
+    if (!pvState) return;
+    if (pvState.raf) { cancelAnimationFrame(pvState.raf); pvState.raf = null; }
+    if (pvState.resizeFn) { window.removeEventListener('resize', pvState.resizeFn); pvState.resizeFn = null; }
+    for (const fn of pvState.cleanups) { try { fn(); } catch (e) {} }
+    for (const ph of (pvState.phones || [])) { for (const fn of ph.cleanups) { try { fn(); } catch (e) {} } }
+    pvState.cleanups = []; pvState.handlers = []; pvState.updateFn = null; pvState.ctx = null;
+    pvState.stateHandlers = []; pvState.phones = []; pvState.gameStates = {};
+  }
+
+  function openGamePreview(si) {
+    if (!manifest?.stages?.[si]) return;
+    pvState = { si, raf: null, updateFn: null, handlers: [], cleanups: [], players: new Map(),
+                canvas: null, ctx: null, resizeFn: null, updateErrored: false,
+                stateHandlers: [], phones: [], gameStates: {} };
+    document.getElementById('gamePreview').classList.remove('hidden');
+    pvBuild();
+  }
+
+  // 自訂模式：模擬手機 sendState → display 端 onPlayerState + 全體手機 onPlayers 快照
+  function pvDispatchState(pid, state) {
+    if (!pvState) return;
+    const p = pvState.players.get(pid);
+    for (const fn of pvState.stateHandlers) { try { fn(pid, state, p); } catch (e) {} }
+    pvState.gameStates[pid] = state;
+    const ids = [...pvState.players.keys()];
+    const states = {};
+    for (const [id, st] of Object.entries(pvState.gameStates)) {
+      states[id] = { name: pvState.players.get(id)?.name || id, idx: Math.max(ids.indexOf(id), 0), state: st };
+    }
+    for (const ph of pvState.phones) {
+      for (const fn of (ph.playersHandlers || [])) { try { fn(states); } catch (e) {} }
+    }
+  }
+
+  // 自訂模式：每位玩家一台「模擬手機」跑 mobileCode
+  function pvBuildPhones(cfg, mobileLib, mobileCode) {
+    const wrap = document.getElementById('pvCtrls');
+    wrap.innerHTML = '';
+    if (!mobileCode) { pvStatus('自訂模式但沒有手機端程式 — 手機畫面會是空白'); }
+    [...pvState.players.entries()].forEach(([pid, p]) => {
+      const card = document.createElement('div');
+      card.className = 'pv-ctrl';
+      card.style.setProperty('--c', p.color);
+      card.innerHTML = `<div class="pv-ctrl-name"><i></i>${escapeH(p.name)}（手機）</div>`;
+      const phBox = document.createElement('div');
+      phBox.className = 'pv-phonebox';
+      card.appendChild(phBox);
+      const canvas = document.createElement('canvas');
+      canvas.width = 720; canvas.height = 1280;
+      phBox.appendChild(canvas);
+      wrap.appendChild(card);
+
+      const phone = { pid, canvas, box: phBox, ctx: null, updateFn: null, cleanups: [], msgHandlers: [], playersHandlers: [], errored: false };
+      pvState.phones.push(phone);
+      if (mobileLib === 'none') {
+        phone.ctx = canvas.getContext('2d');
+        phone.ctx.fillStyle = '#000010';
+        phone.ctx.fillRect(0, 0, 720, 1280);
+      }
+      if (mobileCode) {
+        pvLoadLib(mobileLib).then(() => {
+          if (!pvState || !pvState.phones.includes(phone)) return;
+          try {
+            const GameAPI = {
+              canvas, width: 720, height: 1280,
+              get ctx() { if (!phone.ctx) phone.ctx = canvas.getContext('2d'); return phone.ctx; },
+              container: phBox, library: mobileLib,
+              playerId: pid, playerName: p.name,
+              sendState: obj => pvDispatchState(pid, obj),
+              sendEvent: obj => pvDispatchState(pid, obj),
+              onMessage: cb => phone.msgHandlers.push(cb),
+              onPlayers: cb => phone.playersHandlers.push(cb),
+              palette: PV_COLORS,
+              update: cb => { phone.updateFn = cb; },
+              onEnd: cb => phone.cleanups.push(cb),
+              log: (...a) => { const s = pvFmtLog(a); console.log('[PV]', s); pvPushLog('preview-' + p.name, 'log', s); },
+            };
+            (new Function('GameAPI', mobileCode))(GameAPI);
+          } catch (e) { pvStatus('mobileCode 錯誤：' + e.message); pvPushLog('preview-' + p.name, 'error', 'mobileCode 執行錯誤: ' + e.message); }
+        });
+      }
+    });
+  }
+
+  function pvBuild() {
+    if (!pvState) return;
+    pvTeardownRun();
+    pvStatus('');
+    pvState.updateErrored = false;
+    pvLogModuleId = currentId;
+    const stage = manifest.stages[pvState.si];
+    const cfg = (stage && stage.gameConfig) || {};
+    const count = Number(document.getElementById('pvCount').value) || 4;
+    const [W, H] = PV_RES[cfg.aspectRatio] || PV_RES['16:9'];
+
+    pvState.players = new Map();
+    for (let i = 0; i < count; i++) {
+      pvState.players.set('sim' + (i + 1), { name: '玩家' + (i + 1), color: PV_COLORS[i % PV_COLORS.length], inputs: new Set(), lastSeq: new Map() });
+    }
+
+    const area = document.getElementById('pvStageArea');
+    area.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'pv-stagebox';
+    area.appendChild(box);
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    box.appendChild(canvas);
+    const fit = () => {
+      const r = area.getBoundingClientRect();
+      const s = Math.min(r.width / W, r.height / H);
+      box.style.width = Math.floor(W * s) + 'px';
+      box.style.height = Math.floor(H * s) + 'px';
+    };
+    fit();
+    pvState.resizeFn = fit;
+    window.addEventListener('resize', fit);
+    pvState.canvas = canvas;
+
+    const isCustom = cfg.layout === 'custom';
+    const pvDisplayCode = composeGameCode(cfg, 'display');   // 多檔案合成
+    const pvMobileCode  = composeGameCode(cfg, 'mobile');
+    const displayLib = (cfg.library && pvDisplayCode) ? cfg.library : 'none';
+    const mobileLib  = (cfg.library && pvMobileCode)  ? cfg.library : 'none';
+
+    if (isCustom) {
+      pvBuildPhones(cfg, mobileLib, pvMobileCode);   // 模擬手機（跑手機端程式）
+    } else {
+      document.getElementById('pvCtrls').innerHTML =
+        [...pvState.players.keys()].map((pid, i) => pvControllerHTML(pid, i, cfg)).join('');
+    }
+
+    if (displayLib === 'none') {
+      pvState.ctx = canvas.getContext('2d');
+      pvState.ctx.fillStyle = '#000010';
+      pvState.ctx.fillRect(0, 0, W, H);
+    }
+
+    if (pvDisplayCode) {
+      pvLoadLib(displayLib).then(() => {
+        if (!pvState || pvState.canvas !== canvas) return;   // 已被關閉或重建
+        try {
+          const self = pvState;
+          const GameAPI = {
+            canvas, width: W, height: H,
+            get ctx() { if (!self.ctx) self.ctx = canvas.getContext('2d'); return self.ctx; },
+            container: box, library: displayLib,
+            players: self.players,
+            onInput: cb => self.handlers.push(cb),
+            onPlayerState: cb => self.stateHandlers.push(cb),   // 模擬手機 sendState → 這裡
+            broadcast: data => self.phones.forEach(ph => ph.msgHandlers.forEach(fn => { try { fn(data); } catch (e) {} })),
+            update:  cb => { self.updateFn = cb; },
+            onEnd:   cb => self.cleanups.push(cb),
+            log:     (...a) => { const s = pvFmtLog(a); console.log('[PV]', s); pvPushLog('preview-display', 'log', s); },
+          };
+          (new Function('GameAPI', pvDisplayCode))(GameAPI);
+        } catch (e) { pvStatus('gameCode 錯誤：' + e.message); pvPushLog('preview-display', 'error', 'gameCode 執行錯誤: ' + e.message); }
+      });
+    } else if (!isCustom) {
+      pvStatus('此階段沒有 gameCode — 顯示預設視覺化（按下按鈕會發光）');
+    }
+
+    const loop = ts => {
+      if (!pvState || pvState.canvas !== canvas) return;
+      if (pvState.updateFn) {
+        try { pvState.updateFn(ts); }
+        catch (e) {
+          if (!pvState.updateErrored) { pvState.updateErrored = true; pvStatus('update 錯誤：' + e.message); pvPushLog('preview-display', 'error', 'update 錯誤: ' + e.message); }
+        }
+      } else {
+        pvDefaultDraw();
+      }
+      for (const ph of pvState.phones) {
+        if (ph.updateFn) {
+          try { ph.updateFn(ts); }
+          catch (e) { if (!ph.errored) { ph.errored = true; pvStatus('手機端 update 錯誤：' + e.message); pvPushLog('preview-phone', 'error', '手機端 update 錯誤: ' + e.message); } }
+        }
+      }
+      pvState.raf = requestAnimationFrame(loop);
+    };
+    pvState.raf = requestAnimationFrame(loop);
+  }
+
+  function pvDefaultDraw() {
+    const ctx = pvState && pvState.ctx;
+    if (!ctx) return;
+    const W = pvState.canvas.width, H = pvState.canvas.height;
+    ctx.fillStyle = 'rgba(0,0,16,0.18)';
+    ctx.fillRect(0, 0, W, H);
+    const arr = [...pvState.players.values()];
+    const cols = Math.ceil(Math.sqrt(arr.length)), rows = Math.ceil(arr.length / cols);
+    const cw = W / cols, ch = H / rows;
+    arr.forEach((p, i) => {
+      const cx = (i % cols) * cw + cw / 2, cy = Math.floor(i / cols) * ch + ch / 2;
+      ctx.font = '28px system-ui'; ctx.textAlign = 'center';
+      ctx.fillStyle = p.color; ctx.fillText(p.name, cx, cy - 70);
+      if (p.inputs.size) {
+        ctx.beginPath(); ctx.arc(cx, cy + 10, 46, 0, Math.PI * 2);
+        ctx.fillStyle = p.color; ctx.fill();
+        ctx.fillStyle = '#000'; ctx.font = '22px system-ui';
+        ctx.fillText([...p.inputs].join(' '), cx, cy + 18);
+      } else {
+        ctx.beginPath(); ctx.arc(cx, cy + 10, 46, 0, Math.PI * 2);
+        ctx.strokeStyle = p.color; ctx.lineWidth = 3; ctx.stroke();
+      }
+    });
+  }
+
+  function closeGamePreview() {
+    pvFlushLogs();
+    pvTeardownRun();
+    pvState = null;
+    document.getElementById('gamePreview').classList.add('hidden');
+    document.getElementById('pvStageArea').innerHTML = '';
+    document.getElementById('pvCtrls').innerHTML = '';
+    pvStatus('');
   }
 
   function renderAdvanceBlock(si, label, key, adv, helpText, category = null) {
@@ -1758,27 +3023,72 @@
     renderStagesTab();
     afterChange(true);
   }
-  function addStage() {
+  // ── 意圖精靈：問「這一關玩家要做什麼」，帶預設值建立階段 ──
+  const WIZARD_INTENTS = [
+    { key: 'identity', icon: '🎭', title: '發身份卡', desc: '私下發身份給每位玩家，各自確認' },
+    { key: 'vote',     icon: '🗳️', title: '投票表決', desc: '倒數投票，可自動淘汰最高票' },
+    { key: 'cards',    icon: '🃏', title: '出牌對決', desc: '發手牌、多回合出牌比大小' },
+    { key: 'talk',     icon: '⏸️', title: '說明／討論', desc: '只顯示一段文字，等主持人推進' },
+    { key: 'game',     icon: '🎮', title: '搖桿同樂', desc: '手機變控制器，大螢幕即時反應' },
+    { key: 'loop',     icon: '🔁', title: '循環多輪', desc: '一組關卡重複 N 輪（多輪投票等）' },
+    { key: 'goto',     icon: '↪️', title: '條件跳轉', desc: '滿足條件時跳到指定關卡' },
+    { key: 'result',   icon: '🏁', title: '結算名次', desc: '計分、公布排名、結束遊戲' },
+    { key: 'blank',    icon: '📄', title: '空白階段', desc: '不帶預設值，自己慢慢調（老手用）' },
+  ];
+
+  function wizardBuildStage(key) {
+    const firstDeck = (manifest.decks || []).find(d => d.enabled !== false)?.id;
+    switch (key) {
+      case 'identity': return { id: uid('stage'), name: '抽身份', type: 'identity_draw', enabled: true,
+        ...(firstDeck ? { deckId: firstDeck } : {}),
+        advance: { trigger: 'all_confirmed', fallback: 'host' } };
+      case 'vote': return { id: uid('stage'), name: '投票', type: 'vote', enabled: true,
+        voteConfig: { voteTitle: '投票', countdownSeconds: 30, anonymous: true, allowSelfVote: false, endWhenAllVoted: true },
+        advance: { trigger: 'vote_ended', fallback: 'host' } };
+      case 'cards': return { id: uid('stage'), name: '出牌對決', type: 'card_play', enabled: true,
+        ...(firstDeck ? { deckId: firstDeck } : {}), maxRounds: 3,
+        advance: { trigger: 'host' } };
+      case 'talk': return { id: uid('stage'), name: '說明', type: 'intermission', enabled: true,
+        description: '（在這裡寫要顯示給玩家的文字）', advance: { trigger: 'host' } };
+      case 'game': return { id: uid('stage'), name: '搖桿關卡', type: 'game', enabled: true,
+        gameConfig: { layout: 'dpad-2btn' }, advance: { trigger: 'host' } };
+      case 'loop': return { id: uid('stage'), name: '循環', type: 'loop', enabled: true,
+        maxIterations: 3, children: [] };
+      case 'goto': return { id: uid('stage'), name: '跳轉', type: 'goto', enabled: true, target: '' };
+      case 'result': return { id: uid('stage'), name: '結算', type: 'result', enabled: true,
+        advance: { trigger: 'host' } };
+      default: return { id: uid('stage'), name: '新階段', type: 'card_play', enabled: true,
+        advance: { trigger: 'host' } };
+    }
+  }
+
+  function openStageWizard() {
+    document.getElementById('wizardGrid').innerHTML = WIZARD_INTENTS.map(w => `
+      <div class="wizard-card" onclick="wizardCreate('${w.key}')">
+        <div class="wi">${w.icon}</div><div class="wt">${w.title}</div><div class="wd">${w.desc}</div>
+      </div>`).join('');
+    document.getElementById('stageWizard').classList.remove('hidden');
+  }
+
+  function closeStageWizard() {
+    document.getElementById('stageWizard').classList.add('hidden');
+  }
+
+  function wizardCreate(key) {
+    closeStageWizard();
     pushHistory();
     manifest.stages = manifest.stages || [];
-    const newStage = {
-      id: uid('stage'), name: '新階段', type: 'card_play',
-      enabled: true, advance: { trigger: 'host' },
-    };
-    // 如果是投票阶段，设置默认配置
-    if (newStage.type === 'vote') {
-      newStage.voteConfig = {
-        countdownSeconds: 30,
-        anonymous: false,
-        allowSelfVote: true,
-        endWhenAllVoted: true
-      };
-      newStage.advance = { trigger: 'host' };
-    }
-    manifest.stages.push(newStage);
+    manifest.stages.push(wizardBuildStage(key));
     renderStagesTab();
     afterChange(true);
+    const si = manifest.stages.length - 1;
+    requestAnimationFrame(() => {
+      const row = document.getElementById('stage_row_' + si);
+      if (row) { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.classList.add('stage-flash'); }
+    });
   }
+
+  function addStage() { wizardCreate('blank'); }
   function deleteStage(si) {
     if (!confirm(`刪除階段「${manifest.stages[si].name}」？`)) return;
     pushHistory();
@@ -2921,6 +4231,37 @@ module.exports = MyModule;">${escapeH(serverCode)}</textarea>
       if (!s.name) push(`${pathPrefix}[${si}]`, '階段需要名稱');
       if (!s.type) push(`${pathPrefix}[${si}]`, '階段需要 type');
 
+      // gameConfig：library 白名單 + gameCode 語法檢查（只編譯不執行）
+      if (s.gameConfig) {
+        const gc = s.gameConfig;
+        if (gc.library && !['three','babylon','p5'].includes(gc.library))
+          push(`${pathPrefix}[${si}]`, 'gameConfig.library 必須是 three、babylon 或 p5');
+        if (gc.aspectRatio && !['16:9','4:3','1:1'].includes(gc.aspectRatio))
+          push(`${pathPrefix}[${si}]`, 'gameConfig.aspectRatio 必須是 16:9、4:3 或 1:1');
+        if (gc.gameCode) {
+          try { new Function('GameAPI', gc.gameCode); }
+          catch (e) { push(`${pathPrefix}[${si}]`, `gameCode 語法錯誤：${e.message}`); }
+        }
+        if (gc.mobileCode) {
+          try { new Function('GameAPI', gc.mobileCode); }
+          catch (e) { push(`${pathPrefix}[${si}]`, `mobileCode 語法錯誤：${e.message}`); }
+        }
+        if (Array.isArray(gc.files)) {
+          const fnames = new Set();
+          gc.files.forEach((f, fi) => {
+            if (!f.name || !String(f.name).trim()) push(`${pathPrefix}[${si}]`, `程式檔 #${fi + 1} 需要名稱`);
+            else if (fnames.has(f.name)) push(`${pathPrefix}[${si}]`, `程式檔名重複：${f.name}`);
+            else fnames.add(f.name);
+            if (!['shared', 'display', 'mobile', 'sim', 'render'].includes(f.target))
+              push(`${pathPrefix}[${si}]`, `程式檔「${f.name}」的 target 必須是 shared / display / mobile / sim / render`);
+            if (f.code) {
+              try { new Function('GameAPI', f.code); }
+              catch (e) { push(`${pathPrefix}[${si}]`, `程式檔「${f.name}」語法錯誤：${e.message}`); }
+            }
+          });
+        }
+      }
+
       if (s.type === 'loop') {
         if (s.loopType === 'fixed' && (!s.maxIterations || s.maxIterations < 1))
           push(`${pathPrefix}[${si}]`, '固定次數循環需要 maxIterations ≥ 1');
@@ -3186,8 +4527,14 @@ module.exports = MyModule;">${escapeH(serverCode)}</textarea>
   })();
 
   function onLangChange() { renderModuleEditor(); }
-  Config.initUI();
 </script>
-<script src="/shared/config.js"></script>
+<script>
+  document.write('<script src="' + IMGAME_BASE + '/shared/config.js"><\/script>');
+  document.write('<script src="' + IMGAME_BASE + '/socket.io/socket.io.js"><\/script>');
+</script>
+<script>
+  Config.initUI();
+  initAiChat();
+</script>
 </body>
 </html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>Monster Render</title>
+<style>html,body{margin:0;background:#f2ede4}canvas{display:block}</style>
+</head>
+<body>
+<!-- 三視角 contact sheet(正面/側面/3/4)— render_monster 工具的 headless 渲染頁。
+     ?name=<怪物名>&seed=<n>;渲染完 window.__done=true(錯誤放 window.__error)。
+     淡暖底色 + 中性光,給 Kimi vision 與概念圖並排比對用。 -->
+<canvas id="cv" width="1536" height="512"></canvas>
+<script src="../shared/vendor/three.min.js"></script>
+<script src="../shared/vendor/lowmonster.js?v=20260731"></script>
+<script>
+'use strict';
+(async () => {
+  try {
+    const q = new URLSearchParams(location.search);
+    const name = q.get('name');
+    const seed = parseInt(q.get('seed') || '7', 10) || 7;
+    const list = await (await fetch('../api/monsters')).json();
+    const spec = (list || []).find(s => s.name === name);
+    if (!spec) throw new Error('怪物庫沒有 ' + name);
+
+    const cv = document.getElementById('cv');
+    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(1536, 512, false);
+    renderer.setScissorTest(true);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf2ede4);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a7a, 1.1));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(4, 7, 5); scene.add(sun);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(4, 40), new THREE.MeshLambertMaterial({ color: 0xe2dbcd }));
+    ground.rotation.x = -Math.PI / 2; scene.add(ground);
+
+    const r = LowMonster.build(spec, { seed });
+    scene.add(r.root);
+    const h = Math.max(0.6, r.stats.height);
+    const d = Math.max(r.stats.width, r.stats.depth, h) * 1.9 + 0.8;   // 距離隨體型
+    const cy = h * 0.55;
+
+    // 三視角:正面(+z 看 -z)/ 側面(+x)/ 3/4 高角
+    const views = [
+      { x: 0, y: cy, z: d },
+      { x: d, y: cy, z: 0.001 },
+      { x: d * 0.72, y: h * 1.05 + d * 0.28, z: d * 0.72 },
+    ];
+    const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+    for (let i = 0; i < 3; i++) {
+      const v = views[i];
+      cam.position.set(v.x, v.y, v.z);
+      cam.lookAt(0, cy, 0);
+      cam.updateProjectionMatrix();
+      renderer.setViewport(i * 512, 0, 512, 512);
+      renderer.setScissor(i * 512, 0, 512, 512);
+      renderer.render(scene, cam);
+    }
+    window.__stats = r.stats;
+    window.__done = true;
+  } catch (e) {
+    window.__error = e.message;
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>

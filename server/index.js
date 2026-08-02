@@ -179,6 +179,30 @@ app.delete(BASE + '/api/gestures/:name', auth.requireAuthAPI, (req, res) => {
   res.json({ ok: gestureStore.remove(req.params.name) });
 });
 
+// 怪物庫(Monster Lab 產出;遊戲可 GET 全量 + LowMonster.build 生成個體)
+const monsterStore = require('./monsters');
+app.get(BASE + '/api/monsters', (req, res) => res.json(monsterStore.list()));
+app.post(BASE + '/api/monsters', auth.requireAuthAPI, (req, res) => {
+  const v = monsterStore.save(req.body);
+  if (!v.ok) return res.status(400).json({ error: v.errors.join(';') });
+  res.json({ ok: true, warnings: v.warnings || [], stats: v.stats || null });
+});
+app.delete(BASE + '/api/monsters/:name', auth.requireAuthAPI, (req, res) => {
+  res.json({ ok: monsterStore.remove(req.params.name) });
+});
+// 概念圖(img2three 流程,gen_concept_image 產出;name 經 SAFE 驗證防路徑跳脫)
+app.get(BASE + '/api/monsters/concept/:name', (req, res) => {
+  const fp = monsterStore.conceptFile(req.params.name);
+  if (!fp) return res.status(404).json({ error: '無此概念圖' });
+  res.sendFile(fp);
+});
+// 三視角渲染圖(render_monster 產出)
+app.get(BASE + '/api/monsters/render/:name', (req, res) => {
+  const fp = monsterStore.renderFile(req.params.name);
+  if (!fp) return res.status(404).json({ error: '無此渲染圖' });
+  res.sendFile(fp);
+});
+
 // P2P 的 ICE 設定:STUN 一律有;TURN 只在 env 有設時加(憑證留伺服器、不進 client 原始碼庫)。
 // env:STUN_URLS(逗號分隔,可覆蓋預設)、TURN_URLS(逗號分隔)、TURN_USERNAME、TURN_CREDENTIAL。
 // 沒設 TURN → 只回 STUN(等同現況,零 regression)。無 isolation 場地走直連;酒店等隔離場地才用得到 TURN。
@@ -722,6 +746,9 @@ function validateManifest(m) {
           }
           if (gc.aspectRatio && !['16:9', '4:3', '1:1'].includes(gc.aspectRatio)) {
             push(`${pathPrefix}.gameConfig.aspectRatio`, 'aspectRatio 必須是 16:9、4:3 或 1:1');
+          }
+          if (gc.physics && gc.physics !== 'rapier') {
+            push(`${pathPrefix}.gameConfig.physics`, "physics 目前只支援 'rapier'(NetKit sim 會注入 PHYS)");
           }
           if (gc.gameCode) {
             try { new Function('GameAPI', gc.gameCode); }

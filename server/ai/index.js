@@ -6,7 +6,7 @@ const path = require('path');
 const { loadConfig } = require('./config');
 const { createTools } = require('./tools');
 const { runAgent, compactSession } = require('./agent');
-const { editorSystemPrompt, gmSystemPrompt, GESTURE_DOC } = require('./prompts');
+const { editorSystemPrompt, gmSystemPrompt, GESTURE_DOC, MONSTER_DOC } = require('./prompts');
 const { chat: llmChat } = require('./llm');
 const GestureKit = require('../../client/shared/gesture-kit.js');
 
@@ -34,11 +34,12 @@ function attach(deps) {
   const gestureStore = require('../gestures');
   const gfn = (name, description, parameters) => ({ type: 'function', function: { name, description, parameters } });
   const GESTURE_TOOLS = [
-    gfn('list_gestures', '列出動作庫中所有動作(名稱/標籤/類型)', { type: 'object', properties: {} }),
+    gfn('list_gestures', '列出動作庫中所有動作(名稱/標籤/類型/rig)', { type: 'object', properties: {} }),
     gfn('get_gesture', '讀取某動作的完整規格 JSON(修改前先讀原版)', {
       type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }),
     gfn('save_gesture', '驗證並把動作規格存進動作庫(通過才存;失敗回傳錯誤請修正後重存)', {
-      type: 'object', properties: { spec: { type: 'object', description: '完整手勢規格 {name,label,type,dur,tracks}' } }, required: ['spec'] }),
+      type: 'object', properties: { spec: { type: 'object', description: '完整手勢規格 {name,label,type,dur,rig?,tracks};rig 省略=humanoid,怪物動作用 monster_biped/monster_quadruped/monster_blob' } }, required: ['spec'] }),
+    gfn('list_monsters', '列出怪物庫(名稱/標籤/骨架)— 幫特定怪物設計動作時先查它的骨架決定 rig', { type: 'object', properties: {} }),
   ];
   const gestureGate = (auth && auth.requireAuthAPI) ? auth.requireAuthAPI : (req, res, next) => next();
   app.post(BASE + '/api/ai/gesture', gestureGate, async (req, res) => {
@@ -54,8 +55,9 @@ function attach(deps) {
     const saved = [];
     const runTool = (name, args) => {
       try {
-        if (name === 'list_gestures') return { gestures: gestureStore.list().map(s => ({ name: s.name, label: s.label, type: s.type, dur: s.dur })) };
+        if (name === 'list_gestures') return { gestures: gestureStore.list().map(s => ({ name: s.name, label: s.label, type: s.type, rig: s.rig || 'humanoid', dur: s.dur })) };
         if (name === 'get_gesture') { const s = gestureStore.get(args.name); return s ? { spec: s } : { error: '找不到 ' + args.name }; }
+        if (name === 'list_monsters') return { monsters: monsterStore.list().map(s => ({ name: s.name, label: s.label, skeleton: s.skeleton || 'blob' })) };
         if (name === 'save_gesture') {
           const v = gestureStore.save(args.spec);
           if (v.ok) { saved.push(args.spec.name); return { ok: true, warnings: v.warnings || [] }; }
@@ -95,6 +97,129 @@ function attach(deps) {
       res.json({ text, saved, specs });
     } catch (e) {
       console.error('[AI gesture]', e && e.message);
+      res.status(502).json({ error: 'LLM 呼叫失敗: ' + (e && e.message) });
+    }
+  });
+
+  // ── Monster Lab:LLM 設計怪物(同 Gesture Lab 模式:工具迴圈 + save 帶驗證/建模 stats 回饋)──
+  const monsterStore = require('../monsters');
+  const imageGen = require('./image-gen');
+  const MONSTER_TOOLS = [
+    gfn('list_monsters', '列出怪物庫中所有怪物(名稱/標籤/骨架)', { type: 'object', properties: {} }),
+    gfn('get_monster', '讀取某怪物的完整規格 JSON(修改前先讀原版)', {
+      type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }),
+    gfn('save_monster', '驗證+實際建模+存進怪物庫;回傳 stats(height/width/depth/parts/eyes)供檢查比例;失敗回錯誤請修正重存', {
+      type: 'object', properties: { spec: { type: 'object', description: '完整怪物規格 {name,label,skeleton,palette,body,head,eyes,mouth,limbs,extras,...}' } }, required: ['spec'] }),
+    gfn('gen_concept_image', '用 gpt-image-2 生成怪物概念參考圖(約 20-60 秒)。圖會存進怪物庫(與 name 綁定)並直接讓你「看到」— 收到後先做圖像分析再設計。prompt 用英文,建議固定:low-poly stylized creature, full body, 3/4 view, plain solid background, no text', {
+      type: 'object', properties: {
+        name: { type: 'string', description: '怪物名(小寫英數/底線/連字號,字母開頭)— 概念圖與之後的規格同名綁定' },
+        prompt: { type: 'string', description: '英文圖像描述' },
+      }, required: ['name', 'prompt'] }),
+    gfn('render_monster', '把怪物庫中已存檔的怪物真實渲染成三視角圖(左:正面/中:側面/右:3/4),圖會直接讓你「看到」;若有同名概念圖會一併附上供並排比對。save_monster 之後必用這個檢視成品。', {
+      type: 'object', properties: {
+        name: { type: 'string', description: '怪物名(須已 save_monster)' },
+        seed: { type: 'number', description: '個體 seed(省略 = 7)' },
+      }, required: ['name'] }),
+  ];
+  const monsterRender = require('../monster-render');
+  const fsp = require('fs');
+  app.post(BASE + '/api/ai/monster', gestureGate, async (req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.apiKey) return res.status(503).json({ error: '未設定 AI(server/ai/ai-config.json)' });
+    const hist = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const messages = [{ role: 'system', content: MONSTER_DOC }];
+    for (const m of hist.slice(-20)) {
+      if ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.length < 20000) {
+        messages.push({ role: m.role, content: m.content });
+      }
+    }
+    const saved = [];
+    const images = [];        // 本次請求生成的概念圖(回給 UI 顯示)
+    let pendingVision = [];   // 生成後待餵給 Kimi 的 vision 訊息(base64)
+    const runTool = async (name, args) => {
+      try {
+        if (name === 'list_monsters') return { monsters: monsterStore.list().map(s => ({ name: s.name, label: s.label, skeleton: s.skeleton })) };
+        if (name === 'get_monster') { const s = monsterStore.get(args.name); return s ? { spec: s } : { error: '找不到 ' + args.name }; }
+        if (name === 'save_monster') {
+          const v = monsterStore.save(args.spec);
+          if (v.ok) { saved.push(args.spec.name); return { ok: true, stats: v.stats, warnings: v.warnings || [] }; }
+          return { ok: false, errors: v.errors };
+        }
+        if (name === 'gen_concept_image') {
+          const { b64 } = await imageGen.generateImage({ prompt: args.prompt });
+          monsterStore.saveConcept(args.name, Buffer.from(b64, 'base64'));
+          images.push({ kind: 'concept', name: args.name, url: 'api/monsters/concept/' + args.name + '?t=' + Date.now() });
+          pendingVision.push({
+            text: '[系統] 概念圖(' + args.name + ')。請仔細檢視並做圖像分析:剪影主特徵、體塊比例(頭身比/壯碩或敏捷)、三色配色(body/belly/accent 對應哪些色)、材質與可辨識特徵;然後照設計方法流把它落成規格。',
+            imgs: [b64],
+          });
+          return { ok: true, name: args.name, note: '概念圖已生成並存檔;圖片隨後以訊息附上,請先做圖像分析' };
+        }
+        if (name === 'render_monster') {
+          const { b64 } = await monsterRender.render(args.name, { seed: args.seed });
+          monsterStore.saveRender(args.name, Buffer.from(b64, 'base64'));
+          images.push({ kind: 'render', name: args.name, url: 'api/monsters/render/' + args.name + '?t=' + Date.now() });
+          const cf = monsterStore.conceptFile(args.name);
+          const conceptB64 = cf ? fsp.readFileSync(cf).toString('base64') : null;
+          pendingVision.push({
+            text: '[系統] ' + args.name + ' 的三視角渲染(左:正面/中:側面/右:3/4)。' + (conceptB64
+              ? '第二張是概念圖 — 請並排比對:剪影主特徵有沒有做出來、體塊比例、三色配色是否到位。列出最大的 1-2 個差距,修 spec 重存再 render;若已達標,說明差距已可接受即可(整體最多修 2 輪,不要無限迭代)。'
+              : '請對照你的設計工單檢視成品:剪影/比例/配色是否符合;有明顯落差就修 spec 重存再 render(最多 2 輪)。'),
+            imgs: conceptB64 ? [b64, conceptB64] : [b64],
+          });
+          return { ok: true, name: args.name, note: '渲染完成;圖片隨後以訊息附上,請檢視比對' };
+        }
+        return { error: '未知工具 ' + name };
+      } catch (e) { return { error: e.message }; }
+    };
+    try {
+      // 累積各輪文字(設計工單常在第一輪、總結在最後一輪 — 都要給使用者看)
+      const textParts = [];
+      for (let round = 0; round < 14; round++) {   // img2three 全流程(含轉 code 型):概念圖→分析→存→render→修→存→render→轉code→修→render ≈ 10-12 輪
+        const out = await llmChat(messages, MONSTER_TOOLS);
+        const msg = out.message;
+        messages.push(msg);
+        if (msg.content && msg.content.trim()) textParts.push(msg.content.trim());
+        if (!msg.tool_calls || !msg.tool_calls.length) break;
+        for (const tc of msg.tool_calls) {
+          let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch (e) {}
+          const result = await runTool(tc.function.name, args);
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+        }
+        // 圖片(概念圖/渲染)→ vision 訊息餵回(同 agent.js 模式:舊圖汰換成佔位,避免重送 base64)
+        if (pendingVision.length) {
+          for (const m of messages) {
+            if (m.role === 'user' && Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')) {
+              m.content = [{ type: 'text', text: '[舊圖已移除,只保留最新一組]' }];
+            }
+          }
+          const content = [];
+          for (const v of pendingVision) {
+            content.push({ type: 'text', text: v.text });
+            for (const b of v.imgs) content.push({ type: 'image_url', image_url: { url: 'data:image/png;base64,' + b } });
+          }
+          messages.push({ role: 'user', content });
+          pendingVision = [];
+        }
+      }
+      let text = textParts.join('\n\n');
+      // 後備:沒用工具、只回了 json 圍欄 → 伺服器代存
+      const specs = [];
+      if (!saved.length) {
+        for (const f of [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].map(m => m[1])) {
+          try {
+            const parsed = JSON.parse(f);
+            for (const spec of (Array.isArray(parsed) ? parsed : [parsed])) {
+              const v = monsterStore.save(spec);
+              if (v.ok) saved.push(spec.name);
+              specs.push({ spec, ok: v.ok, errors: v.errors, warnings: v.warnings || [] });
+            }
+          } catch (e) { specs.push({ spec: null, ok: false, errors: ['JSON 解析失敗: ' + e.message], warnings: [] }); }
+        }
+      }
+      res.json({ text, saved, specs, images });
+    } catch (e) {
+      console.error('[AI monster]', e && e.message);
       res.status(502).json({ error: 'LLM 呼叫失敗: ' + (e && e.message) });
     }
   });

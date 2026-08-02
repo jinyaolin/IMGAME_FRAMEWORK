@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Monster Lab — LLM 造怪物</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #101a14; color: #eee;
+    font-family: system-ui, "PingFang TC", sans-serif; overflow: hidden; }
+  #app { display: flex; height: 100%; }
+  #stage { flex: 1; position: relative; min-width: 0; }
+  #cv { width: 100%; height: 100%; display: block; touch-action: none; }
+  #stageInfo { position: absolute; top: 12px; left: 14px; color: #8fc9a0; font-size: 13px; pointer-events: none; }
+  #actBar { position: absolute; bottom: 14px; left: 14px; display: flex; gap: 6px; }
+  #actBar button, #seedBar button { background: #1d452a; border: 1px solid #3a7852; color: #d6f5e0; }
+  #seedBar { position: absolute; top: 34px; left: 14px; display: flex; gap: 6px; align-items: center; }
+  #seedLabel { font-size: 12px; color: #8fc9a0; }
+  #nowShowing { position: absolute; bottom: 52px; left: 14px; font-size: 14px; color: #b6ffd0; }
+  #panel { width: 400px; display: flex; flex-direction: column; background: #14301e; border-left: 1px solid #24503a;
+    transition: margin-right .25s ease; }
+  #panel.collapsed { margin-right: -400px; }
+  #panelToggle { position: absolute; top: 50%; right: 12px; transform: translateY(-50%);
+    width: 40px; height: 64px; border-radius: 12px; background: rgba(60,160,100,.85); color: #fff;
+    border: none; font-size: 18px; cursor: pointer; z-index: 5; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+  #panelToggle:hover { filter: brightness(1.2); }
+  @media (max-width: 760px) {
+    #panel { position: absolute; right: 0; top: 0; bottom: 0; width: min(400px, 92vw); z-index: 4;
+      box-shadow: -6px 0 24px rgba(0,0,0,.5); }
+    #panel.collapsed { margin-right: calc(-1 * min(400px, 92vw)); }
+  }
+  #presets { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 8px; }
+  .preset { background: none; border: 1px dashed #3a7852; color: #8fc9a0; border-radius: 14px;
+    padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  .preset:hover { background: #1d452a; color: #c4f5d4; }
+  .thinking::after { content: '⋯'; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: '·'; } 33% { content: '··'; } 66% { content: '···'; } 100% { content: '·'; } }
+  #panel h1 { font-size: 15px; padding: 12px 14px 8px; color: #b6ffd0; }
+  #aiStatus { font-size: 11px; color: #6fae87; padding: 0 14px 8px; }
+  #chips { padding: 0 12px 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: #24503a; border: 1px solid #3a7852; border-radius: 14px; padding: 4px 10px;
+    font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+  .chip:hover { background: #2f6648; }
+  .chip .x { color: #7fc09a; font-weight: 700; padding: 0 2px; }
+  .chip .x:hover { color: #ff7b7b; }
+  .chip .tag { font-size: 9px; color: #7fc09a; }
+  #log { flex: 1; overflow-y: auto; padding: 8px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+    padding: 8px 10px; border-radius: 10px; max-width: 95%; }
+  .msg.user { background: #34606b; align-self: flex-end; }
+  .msg.ai { background: #1d452a; align-self: flex-start; }
+  .msg.sys { background: none; color: #6fae87; font-size: 12px; align-self: center; }
+  .msg.err { background: #4a2030; color: #ffb3b3; align-self: flex-start; font-size: 12px; }
+  #codeWrap { border-top: 1px solid #24503a; }
+  #codeHead { display: flex; align-items: center; padding: 6px 12px; gap: 8px; font-size: 12px; color: #8fc9a0; }
+  #codeHead button { margin-left: auto; }
+  #code { width: 100%; height: 110px; background: #0c1a10; color: #b8e08a; border: none; resize: vertical;
+    font: 11px/1.4 ui-monospace, monospace; padding: 8px 12px; display: none; }
+  #inputRow { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #24503a; }
+  #input { flex: 1; background: #0c1a10; color: #eee; border: 1px solid #24503a; border-radius: 8px;
+    padding: 8px 10px; font-size: 13px; resize: none; height: 60px; }
+  button { background: #3ca064; color: #fff; border: none; border-radius: 8px; padding: 6px 14px;
+    font-size: 13px; cursor: pointer; }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.ghost { background: #24503a; }
+  #hint { font-size: 10px; color: #5f9e78; padding: 0 14px 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="stageInfo">拖曳旋轉 · 怪物存在伺服器怪物庫,遊戲可直接取用(同物種骰 seed = 個體變體)</div>
+    <div id="seedBar">
+      <button class="ghost" id="seedDice" title="骰一隻個體變體">🎲 個體</button>
+      <span id="seedLabel"></span>
+    </div>
+    <div id="nowShowing"></div>
+    <div id="actBar">
+      <button id="actIdle">🧍 站好</button>
+      <button id="actWalk">🚶 走路</button>
+      <button id="actAttack">⚔️ 攻擊</button>
+      <button id="actHit">💥 受擊</button>
+      <span id="gestBar" style="display:contents"></span>
+      <button class="ghost" id="gestureLabLink" title="到 Gesture Lab 幫這隻怪做動作">🎭 編動作</button>
+    </div>
+    <button id="panelToggle" title="收合/展開面板">⏵</button>
+  </div>
+  <div id="panel">
+    <h1>👾 Monster Lab — 用說的造怪物</h1>
+    <div id="aiStatus">連線中…</div>
+    <div id="chips"></div>
+    <div id="log"></div>
+    <div id="codeWrap">
+      <div id="codeHead">
+        <span id="codeTitle">JSON(點怪物籤可檢視/編輯)</span>
+        <button class="ghost" id="toggleCode">展開</button>
+        <button id="applyCode">套用</button>
+      </div>
+      <textarea id="code" spellcheck="false"></textarea>
+    </div>
+    <div id="presets">
+      <button class="preset">🔥 噴火小蜥蜴</button>
+      <button class="preset">👁 獨眼觸手怪</button>
+      <button class="preset">🐗 兇猛的獠牙山豬</button>
+      <button class="preset">🐢 背著石殼的烏龜怪</button>
+      <button class="preset">🦇 洞穴小蝙蝠(有翅膀)</button>
+      <button class="preset">👑 幫史萊姆做一個王(加冠角、變大)</button>
+    </div>
+    <div id="inputRow">
+      <textarea id="input" placeholder="描述一種怪物,例如:噴火小蜥蜴 / 三隻眼的紫色史萊姆 / 幫 wolf 做一個雪原變種"></textarea>
+      <button id="send">送出</button>
+    </div>
+    <div id="hint">Cmd/Ctrl+Enter 送出 · 同物種可一直骰 🎲 生成不同個體</div>
+  </div>
+</div>
+<script src="../shared/vendor/three.min.js"></script>
+<script src="../shared/vendor/lowmonster.js?v=20260731"></script>
+<script src="../shared/gesture-kit.js"></script>
+<script>
+'use strict';
+// ── 3D 預覽 ──
+const cv = document.getElementById('cv');
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0e1812);
+const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+cam.position.set(0, 1.5, 5.6);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x33443a, 1.0));
+const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(3, 6, 4); scene.add(sun);
+// 邊緣光(rim):冷色從後上方打,flat shading 的稜角/剪影會跳出來
+const rim = new THREE.DirectionalLight(0x9fd4ff, 0.55); rim.position.set(-2.5, 4, -4.5); scene.add(rim);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(2.8, 40), new THREE.MeshLambertMaterial({ color: 0x1c3a28 }));
+ground.rotation.x = -Math.PI / 2; scene.add(ground);
+
+// 目前展示的怪物(spec + seed;🎲 = 同 spec 換 seed)
+let rig = null, curSpec = null, curSeed = 7;
+function showMonster(spec, { reseed = false } = {}) {
+  if (!spec) return;
+  if (reseed) curSeed = (Math.random() * 1e9 | 0) || 1;
+  try {
+    const next = LowMonster.build(spec, { seed: curSeed });
+    if (rig) scene.remove(rig.root);
+    rig = next; curSpec = spec;
+    scene.add(rig.root);
+    mountGestures();
+    document.getElementById('nowShowing').textContent = '👾 ' + (spec.label || spec.name) +
+      ' · ' + rig.stats.skeleton + ' · 高 ' + rig.stats.height + 'm';
+    document.getElementById('seedLabel').textContent = 'seed ' + curSeed;
+    showCode(spec);
+  } catch (e) { addMsg('err', '建模失敗:' + e.message); }
+}
+// ── 動作庫手勢(Gesture Lab 產出的 monster_* 動作)掛到目前這隻怪 ──
+const gestLib = new Map();   // name -> 手勢 spec(rig=monster_*)
+async function loadGestures() {
+  try {
+    const specs = await (await fetch('../api/gestures')).json();
+    gestLib.clear();
+    for (const s of (specs || [])) if (s && s.rig && s.rig.indexOf('monster') === 0) gestLib.set(s.name, s);
+  } catch (e) {}
+  mountGestures();
+}
+function mountGestures() {
+  const bar = document.getElementById('gestBar');
+  bar.innerHTML = '';
+  if (!rig || !rig.animator.clips) return;
+  for (const [name, s] of gestLib) {
+    if (s.rig !== rig.animator.rig) continue;   // 只列同骨架的動作
+    const r = GestureKit.compile(s);
+    if (!r.ok) continue;
+    rig.animator.clips[name] = r.clip;
+    const b = document.createElement('button');
+    b.textContent = '🎭 ' + (s.label || name);
+    b.onclick = () => rig && rig.animator.play(name);
+    bar.appendChild(b);
+  }
+}
+document.getElementById('gestureLabLink').onclick = () => {
+  location.href = 'gesture-lab.html' + (curSpec ? '?monster=' + encodeURIComponent(curSpec.name) : '');
+};
+document.getElementById('seedDice').onclick = () => showMonster(curSpec, { reseed: true });
+// 動作預覽
+let walkOn = false;
+document.getElementById('actIdle').onclick = () => { walkOn = false; if (rig) { rig.animator.setSpeed(0); rig.animator.play('idle'); } };   // play('idle') 同時清掉循環手勢
+document.getElementById('actWalk').onclick = () => { walkOn = !walkOn; if (rig) rig.animator.setSpeed(walkOn ? 1.6 : 0); };
+document.getElementById('actAttack').onclick = () => rig && rig.animator.play('attack');
+document.getElementById('actHit').onclick = () => rig && rig.animator.play('hit');
+
+// ── 相機互動:單指/滑鼠拖=旋轉,雙指捏合/滾輪=縮放 ──
+// iOS WebKit 的 pointer 事件在拖曳中會被系統手勢打斷,手機一律走原生 touch 事件(非 passive
+// + preventDefault);pointer 只處理滑鼠,避免同一根手指被兩套事件各轉一次。
+let faceY = -0.35, dragging = false, lastX = 0;
+let camDist = 5.6;
+const camClamp = (v) => Math.min(12, Math.max(2.2, v));
+const tDist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+let touchMode = null, pinch0 = 0, pinchDist0 = 0;
+cv.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length >= 2) { touchMode = 'pinch'; pinch0 = tDist(e.touches); pinchDist0 = camDist; }
+  else { touchMode = 'rot'; lastX = e.touches[0].clientX; }
+}, { passive: false });
+cv.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (touchMode === 'pinch' && e.touches.length >= 2) { camDist = camClamp(pinchDist0 * pinch0 / Math.max(20, tDist(e.touches))); }
+  else if (touchMode === 'rot' && e.touches.length === 1) { faceY += (e.touches[0].clientX - lastX) * 0.01; lastX = e.touches[0].clientX; }
+}, { passive: false });
+const touchEnd = e => {
+  if (!e.touches.length) touchMode = null;
+  else if (e.touches.length === 1) { touchMode = 'rot'; lastX = e.touches[0].clientX; }
+};
+cv.addEventListener('touchend', touchEnd);
+cv.addEventListener('touchcancel', touchEnd);
+cv.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') return; dragging = true; lastX = e.clientX; });
+addEventListener('pointerup', () => { dragging = false; });
+addEventListener('pointermove', e => { if (dragging && e.pointerType === 'mouse') { faceY += (e.clientX - lastX) * 0.01; lastX = e.clientX; } });
+cv.addEventListener('wheel', e => { e.preventDefault(); camDist = camClamp(camDist * (1 + e.deltaY * 0.001)); }, { passive: false });
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (rig) { rig.char.rotation.y = faceY; rig.animator.update(dt); }
+  const w = cv.clientWidth || 400, h = cv.clientHeight || 400;
+  renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+  cam.position.set(0, 0.9 + camDist * 0.11, camDist);   // 捏合/滾輪縮放
+  cam.lookAt(0, 0.9, 0);
+  renderer.render(scene, cam);
+  requestAnimationFrame(loop);
+})(last);
+
+// ── 怪物庫(伺服器端 /api/monsters;遊戲共用)──
+const lib = new Map();   // name -> spec
+async function loadLibrary({ showName = null } = {}) {
+  try {
+    const specs = await (await fetch('../api/monsters')).json();
+    lib.clear();
+    for (const s of specs) { const v = LowMonster.validate(s); if (v.ok) lib.set(s.name, s); }
+    renderChips();
+    if (showName && lib.has(showName)) showMonster(lib.get(showName));
+    else if (!curSpec && lib.size) showMonster(lib.values().next().value);
+  } catch (e) { addMsg('err', '怪物庫載入失敗:' + e.message); }
+}
+async function persistSpec(spec) {   // 手改 JSON 套用時也存回伺服器
+  try {
+    const r = await fetch('../api/monsters', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec) });
+    if (!r.ok) addMsg('err', '存檔失敗:' + ((await r.json()).error || r.status));
+  } catch (e) { addMsg('err', '存檔失敗:' + e.message); }
+}
+function registerSpec(spec, { persist = false } = {}) {
+  const v = LowMonster.validate(spec);
+  if (!v.ok) { addMsg('err', '「' + (spec && spec.name) + '」驗證失敗:\n' + v.errors.join('\n')); return false; }
+  lib.set(spec.name, spec); renderChips();
+  if (persist) persistSpec(spec);
+  if (v.warnings && v.warnings.length) addMsg('sys', '⚠ ' + v.warnings.join(';'));
+  showMonster(spec);
+  return true;
+}
+function renderChips() {
+  const el = document.getElementById('chips');
+  el.innerHTML = '';
+  // label 撞名(如 v4/v5 同標籤)→ 顯示時附上 name 區分
+  const labelCount = {};
+  for (const [, s] of lib) { const L = s.label || s.name; labelCount[L] = (labelCount[L] || 0) + 1; }
+  for (const [name, spec] of lib) {
+    const c = document.createElement('div'); c.className = 'chip';
+    c.title = name;
+    const L = spec.label || name;
+    const disp = labelCount[L] > 1 ? `${L}〈${name}〉` : L;
+    const tag = spec.type === 'code' ? `${spec.skeleton || 'blob'}·code` : spec.skeleton;
+    c.innerHTML = `<span>${disp}</span><span class="tag">${tag}</span><span class="x">✕</span>`;
+    c.querySelector('.x').onclick = async (e) => {
+      e.stopPropagation();
+      lib.delete(name); renderChips();
+      try { await fetch('../api/monsters/' + encodeURIComponent(name), { method: 'DELETE' }); } catch (err) {}
+    };
+    c.onclick = () => showMonster(spec);
+    el.appendChild(c);
+  }
+}
+// 初始化:載怪物庫 + 動作庫;空庫時放一隻內建範例當起點
+(async () => {
+  await Promise.all([loadLibrary(), loadGestures()]);
+  if (!lib.size && LowMonster.examples) showMonster(LowMonster.examples.goblin);
+})();
+
+// ── JSON 檢視/編輯 ──
+const codeEl = document.getElementById('code');
+function showCode(spec) { codeEl.value = JSON.stringify(spec, null, 1); }
+document.getElementById('toggleCode').onclick = function () {
+  const open = codeEl.style.display !== 'block';
+  codeEl.style.display = open ? 'block' : 'none';
+  this.textContent = open ? '收合' : '展開';
+};
+document.getElementById('applyCode').onclick = () => {
+  try { registerSpec(JSON.parse(codeEl.value), { persist: true }); } catch (e) { addMsg('err', 'JSON 解析失敗:' + e.message); }
+};
+
+// ── 對話 ──
+const logEl = document.getElementById('log');
+const history = [];   // {role, content} 給 Kimi 的原文歷史
+function addMsg(cls, text) {
+  const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text;
+  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+}
+// 圖片訊息(概念圖/三視角渲染;點圖新分頁看原圖)
+function addImg(url, name, kind) {
+  const d = document.createElement('div'); d.className = 'msg ai';
+  const cap = document.createElement('div');
+  cap.textContent = (kind === 'render' ? '🧊 三視角渲染:' : '🎨 概念圖:') + name;
+  cap.style.cssText = 'font-size:.82rem;opacity:.8;margin-bottom:4px;';
+  const a = document.createElement('a'); a.href = url; a.target = '_blank';
+  const im = document.createElement('img'); im.src = url; im.alt = name;
+  im.style.cssText = 'max-width:100%;border-radius:8px;display:block;';
+  a.appendChild(im); d.appendChild(cap); d.appendChild(a);
+  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  im.onload = () => { logEl.scrollTop = logEl.scrollHeight; };
+}
+fetch('../api/ai/status').then(r => r.json()).then(d => {
+  document.getElementById('aiStatus').textContent = d.configured ? ('Kimi ' + d.model + ' · 就緒') : '⚠ 未設定 AI(server/ai/ai-config.json)';
+}).catch(() => { document.getElementById('aiStatus').textContent = '⚠ 無法連到伺服器'; });
+
+// 面板收合(全螢幕看怪物)
+const panel = document.getElementById('panel');
+const panelToggle = document.getElementById('panelToggle');
+panelToggle.onclick = () => {
+  const collapsed = panel.classList.toggle('collapsed');
+  panelToggle.textContent = collapsed ? '⏴' : '⏵';
+  panelToggle.title = collapsed ? '展開面板' : '收合面板';
+};
+// 窄螢幕(手機):面板是全幅 overlay,預設收合 → 先看得到怪物、拖得到畫布,要聊再展開
+if (matchMedia('(max-width: 760px)').matches) { panel.classList.add('collapsed'); panelToggle.textContent = '⏴'; }
+
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+// 範例快捷:點了直接送出(第一次上手免打字)
+for (const b of document.querySelectorAll('.preset')) {
+  b.onclick = () => { inputEl.value = b.textContent.replace(/^\S+\s/, ''); send(); };
+}
+let thinkingEl = null;
+function showThinking() {
+  thinkingEl = document.createElement('div');
+  thinkingEl.className = 'msg ai thinking';
+  thinkingEl.textContent = 'Kimi 設計怪物中';
+  logEl.appendChild(thinkingEl); logEl.scrollTop = logEl.scrollHeight;
+}
+function hideThinking() { if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; } }
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text || sendBtn.disabled) return;
+  inputEl.value = '';
+  addMsg('user', text);
+  history.push({ role: 'user', content: text });
+  sendBtn.disabled = true; sendBtn.textContent = '…';
+  showThinking();
+  try {
+    const r = await fetch('../api/ai/monster', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history }),
+    });
+    const d = await r.json();
+    hideThinking();
+    if (!r.ok) { addMsg('err', d.error || ('HTTP ' + r.status)); }
+    else {
+      history.push({ role: 'assistant', content: d.text });
+      for (const im of (d.images || [])) addImg('../' + im.url, im.name, im.kind);
+      addMsg('ai', (d.text || '').replace(/```(?:json)?[\s\S]*?```/g, '〔JSON〕').trim() || '(完成)');
+      if (d.saved && d.saved.length) {
+        addMsg('sys', '💾 已存入怪物庫:' + d.saved.join('、'));
+        await loadLibrary({ showName: d.saved[d.saved.length - 1] });
+      } else {
+        for (const s of (d.specs || [])) if (!s.ok) addMsg('err', '規格未過驗證:\n' + s.errors.join('\n'));
+        if (!(d.specs || []).length) addMsg('sys', '(這輪沒有存檔怪物 —— 可要求它「用 save_monster 存檔」)');
+      }
+    }
+  } catch (e) { hideThinking(); addMsg('err', '連線失敗:' + e.message); }
+  sendBtn.disabled = false; sendBtn.textContent = '送出';
+}
+sendBtn.onclick = send;
+// 中文 IME:只在 Cmd/Ctrl+Enter 送出,絕不裸 Enter
+inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } });
+addMsg('sys', '描述怪物 → Kimi 依 LowMonster 規格造出來 → 左邊立刻預覽,🎲 骰個體變體。可繼續對話迭代(「角再大一點」「做一個雪原變種」)。');
+</script>
+</body>
+</html>

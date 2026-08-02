@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Gesture Lab — LLM 寫動作</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -69,7 +69,7 @@
 <div id="app">
   <div id="stage">
     <canvas id="cv"></canvas>
-    <div id="stageInfo">拖曳旋轉 · 動作存在伺服器動作庫,遊戲可直接取用</div>
+    <div id="stageInfo">拖曳旋轉 · 動作存在伺服器動作庫,遊戲可直接取用 · 選單可切怪物(Monster Lab 的怪也能編動作)</div>
     <div id="roleBar">
       <select id="roleSel"></select>
       <button class="ghost" id="roleDice" title="隨機造型">🎲</button>
@@ -107,6 +107,7 @@
 </div>
 <script src="../shared/vendor/three.min.js"></script>
 <script src="../shared/vendor/lowpoly.js"></script>
+<script src="../shared/vendor/lowmonster.js"></script>
 <script src="../shared/gesture-kit.js"></script>
 <script>
 'use strict';
@@ -122,30 +123,103 @@ if (LowPoly.addLights) LowPoly.addLights(scene);
 else { scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2)); const d = new THREE.DirectionalLight(0xffffff, .7); d.position.set(3, 6, 4); scene.add(d); }
 const ground = new THREE.Mesh(new THREE.CircleGeometry(2.6, 40), new THREE.MeshLambertMaterial({ color: 0x241d45 }));
 ground.rotation.x = -Math.PI / 2; scene.add(ground);
-// 角色可換(換人重建 animator → 動作庫 clips 要重掛)
+// 預覽對象可換:人形角色(LowPoly)或怪物庫的怪(LowMonster)— 換對象重建 animator → 動作庫 clips 要重掛
 let ac = null, A = null, curRole = 'knight', curSeed = 7;
+let curMonster = null;               // null=人形;否則=怪物 name(monLib 鍵)
+const monLib = new Map();            // name -> 怪物 spec(/api/monsters)
+const specRig = (s) => (s && s.rig) || 'humanoid';
+function targetRig() {
+  if (!curMonster) return 'humanoid';
+  const s = monLib.get(curMonster);
+  return GestureKit.monsterRig((s && s.skeleton) || 'blob');
+}
+// 人形對象掛 humanoid 手勢;怪物對象掛全部 monster_* 手勢(骨架不合的通道播放時自動忽略,
+// torso/head/posY/縮放這類共通通道照樣動 → 動作可跨骨架共用)
+function compatible(spec) { return curMonster ? specRig(spec).startsWith('monster') : specRig(spec) === 'humanoid'; }
 function buildCharacter() {
-  if (ac) scene.remove(ac.root);
-  ac = LowPoly.animatedCharacter({ role: curRole, seed: curSeed });
+  if (ac) { scene.remove(ac.root); ac = null; }
+  if (curMonster && monLib.has(curMonster)) {
+    try {
+      const built = LowMonster.build(monLib.get(curMonster), { seed: curSeed });
+      ac = { root: built.root }; A = built.animator;
+    } catch (e) { addMsg('err', '怪物建模失敗:' + e.message); curMonster = null; }
+  }
+  if (!ac) {
+    curMonster = null;
+    ac = LowPoly.animatedCharacter({ role: curRole, seed: curSeed });
+    A = ac.animator;
+  }
   scene.add(ac.root);
-  A = ac.animator;
-  for (const [name, spec] of lib) { const r = GestureKit.compile(spec); if (r.ok) A.clips[name] = r.clip; }
+  for (const [name, spec] of lib) { if (!compatible(spec)) continue; const r = GestureKit.compile(spec); if (r.ok) A.clips[name] = r.clip; }
   A.play('idle');
+  renderChips();
   document.getElementById('nowPlaying').textContent = '';
 }
 const roleSel = document.getElementById('roleSel');
-for (const r of (LowPoly.roles || ['knight'])) {
-  const o = document.createElement('option'); o.value = r;
-  o.textContent = (LowPoly.ROLES && LowPoly.ROLES[r] && LowPoly.ROLES[r].name) || r;
-  roleSel.appendChild(o);
+function fillTargetSel() {
+  roleSel.innerHTML = '';
+  const gRole = document.createElement('optgroup'); gRole.label = '人形角色';
+  for (const r of (LowPoly.roles || ['knight'])) {
+    const o = document.createElement('option'); o.value = 'role:' + r;
+    o.textContent = (LowPoly.ROLES && LowPoly.ROLES[r] && LowPoly.ROLES[r].name) || r;
+    gRole.appendChild(o);
+  }
+  roleSel.appendChild(gRole);
+  if (monLib.size) {
+    const gMon = document.createElement('optgroup'); gMon.label = '怪物(Monster Lab)';
+    for (const [name, s] of monLib) {
+      const o = document.createElement('option'); o.value = 'monster:' + name;
+      o.textContent = '👾 ' + (s.label || name) + '(' + (s.skeleton || 'blob') + ')';
+      gMon.appendChild(o);
+    }
+    roleSel.appendChild(gMon);
+  }
+  roleSel.value = curMonster ? 'monster:' + curMonster : 'role:' + curRole;
 }
-roleSel.value = curRole;
-roleSel.onchange = () => { curRole = roleSel.value; buildCharacter(); };
+async function loadMonsters() {
+  try {
+    const specs = await (await fetch('../api/monsters')).json();
+    monLib.clear();
+    for (const s of (specs || [])) if (s && s.name) monLib.set(s.name, s);
+  } catch (e) {}
+  fillTargetSel();
+}
+roleSel.onchange = () => {
+  const v = roleSel.value;
+  if (v.startsWith('monster:')) curMonster = v.slice(8);
+  else { curMonster = null; curRole = v.slice(5); }
+  buildCharacter();
+  fillTargetSel();
+};
 document.getElementById('roleDice').onclick = () => { curSeed = (Math.random() * 1e9 | 0) || 1; buildCharacter(); };
+// ── 相機互動:單指/滑鼠拖=旋轉,雙指捏合/滾輪=縮放 ──
+// iOS WebKit 的 pointer 事件在拖曳中會被系統手勢打斷,手機一律走原生 touch 事件(非 passive
+// + preventDefault);pointer 只處理滑鼠,避免同一根手指被兩套事件各轉一次。
 let faceY = 0.5, dragging = false, lastX = 0;
-cv.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; });
+let camDist = 5.4;
+const camClamp = (v) => Math.min(12, Math.max(2.2, v));
+const tDist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+let touchMode = null, pinch0 = 0, pinchDist0 = 0;
+cv.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length >= 2) { touchMode = 'pinch'; pinch0 = tDist(e.touches); pinchDist0 = camDist; }
+  else { touchMode = 'rot'; lastX = e.touches[0].clientX; }
+}, { passive: false });
+cv.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (touchMode === 'pinch' && e.touches.length >= 2) { camDist = camClamp(pinchDist0 * pinch0 / Math.max(20, tDist(e.touches))); }
+  else if (touchMode === 'rot' && e.touches.length === 1) { faceY += (e.touches[0].clientX - lastX) * 0.01; lastX = e.touches[0].clientX; }
+}, { passive: false });
+const touchEnd = e => {
+  if (!e.touches.length) touchMode = null;
+  else if (e.touches.length === 1) { touchMode = 'rot'; lastX = e.touches[0].clientX; }
+};
+cv.addEventListener('touchend', touchEnd);
+cv.addEventListener('touchcancel', touchEnd);
+cv.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') return; dragging = true; lastX = e.clientX; });
 addEventListener('pointerup', () => { dragging = false; });
-addEventListener('pointermove', e => { if (dragging) { faceY += (e.clientX - lastX) * 0.01; lastX = e.clientX; } });
+addEventListener('pointermove', e => { if (dragging && e.pointerType === 'mouse') { faceY += (e.clientX - lastX) * 0.01; lastX = e.clientX; } });
+cv.addEventListener('wheel', e => { e.preventDefault(); camDist = camClamp(camDist * (1 + e.deltaY * 0.001)); }, { passive: false });
 let last = performance.now();
 (function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -154,6 +228,7 @@ let last = performance.now();
   A.update(dt);
   const w = cv.clientWidth || 400, h = cv.clientHeight || 400;
   renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+  cam.position.set(0, 1.1 + camDist * 0.09, camDist);   // 捏合/滾輪縮放
   cam.lookAt(0, 1.1, 0);
   renderer.render(scene, cam);
   requestAnimationFrame(loop);
@@ -167,10 +242,13 @@ async function loadLibrary({ playName = null } = {}) {
     lib.clear();
     for (const s of specs) {
       const r = GestureKit.compile(s);
-      if (r.ok) { lib.set(s.name, s); if (A) A.clips[s.name] = r.clip; }
+      if (r.ok) { lib.set(s.name, s); if (A && compatible(s)) A.clips[s.name] = r.clip; }
     }
     renderChips();
-    if (playName && lib.has(playName)) playGesture(playName);
+    if (playName && lib.has(playName)) {
+      if (compatible(lib.get(playName))) playGesture(playName);
+      else addMsg('sys', '「' + playName + '」是 ' + specRig(lib.get(playName)) + ' 動作 — 用上方選單切到對應對象即可試播');
+    }
   } catch (e) { addMsg('err', '動作庫載入失敗:' + e.message); }
 }
 async function persistSpec(spec) {   // 手改 JSON 套用時也存回伺服器
@@ -182,6 +260,7 @@ async function persistSpec(spec) {   // 手改 JSON 套用時也存回伺服器
 function playGesture(name) {
   if (!lib.has(name)) return;
   const spec = lib.get(name);
+  if (!compatible(spec)) { addMsg('sys', '「' + (spec.label || name) + '」rig=' + specRig(spec) + ',與目前預覽對象不符'); return; }
   if (spec.type === 'loop') { A.play(name); }
   else { A.play('idle'); A.play(name); }   // oneshot 疊在 idle 上,播完自動收回
   document.getElementById('nowPlaying').textContent = '▶ ' + (spec.label || name) + (spec.type === 'loop' ? '(循環中,點「站好」停止)' : '');
@@ -190,7 +269,7 @@ function playGesture(name) {
 function registerSpec(spec, { play = true, silent = false, persist = false } = {}) {
   const r = GestureKit.compile(spec);
   if (!r.ok) { if (!silent) addMsg('err', '「' + (spec && spec.name) + '」驗證失敗:\n' + r.errors.join('\n')); return false; }
-  if (A) A.clips[spec.name] = r.clip;
+  if (A && compatible(spec)) A.clips[spec.name] = r.clip;
   lib.set(spec.name, spec); renderChips();
   if (persist) persistSpec(spec);
   if (r.warnings && r.warnings.length && !silent) addMsg('sys', '⚠ ' + r.warnings.join(';'));
@@ -205,8 +284,10 @@ function renderChips() {
   stand.onclick = () => { A.play('idle'); document.getElementById('nowPlaying').textContent = ''; };
   el.appendChild(stand);
   for (const [name, spec] of lib) {
+    if (!compatible(spec)) continue;   // 只列目前預覽對象吃得到的動作(切對象會重列)
     const c = document.createElement('div'); c.className = 'chip';
-    c.innerHTML = `<span>${spec.label || name}</span><span class="tag">${spec.type === 'loop' ? '循環' : '單次'}</span><span class="x">✕</span>`;
+    const rigTag = specRig(spec) === 'humanoid' ? '' : '·' + specRig(spec).slice(8);
+    c.innerHTML = `<span>${spec.label || name}</span><span class="tag">${(spec.type === 'loop' ? '循環' : '單次') + rigTag}</span><span class="x">✕</span>`;
     c.querySelector('.x').onclick = async (e) => {
       e.stopPropagation();
       lib.delete(name); if (A) delete A.clips[name]; renderChips();
@@ -216,9 +297,13 @@ function renderChips() {
     el.appendChild(c);
   }
 }
-// 初始化:建角色 → 載伺服器動作庫 → 把舊 localStorage 手勢搬遷上去(一次性)
+// 初始化:建角色 → 載怪物庫(?monster=<name> 可直接選定)→ 載動作庫 → 舊 localStorage 手勢搬遷(一次性)
+fillTargetSel();
 buildCharacter();
 (async () => {
+  await loadMonsters();
+  const wantMon = new URLSearchParams(location.search).get('monster');
+  if (wantMon && monLib.has(wantMon)) { curMonster = wantMon; fillTargetSel(); buildCharacter(); }
   await loadLibrary();
   try {
     const legacy = JSON.parse(localStorage.getItem('gestureLab.gestures') || '[]');
@@ -259,6 +344,8 @@ panelToggle.onclick = () => {
   panelToggle.textContent = collapsed ? '⏴' : '⏵';
   panelToggle.title = collapsed ? '展開面板' : '收合面板';
 };
+// 窄螢幕(手機):面板是全幅 overlay,預設收合 → 先看得到角色、拖得到畫布,要聊再展開
+if (matchMedia('(max-width: 760px)').matches) { panel.classList.add('collapsed'); panelToggle.textContent = '⏴'; }
 
 // 範例快捷:點了直接送出(第一次上手免打字)
 for (const b of document.querySelectorAll('.preset')) {
@@ -275,12 +362,21 @@ function showThinking() {
   logEl.appendChild(thinkingEl); logEl.scrollTop = logEl.scrollHeight;
 }
 function hideThinking() { if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; } }
+// 目前預覽對象隨訊息帶給 Kimi(它據此決定 rig;畫面上只顯示使用者原文)
+function targetNote() {
+  if (curMonster) {
+    const s = monLib.get(curMonster) || {};
+    return '\n\n(系統:目前預覽對象=怪物「' + (s.label || curMonster) + '」(' + curMonster + '),骨架 ' +
+      (s.skeleton || 'blob') + ' → 動作規格請帶 "rig":"' + targetRig() + '")';
+  }
+  return '\n\n(系統:目前預覽對象=LowPoly 人形角色,rig=humanoid,省略 rig 欄位即可)';
+}
 async function send() {
   const text = inputEl.value.trim();
   if (!text || sendBtn.disabled) return;
   inputEl.value = '';
   addMsg('user', text);
-  history.push({ role: 'user', content: text });
+  history.push({ role: 'user', content: text + targetNote() });
   sendBtn.disabled = true; sendBtn.textContent = '…';
   showThinking();
   try {
@@ -308,7 +404,7 @@ async function send() {
 sendBtn.onclick = send;
 // 中文 IME:只在 Cmd/Ctrl+Enter 送出,絕不裸 Enter
 inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } });
-addMsg('sys', '描述動作 → Kimi 依 LowPoly 動作契約寫出手勢 JSON → 立刻在左邊試播。可繼續對話迭代(「再誇張一點」「慢一點」)。');
+addMsg('sys', '描述動作 → Kimi 依動作契約寫出手勢 JSON → 立刻在左邊試播。上方選單可切到 Monster Lab 的怪物,幫牠們做專屬動作(rig 會自動對應骨架)。可繼續對話迭代(「再誇張一點」「慢一點」)。');
 </script>
 </body>
 </html>

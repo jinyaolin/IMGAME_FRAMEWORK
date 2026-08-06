@@ -106,7 +106,7 @@ app.post(BASE + '/api/rooms', auth.requireAuthAPI, (req, res) => {
   if (moduleId) {
     const manifest = moduleLoader.getManifest(moduleId);
     if (!manifest) return res.status(400).json({ error: `Module "${moduleId}" not found` });
-    if (!modVisible(manifest, auth.reqIsSuper(req))) return res.status(403).json({ error: '模組尚未開放' });
+    if (!modVisible(manifest, auth.getUserIdFromReq(req))) return res.status(403).json({ error: '模組尚未開放' });
     // Fork: deep-clone manifest so this session is isolated from future editor saves
     session.manifest = JSON.parse(JSON.stringify(manifest));
     session.moduleName = moduleId;
@@ -135,14 +135,15 @@ app.get(BASE + '/api/rooms/:roomId', (req, res) => {
   res.json(session.toSummary());
 });
 
-// ── 模組「開放」旗標:manifest.published !== true 的模組只有 superuser 看得到/載得動 ──
-// (未完成/測試中的模組不會出現在一般使用者的 /labs/game 模組清單;本地開發 auth 關閉 = 全開)
-const modVisible = (m, isSuper) => isSuper || m.published === true;
-const filterModules = (list, isSuper) => list.filter(m => modVisible(m, isSuper));
+// ── 模組「開放」旗標:manifest.published !== true 的模組只有 superuser 與作者本人看得到/載得動 ──
+// (未完成/測試中的模組不會出現在一般使用者的 /labs/game 模組清單;本地開發 auth 關閉 = 全開。
+//  manifest.createdBy 在新建/clone 時由伺服器寫入,客戶端傳入的值一律被磁碟值覆蓋,無法冒名。)
+const modVisible = (m, uid) => auth.isSuperUserId(uid) || m.published === true || (!!uid && m.createdBy === uid);
+const filterModules = (list, uid) => list.filter(m => modVisible(m, uid));
 
-// Available modules (summary list;一般使用者只看到已開放的)
+// Available modules (summary list;一般使用者看到已開放的 + 自己建立的)
 app.get(BASE + '/api/modules', (req, res) => {
-  res.json(filterModules(moduleLoader.listModules(), auth.reqIsSuper(req)));
+  res.json(filterModules(moduleLoader.listModules(), auth.getUserIdFromReq(req)));
 });
 
 // 目前使用者身分(labs/editor 用來決定要不要顯示 superuser 控制項)
@@ -453,7 +454,7 @@ app.get(BASE + '/api/modules/:id', (req, res) => {
   if (!fs.existsSync(manifestPath)) return res.status(404).json({ error: '模組不存在' });
   try {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    if (!modVisible(manifest, auth.reqIsSuper(req))) return res.status(403).json({ error: '模組尚未開放' });
+    if (!modVisible(manifest, auth.getUserIdFromReq(req))) return res.status(403).json({ error: '模組尚未開放' });
     res.json(manifest);
   } catch (err) {
     res.status(500).json({ error: 'manifest 解析失敗：' + err.message });
@@ -815,6 +816,12 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
       if (Array.isArray(stages)) next.stages = stages;
     }
 
+    // 作者記錄:新模組寫入建立者;既有模組一律以磁碟上的值為準(客戶端無法冒名/搶佔)
+    const uid = auth.getUserIdFromReq(req);
+    if (current.createdBy) next.createdBy = current.createdBy;
+    else if (isNewModule && uid && uid !== 'local') next.createdBy = uid;
+    else delete next.createdBy;
+
     // Validate
     const errors = validateManifest(next);
     if (errors.length) return res.status(400).json({ error: '驗證失敗', errors });
@@ -825,11 +832,11 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
 
     const updatedList = moduleLoader.listModules();
     for (const session of sessions.values()) {
-      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, auth.isSuperUserId(session.ownerUserId)) });
+      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, session.ownerUserId) });
     }
 
     console.log(`[Module] Saved: ${id}`);
-    res.json({ id, name: next.name, modules: updatedList });
+    res.json({ id, name: next.name, modules: filterModules(updatedList, uid) });
   } catch (err) {
     console.error('[Module] Save failed:', err);
     res.status(500).json({ error: err.message });
@@ -856,11 +863,11 @@ app.delete(BASE + '/api/modules/:id', (req, res) => {
 
     const updatedList = moduleLoader.listModules();
     for (const session of sessions.values()) {
-      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, auth.isSuperUserId(session.ownerUserId)) });
+      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, session.ownerUserId) });
     }
 
     console.log(`[Module] Deleted: ${id}`);
-    res.json({ id, modules: updatedList });
+    res.json({ id, modules: filterModules(updatedList, auth.getUserIdFromReq(req)) });
   } catch (err) {
     console.error('[Module] Delete failed:', err);
     res.status(500).json({ error: err.message });
@@ -894,6 +901,8 @@ app.post(BASE + '/api/modules/:sourceId/clone', (req, res) => {
     }
 
     const sourceManifest = JSON.parse(fs.readFileSync(path.join(srcDir, 'manifest.json'), 'utf8'));
+    const cloneUid = auth.getUserIdFromReq(req);
+    if (!modVisible(sourceManifest, cloneUid)) return res.status(403).json({ error: '模組尚未開放' });
 
     // Build new manifest: clone source, then patch
     const newManifest = JSON.parse(JSON.stringify(sourceManifest));
@@ -902,6 +911,10 @@ app.post(BASE + '/api/modules/:sourceId/clone', (req, res) => {
     // Point the new module at the source's engine so future engine updates apply
     newManifest.engine = sourceManifest.engine || sourceId;
     if (typeof description === 'string') newManifest.description = description;
+    // Clone 是新的草稿:作者 = 執行 clone 的人,published 不繼承(要開放需 superuser 另行操作)
+    delete newManifest.published;
+    if (cloneUid && cloneUid !== 'local') newManifest.createdBy = cloneUid;
+    else delete newManifest.createdBy;
 
     // Bake fieldValues into fieldConfig defaults so they become the new defaults
     if (fieldValues && newManifest.fieldConfig) {
@@ -929,12 +942,12 @@ app.post(BASE + '/api/modules/:sourceId/clone', (req, res) => {
     const updatedList = moduleLoader.listModules();
     for (const session of sessions.values()) {
       if (session.hostSocketId) {
-        io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, auth.isSuperUserId(session.ownerUserId)) });
+        io.to(session.hostSocketId).emit('modules_updated', { modules: filterModules(updatedList, session.ownerUserId) });
       }
     }
 
     console.log(`[Module] Cloned: ${sourceId} → ${newId}`);
-    res.json({ id: newId, name: newManifest.name, modules: updatedList });
+    res.json({ id: newId, name: newManifest.name, modules: filterModules(updatedList, cloneUid) });
   } catch (err) {
     console.error('[Module] Clone failed:', err);
     res.status(500).json({ error: err.message });
@@ -1120,7 +1133,7 @@ io.on('connection', (socket) => {
       if (moduleName && moduleName !== snapshotId) {
         const fresh = moduleLoader.getManifest(moduleName);
         if (!fresh) { socket.emit('error', { message: `Module "${moduleName}" not found` }); return; }
-        if (!modVisible(fresh, auth.socketIsSuper(socket))) { socket.emit('error', { message: '模組尚未開放' }); return; }
+        if (!modVisible(fresh, auth.socketUserId(socket))) { socket.emit('error', { message: '模組尚未開放' }); return; }
         session.manifest   = JSON.parse(JSON.stringify(fresh));   // 深拷貝：與日後編輯器存檔隔離
         session.moduleName = moduleName;
         session.engineCode = moduleLoader.readEngineCode(moduleName);
@@ -1397,7 +1410,7 @@ async function startServer() {
 
   // AI 核心（Kimi 編輯核心 + AI 主持）— 需在 moduleLoader 初始化後接線
   require('./ai').attach({
-    app, io, sessions, moduleLoader, validateManifest, atomicWriteJSON,
+    app, io, sessions, moduleLoader, validateManifest, atomicWriteJSON, modVisible, filterModules,
     modulesDir: path.join(__dirname, 'modules'),
     decksDir: path.join(__dirname, 'decks'),
     assetsRoot: ASSETS_ROOT,

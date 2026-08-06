@@ -822,7 +822,7 @@
       const isMark = isSel && isDirty();
       return `<div class="mod-item ${isSel ? 'selected' : ''} ${isMark ? 'dirty' : ''}"
                    onclick="selectModule('${escapeH(m.id)}')">
-        <div class="mi-name">${escapeH(m.name)}${meSuper ? (m.published === true ? ' <span style="font-size:10px;color:#66dd99">●</span>' : ' <span style="font-size:10px">🧪</span>') : ''}</div>
+        <div class="mi-name">${escapeH(m.name)}${m.published === true ? (meSuper ? ' <span style="font-size:10px;color:#66dd99">●</span>' : '') : ' <span style="font-size:10px" title="未開放：僅作者與 superuser 可見">🧪</span>'}</div>
         <div class="mi-id">${escapeH(m.id)}</div>
         ${m.description ? `<div class="mi-desc">${escapeH(m.description)}</div>` : ''}
         <div class="mi-meta">${m.minPlayers}–${m.maxPlayers} 人 · v${escapeH(m.version || '')}</div>

@@ -358,7 +358,7 @@ function attach(deps) {
           userText: userContent,
           toolDefs: tools.editorDefs,
           runTool: tools.runEditorTool,
-          toolCtx: {},
+          toolCtx: { userId: auth.socketUserId ? auth.socketUserId(socket) : 'local' },
           emit: (evt) => io.to(chatRoom(key)).emit('ai_update', evt),   // room 廣播：斷線重連不漏事件
         });
       } finally {

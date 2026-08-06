@@ -15,7 +15,10 @@ const fn = (name, description, parameters) => ({
 });
 
 function createTools(deps) {
-  const { moduleLoader, sessions, validateManifest, atomicWriteJSON, io, modulesDir, decksDir, port, assetsRoot } = deps;
+  const { moduleLoader, sessions, validateManifest, atomicWriteJSON, io, modulesDir, decksDir, port, assetsRoot, modVisible, filterModules } = deps;
+  // 可見性 fallback(deps 未提供時 = 全可見,維持舊行為)
+  const canSee = modVisible || (() => true);
+  const seeList = filterModules || ((list) => list);
 
   // 素材路徑安全檢查（允許多層目錄與中文，擋 .. 與絕對路徑）
   const safeAsset = (rel) => {
@@ -30,18 +33,29 @@ function createTools(deps) {
   const notifyHostsModulesUpdated = () => {
     const updatedList = moduleLoader.listModules();
     for (const session of sessions.values()) {
-      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: updatedList });
+      if (session.hostSocketId) io.to(session.hostSocketId).emit('modules_updated', { modules: seeList(updatedList, session.ownerUserId) });
     }
   };
 
-  const saveManifest = (id, manifest) => {
+  const saveManifest = (id, manifest, uid) => {
     if (!isValidModuleId(id)) return { ok: false, errors: [{ path: 'id', msg: '模組 ID 格式錯誤（英數/底線/連字號，1-40 字）' }] };
     const next = { ...manifest, id };
+    const moduleDir = path.join(modulesDir, id);
+    const manifestPath = path.join(moduleDir, 'manifest.json');
+    // 作者記錄:新模組寫入建立者;既有模組以磁碟值為準(與 REST 路徑同規則,AI 也不能改作者)
+    let diskCreatedBy = null;
+    if (fs.existsSync(manifestPath)) {
+      try { diskCreatedBy = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).createdBy || null; } catch {}
+      if (diskCreatedBy) next.createdBy = diskCreatedBy; else delete next.createdBy;
+    } else if (uid && uid !== 'local') {
+      next.createdBy = uid;
+    } else {
+      delete next.createdBy;
+    }
     const errors = validateManifest(next);
     if (errors.length) return { ok: false, errors };
-    const moduleDir = path.join(modulesDir, id);
     if (!fs.existsSync(moduleDir)) fs.mkdirSync(moduleDir, { recursive: true });
-    atomicWriteJSON(path.join(moduleDir, 'manifest.json'), next);
+    atomicWriteJSON(manifestPath, next);
     moduleLoader._scanModules();
     notifyHostsModulesUpdated();
     console.log(`[AI] 模組已儲存: ${id}`);
@@ -238,17 +252,20 @@ function createTools(deps) {
     return JSON.parse(fs.readFileSync(p, 'utf8'));
   };
 
-  async function runEditorTool(name, args) {
+  async function runEditorTool(name, args, ctx) {
+    const uid = ctx && ctx.userId;
     switch (name) {
       case 'list_modules':
-        return moduleLoader.listModules();
+        return seeList(moduleLoader.listModules(), uid);
       case 'get_module': {
         const p = path.join(modulesDir, args.id, 'manifest.json');
         if (!isValidModuleId(args.id) || !fs.existsSync(p)) return { error: `模組 ${args.id} 不存在` };
-        return JSON.parse(fs.readFileSync(p, 'utf8'));
+        const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (!canSee(m, uid)) return { error: `模組 ${args.id} 尚未開放` };
+        return m;
       }
       case 'save_module':
-        return saveManifest(args.id, args.manifest);
+        return saveManifest(args.id, args.manifest, uid);
       case 'clone_module': {
         const { sourceId, newId, newName } = args;
         const srcPath = path.join(modulesDir, sourceId, 'manifest.json');
@@ -256,9 +273,12 @@ function createTools(deps) {
         if (!isValidModuleId(newId)) return { error: '新模組 ID 格式錯誤' };
         if (fs.existsSync(path.join(modulesDir, newId))) return { error: `模組 ${newId} 已存在` };
         const src = JSON.parse(fs.readFileSync(srcPath, 'utf8'));
+        if (!canSee(src, uid)) return { error: `模組 ${sourceId} 尚未開放` };
         const engine = src.engine || (fs.existsSync(path.join(modulesDir, sourceId, 'server.js')) ? sourceId : undefined);
         const cloned = { ...src, id: newId, name: newName, ...(engine ? { engine } : {}) };
-        const result = saveManifest(newId, cloned);
+        delete cloned.published;   // clone 是新草稿:published 不繼承(saveManifest 會記 clone 者為作者)
+        delete cloned.createdBy;
+        const result = saveManifest(newId, cloned, uid);
         // 長期筆記跟著複製（衍生模組通常繼承來源的設計脈絡）
         const notesSrc = path.join(modulesDir, sourceId, 'KIMI.md');
         if (result.ok && fs.existsSync(notesSrc)) {

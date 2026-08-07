@@ -144,7 +144,158 @@ _countdownTimer, _autoAdvanceTimer           timer 管理
 
 ## 4. Socket 事件協議
 
-### Player → Server
+**完整事件對照表(下方標記區)為自動生成**:`node tools/gen-event-table.mjs --write` 掃描 server/ + client/
+程式碼中的字串事件名(`.emit`/`.on`/`.once` 與 `GameSession`/`game-host` 包裝方法;`sendToPlayer`/`_sendTo`
+的事件名在第 2 參數),重寫標記區;`--check` 驗證是否過期(過期 exit 1,可掛 hook/CI)。**新增/改名事件後請重跑
+`--write`,勿手改標記區。** 表中 ⚠ = 單邊事件(只發不收/只收不發)= 死碼或漏接 handler 的訊號。
+掃描看不見的(設計如此):NetKit sim 匯流排(`Sim.emit` → `ev.type` 動態分發)、`GameAPI` 訊息
+(`display_game_broadcast`/`game_broadcast` 的內層 payload)、樣板字串組出的事件名。
+
+<!-- BEGIN:EVENT-TABLE(自動生成:node tools/gen-event-table.mjs --write;勿手改) -->
+
+_共 111 個事件,13 個單邊(⚠)。檔名縮寫:mobile/display/host/labs/editor = 對應 client 頁;其餘為去掉 client|server 前綴與副檔名的路徑。_
+
+#### 遊戲協定(75)
+
+| 事件 | 發送端 | 接收端 |
+|---|---|---|
+| `all_hands_updated` | core/BaseModule | host |
+| `all_played` | core/BaseModule | display、host |
+| `all_players_status_updated` | core/BaseModule×5 | host |
+| `back_to_lobby` | core/GameSession | display、editor/p2p-host、host、labs、mobile、mobile-p2p |
+| `card_accepted` | core/BaseModule | mobile |
+| `card_played` | core/BaseModule | display、host |
+| `card_rejected` | core/BaseModule×2 | mobile |
+| `cards_drawn` | core/BaseModule×2 | mobile |
+| `cards_revealed` | core/BaseModule×2 | display、host、mobile |
+| `countdown` | core/BaseModule | display、host、mobile |
+| `display_game_broadcast` | display | index |
+| `display_joined` | shared/game-host、index | display |
+| `error` | shared/game-host×2、index×17 | host、labs、shared/socket |
+| `game_broadcast` | shared/game-host、index | mobile |
+| `game_ended` | core/BaseModule×2 | display、host、labs、mobile |
+| `game_log` | display、editor/harness、editor、mobile | index |
+| `game_started` | core/BaseModule×9 | display、host、labs、mobile |
+| `game_started_wait` | core/BaseModule×3 | mobile |
+| `game_states` | core/BaseModule | mobile |
+| `hand_refilled` ⚠ | — | mobile |
+| `identity_assigned` | core/BaseModule×2 | mobile |
+| `identity_progress` ⚠ | core/BaseModule | — |
+| `intermission_can_advance` | core/BaseModule×2 | host |
+| `join_display` | shared/socket | index |
+| `join_host` | shared/socket | index |
+| `join_room` | shared/socket | index |
+| `loop_iteration` ⚠ | core/BaseModule | — |
+| `loop_started` ⚠ | core/BaseModule | — |
+| `module_error` ⚠ | core/GameSession | — |
+| `module_loaded` | core/GameSession | editor/p2p-host、mobile-p2p |
+| `module_picker_reopen` | index | host、labs |
+| `module_selected` | shared/game-host、index | display、labs |
+| `modules_updated` | ai/tools、index×3 | host |
+| `net_snapshot` | core/NetKitHost×2 | display、editor/p2p-host、mobile |
+| `phase_changed` ⚠ | — | display、mobile |
+| `play_card` | shared/socket | index |
+| `player_action` | shared/socket | index |
+| `player_alive_changed` | index | display、host、mobile |
+| `player_attribute_changed` | index | host |
+| `player_attribute_updated` ⚠ | core/BaseModule | — |
+| `player_disconnected` | core/GameSession | display、editor/p2p-host、host、labs |
+| `player_game_state` | core/BaseModule | display |
+| `player_hand_updated` | core/BaseModule | host |
+| `player_input` | core/BaseModule | display |
+| `player_joined` | core/GameSession | display、editor/p2p-host、host、labs、mobile |
+| `player_left` | core/GameSession、index | display、editor/p2p-host、host、labs、mobile |
+| `player_numbers_updated` | host、index | display、labs、mobile、index |
+| `player_order_changed` | index | display |
+| `player_param_updated` | core/GameSession | display、mobile |
+| `player_ready` | shared/game-host、shared/socket、core/GameSession、index | display、editor/p2p-host、host、labs、mobile、mobile-p2p、index |
+| `player_reconnected` | core/GameSession | display、editor/p2p-host、host、labs |
+| `player_renamed` | index | display、host、labs、mobile |
+| `player_status_updated` | core/BaseModule×6、index×2 | host、mobile |
+| `player_submit` | shared/socket | index |
+| `players_eliminated` | core/BaseModule×3 | display、host、mobile |
+| `qr_toggled` | index | display |
+| `reconnected` | core/GameSession | mobile |
+| `room_closed` | index | display、host、labs、mobile |
+| `room_joined` | shared/game-host、index | mobile |
+| `room_state` | shared/game-host | mobile-p2p |
+| `round_end` ⚠ | core/BaseModule | — |
+| `round_started` | core/BaseModule | display、host、mobile |
+| `score_update` ⚠ | — | mobile |
+| `scores_updated` | core/BaseModule | display、host、mobile |
+| `sheriff_elected` ⚠ | core/BaseModule | — |
+| `show_result` ⚠ | — | display、host |
+| `stage_started` | core/BaseModule×2 | display、editor/p2p-host、host、labs、mobile |
+| `state_update` | core/GameSession×2 | display、editor/p2p-host、host、mobile、mobile-p2p |
+| `toast` ⚠ | modules/vote-demo/server | — |
+| `vote_can_advance` | core/BaseModule×3 | display、host |
+| `vote_cast` | core/BaseModule×2 | display、host、mobile |
+| `vote_countdown` | core/BaseModule×2 | display、host、mobile |
+| `vote_ended` | core/BaseModule | display、host、mobile |
+| `vote_rejected` | core/BaseModule×3 | mobile |
+| `vote_started` | core/BaseModule×2 | display、host、mobile |
+
+#### Host 控制(13)
+
+| 事件 | 發送端 | 接收端 |
+|---|---|---|
+| `host_change_module` | shared/socket | index |
+| `host_close_room` | shared/socket | index |
+| `host_game_state` | core/GameSession | editor/p2p-host、host、labs |
+| `host_joined` | shared/game-host、index | host、labs |
+| `host_kick_player` | shared/socket | index |
+| `host_load_module` | shared/socket | index |
+| `host_next_phase` | shared/socket | index |
+| `host_rename_player` | shared/socket | index |
+| `host_select_module` | shared/socket | index |
+| `host_set_player_alive` | shared/socket | index |
+| `host_set_player_attribute` | shared/socket | index |
+| `host_set_player_order` | shared/socket | index |
+| `host_toggle_qr` | host、labs×2 | index |
+
+#### P2P 信令與傳輸(6)
+
+| 事件 | 發送端 | 接收端 |
+|---|---|---|
+| `p2p_join` | shared/p2p | p2p-signal |
+| `p2p_joined` ⚠ | p2p-signal | — |
+| `p2p_leave` | shared/p2p | p2p-signal |
+| `p2p_peer_joined` | p2p-signal | shared/p2p |
+| `p2p_peer_left` | p2p-signal | shared/p2p |
+| `p2p_signal` | shared/p2p、p2p-signal | shared/p2p、p2p-signal |
+
+#### AI(編輯器 / GM)(9)
+
+| 事件 | 發送端 | 接收端 |
+|---|---|---|
+| `ai_chat` | editor | ai/index |
+| `ai_gm_chat` | host | ai/index |
+| `ai_gm_stop` | host | ai/index |
+| `ai_gm_toggle` | host | ai/index |
+| `ai_gm_update` | ai/index×2 | host |
+| `ai_join` | editor | ai/index |
+| `ai_reset` | editor | ai/index |
+| `ai_stop` | editor | ai/index |
+| `ai_update` | ai/index×8 | editor |
+
+#### Actions 服務(8)
+
+| 事件 | 發送端 | 接收端 |
+|---|---|---|
+| `actions:create` | actions-page | index |
+| `actions:created` | index | actions-page |
+| `actions:delete` | actions-page | index |
+| `actions:deleted` | index | actions-page |
+| `actions:get` | actions-page×2、index | actions-page×2、index |
+| `actions:list` | actions-page、index | actions-page、index |
+| `actions:update` | actions-page | index |
+| `actions:updated` | index | actions-page |
+
+<!-- END:EVENT-TABLE -->
+
+### 重點事件語意(手寫擇要,非窮舉 — 完整清單見上表)
+
+#### Player → Server
 | 事件 | payload | 用途 |
 |------|---------|------|
 | `join_room` | `{ roomId, playerId, playerName }` | 進房（重複 ID 視為重連）|
@@ -153,7 +304,7 @@ _countdownTimer, _autoAdvanceTimer           timer 管理
 | `player_action` | `{ roomId, playerId, action, data }` | 通用 action（如 `confirm_identity`）|
 | `player_submit` | `{ roomId, playerId, data }` | 表單送出（form-style 模組用）|
 
-### Host → Server
+#### Host → Server
 | 事件 | payload | 用途 |
 |------|---------|------|
 | `join_host` | `{ roomId }` | 取得 host 控制權（正式環境需登入 cookie）|
@@ -163,12 +314,12 @@ _countdownTimer, _autoAdvanceTimer           timer 管理
 | `host_next_phase` | `{ roomId, data: { action } }` | 推進階段／回合 |
 | `host_kick_player` | `{ roomId, playerId }` | 踢人 |
 
-### Display → Server
+#### Display → Server
 | 事件 | payload |
 |------|---------|
 | `join_display` | `{ roomId }` |
 
-### Server → Client
+#### Server → Client
 | 事件 | 主要對象 | 內容 |
 |------|----------|------|
 | `room_joined` | player | 房間摘要 + 自身 player state |
@@ -178,13 +329,10 @@ _countdownTimer, _autoAdvanceTimer           timer 管理
 | `player_disconnected` / `player_reconnected` | all | 玩家斷線狀態 |
 | `game_started` | all | 模組已載入 |
 | `stage_started` | all | 進入新階段（含 stageId、stageType、roundNumber）|
-| `phase_changed` | all | 階段內 phase 改變（如 waiting → reveal）|
 | `cards_drawn` | player | 私人手牌更新（**全手牌**，client 替換）|
 | `card_accepted` | player | 出牌確認 + 更新後手牌 |
 | `identity_assigned` | player | 私人身份卡 |
 | `identity_progress` | all | `{ confirmed, total }` |
-| `round_result` | all | `{ round, reveals[], winnerNames, scores }` |
-| `score_update` | player | 個人分數更新 |
 | `countdown` | all | `{ key, remaining, total }` 倒數秒數廣播 |
 | `state_update` | all + display | sharedState 變動 |
 | `host_game_state` | host | 完整 host 視角狀態（玩家進度、可用 action、自動推進狀態）|
@@ -211,6 +359,15 @@ NetKit sim 的 `Sim.emit('score', {pid, add|score})` / `Sim.emit('set_attr', {pi
 與舊式遊戲 display 端的 `GameAPI.broadcast({t:'score', ...})` / `({t:'set_attr', ...})`（`display_game_broadcast` 轉發前經
 `GameSession.applyReservedGameEvent`，Node 與 P2P `game-host.js` 兩路同形）。`score` 寫 `player.score`（result 階段排名依據）、
 `set_attr` 走 `setPlayerParam`（驗 manifest `playerAttributes` 宣告，跨階段保留）。手機端 `sendEvent` 不在攔截範圍（防自報分數）。
+
+**玩法物理（`gameConfig.physics:'rapier'`，NetKit sim 專用）**：宣告後框架在「權威端」載入 vendored Rapier 並把
+`NetPhys.wrap(RAPIER)`（`client/shared/netphys.js` 薄包裝：world/幾何工廠/ray/contacts，density 質量、collision group 組裝、
+step 內建速度封頂等引擎坑全封在包裝裡）以 `PHYS` 注入 sim 作用域（`new Function('Sim','PHYS',code)`）。載入路徑：
+Node `NetKitHost` 走 async `import()` 後啟動主執行緒 SimHost；瀏覽器（P2P host）worker 內 dynamic import（載入空窗的
+input/join 排隊重放），classic worker 不支援 import 的瀏覽器（Firefox）由 worker 回報 `physfail` → `NetKitHost` 回退主執行緒。
+render/手機**永遠不載物理引擎** — 物理遊戲無客戶端預測（mobile/display 跳過本地 sim 建構），純內插快照。
+示範模組 `sumo-nk`（相撲推擠）；迴歸 `node test/netkit/test-netphys.js`、`node test/netkit/test-sumo-sim.js`、
+E2E `node test-sumo-smoke.js`（需伺服器）。
 
 ---
 

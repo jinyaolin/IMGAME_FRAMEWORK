@@ -138,7 +138,30 @@ app.get(BASE + '/api/rooms/:roomId', (req, res) => {
 // ── 模組「開放」旗標:manifest.published !== true 的模組只有 superuser 與作者本人看得到/載得動 ──
 // (未完成/測試中的模組不會出現在一般使用者的 /labs/game 模組清單;本地開發 auth 關閉 = 全開。
 //  manifest.createdBy 在新建/clone 時由伺服器寫入,客戶端傳入的值一律被磁碟值覆蓋,無法冒名。)
-const modVisible = (m, uid) => auth.isSuperUserId(uid) || m.published === true || (!!uid && m.createdBy === uid);
+// 「無主」(沒有 createdBy)一律視為可見。原本的寫法把無主當成私密,結果是:
+// 功能上線前就存在的模組、以及任何沒成功記下作者的模組,**連它的作者自己都看不到**,
+// 只有 superuser 能編。實際清查過磁碟:19 個模組 0 個有 createdBy,13 個因此被鎖死。
+// 沒有記錄作者的模組不屬於任何人,不該被當成某人的私人草稿藏起來。
+const modVisible = (m, uid) =>
+  auth.isSuperUserId(uid) || m.published === true || !m.createdBy || (!!uid && m.createdBy === uid);
+
+// 可否修改這個模組。刻意比 modVisible 寬一格:**無主模組任何登入者都能改**。
+// 理由是不要再製造「作者被鎖在自己作品外面」—— 無主代表沒人被記為作者,
+// 鎖起來只會讓功能上線前就存在的模組變成沒人能修。有主的就只有作者(與 superuser)能動。
+// uid 'local' 是 loopback 內部呼叫(AI playtest),一律放行。
+const modEditable = (m, uid) =>
+  auth.isSuperUserId(uid) || !m || !m.createdBy || (!!uid && m.createdBy === uid);
+
+// 寫入端點共用:讀磁碟上的 manifest 判斷,擋掉就回 403。沒有 manifest(全新模組)一律放行。
+function denyIfNotEditable(req, res, id) {
+  const mp = path.join(__dirname, 'modules', id, 'manifest.json');
+  if (!fs.existsSync(mp)) return false;
+  let m = null;
+  try { m = JSON.parse(fs.readFileSync(mp, 'utf8')); } catch { return false; }
+  if (modEditable(m, auth.getUserIdFromReq(req))) return false;
+  res.status(403).json({ error: '這個遊戲不是你建立的,只有作者能修改' });
+  return true;
+}
 const filterModules = (list, uid) => list.filter(m => modVisible(m, uid));
 
 // Available modules (summary list;一般使用者看到已開放的 + 自己建立的)
@@ -336,6 +359,7 @@ app.get(BASE + '/api/modules/:id/server', auth.requireAuthAPI, (req, res) => {
 
 // Save or update module's server.js
 app.post(BASE + '/api/modules/:id/server', (req, res) => {
+  if (denyIfNotEditable(req, res, req.params.id)) return;
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
@@ -451,6 +475,7 @@ app.post(BASE + '/api/modules/:id/server', (req, res) => {
 
 // Delete module's server.js
 app.delete(BASE + '/api/modules/:id/server', (req, res) => {
+  if (denyIfNotEditable(req, res, req.params.id)) return;
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
@@ -799,6 +824,7 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });
+    if (denyIfNotEditable(req, res, id)) return;
     // No in-use lock: each session holds a forked snapshot so disk edits are safe
 
     const moduleDir = path.join(__dirname, 'modules', id);
@@ -810,6 +836,11 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
     if (isNewModule) {
       fs.mkdirSync(moduleDir, { recursive: true });
     }
+    // 「是不是新模組」要看 manifest,不能看目錄 —— 目錄常常在存 manifest 之前就被建好了
+    // (AI 先寫 server.js、上傳素材都會建目錄)。用目錄判斷的話,這種流程建出來的遊戲
+    // 永遠不會記下作者,作者當場就失去編輯權。AI 那條路徑(ai/tools.js saveManifest)
+    // 本來就是用 manifest 判斷,這裡跟它對齊。
+    const isNewManifest = !fs.existsSync(manifestPath);
 
     // Load existing manifest or use empty object for new modules
     let current;
@@ -846,7 +877,7 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
     // 作者記錄:新模組寫入建立者;既有模組一律以磁碟上的值為準(客戶端無法冒名/搶佔)
     const uid = auth.getUserIdFromReq(req);
     if (current.createdBy) next.createdBy = current.createdBy;
-    else if (isNewModule && uid && uid !== 'local') next.createdBy = uid;
+    else if (isNewManifest && uid && uid !== 'local') next.createdBy = uid;
     else delete next.createdBy;
 
     // Validate
@@ -872,6 +903,7 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
 
 // Delete a module directory
 app.delete(BASE + '/api/modules/:id', (req, res) => {
+  if (denyIfNotEditable(req, res, req.params.id)) return;
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });

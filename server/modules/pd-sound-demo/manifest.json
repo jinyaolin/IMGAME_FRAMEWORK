@@ -1,0 +1,47 @@
+{
+  "id": "pd-sound-demo",
+  "name": "Pure Data 聲音示範",
+  "version": "1.0.0",
+  "description": "示範怎麼把學生在 Pure Data 做的聲音接進遊戲:shared/synth.pd 是聲音,display/main.js 只決定什麼時候發聲。改 .pd 就換聲音,遊戲程式不用動。",
+  "minPlayers": 1,
+  "maxPlayers": 8,
+  "stages": [
+    {
+      "id": "play",
+      "name": "一起發聲",
+      "type": "game",
+      "enabled": true,
+      "description": "按手機上的按鈕,大螢幕發出 Pd patch 的聲音",
+      "advance": {
+        "trigger": "host"
+      },
+      "gameConfig": {
+        "layout": "pad-8",
+        "buttonLabels": {
+          "btn1": "do",
+          "btn2": "re",
+          "btn3": "mi",
+          "btn4": "fa",
+          "btn5": "sol",
+          "btn6": "la",
+          "btn7": "si",
+          "btn8": "do↑"
+        },
+        "aspectRatio": "16:9",
+        "files": [
+          {
+            "name": "shared/synth.pd",
+            "target": "display",
+            "code": "#N canvas 60 60 820 520 12;\n#X obj 40 70 s hit;\n#X obj 40 110 s vol;\n#X obj 300 70 r hit;\n#X obj 300 110 t b f;\n#X msg 300 150 1 \\, 0 400;\n#X obj 300 190 vline~;\n#X obj 440 150 mtof;\n#X obj 440 190 osc~;\n#X obj 440 240 *~;\n#X obj 440 280 lop~ 2500;\n#X obj 650 70 r vol;\n#X obj 650 150 line~;\n#X obj 440 330 *~;\n#X obj 440 380 dac~;\n#X obj 650 30 loadbang;\n#X msg 650 110 0.3;\n#X text 40 30 遊戲的訊息從這兩個 s 進來 — 不用接任何線;\n#X text 300 40 r hit 收到 MIDI 音高就彈一聲;\n#X text 650 190 r vol 收音量 0 到 1;\n#X text 40 430 改這裡的 osc~ lop~ 數字就能換音色;\n#X connect 2 0 3 0;\n#X connect 3 0 4 0;\n#X connect 3 1 6 0;\n#X connect 4 0 5 0;\n#X connect 6 0 7 0;\n#X connect 7 0 8 0;\n#X connect 5 0 8 1;\n#X connect 8 0 9 0;\n#X connect 9 0 12 0;\n#X connect 10 0 11 0;\n#X connect 14 0 15 0;\n#X connect 15 0 11 0;\n#X connect 11 0 12 1;\n#X connect 12 0 13 0;\n#X connect 12 0 13 1;\n"
+          },
+          {
+            "name": "display/main.js",
+            "target": "display",
+            "code": "// 聲音來自學生的 Pure Data patch(shared/synth.pd),這支只負責「什麼時候發聲」。\n// PD 是框架注入的第三個參數;沒有 .pd 或編譯失敗時會是 null,所以一律先檢查。\nconst PADS = [];\nif (PD) GameAPI.log('patch 入口:', PD.names.in.join(', '));\n\nGameAPI.onInput((pid, key, down, player) => {\n  if (!down) return;\n  // 每個按鍵對到一個音階度數,玩家編號決定八度 —— 一人一個音域,聽得出誰在按\n  const idx = [...GameAPI.players.keys()].indexOf(pid);\n  const degree = { btn1: 0, btn2: 2, btn3: 4, btn4: 5, btn5: 7, btn6: 9, btn7: 11, btn8: 12 }[key] ?? 0;\n  const semi = 48 + idx * 12 + degree;\n  if (PD) PD.send('hit', [semi]);          // → patch 裡的 [s hit] → [r hit]\n  PADS.push({ x: Math.random() * GameAPI.width, y: Math.random() * GameAPI.height,\n              r: 10, c: (player && player.color) || '#8cf', t: 0 });\n});\n\nGameAPI.update(() => {\n  const g = GameAPI.ctx;\n  g.fillStyle = '#0b0b16';\n  g.fillRect(0, 0, GameAPI.width, GameAPI.height);\n  g.font = '28px sans-serif'; g.fillStyle = '#667';\n  g.fillText(PD ? '按手機上的鈕 — 聲音來自 Pure Data patch' : '沒有載到聲音 patch(看 log)', 60, 70);\n  for (let i = PADS.length - 1; i >= 0; i--) {\n    const p = PADS[i];\n    p.t += 1; p.r += 6;\n    g.globalAlpha = Math.max(0, 1 - p.t / 45);\n    g.strokeStyle = p.c; g.lineWidth = 4;\n    g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2); g.stroke();\n    g.globalAlpha = 1;\n    if (p.t > 45) PADS.splice(i, 1);\n  }\n});\n"
+          }
+        ]
+      }
+    }
+  ],
+  "published": false
+}

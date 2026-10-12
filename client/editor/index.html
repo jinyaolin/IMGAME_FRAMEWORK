@@ -4238,6 +4238,8 @@ module.exports = MyModule;">${escapeH(serverCode)}</textarea>
           push(`${pathPrefix}[${si}]`, 'gameConfig.library 必須是 three、babylon 或 p5');
         if (gc.aspectRatio && !['16:9','4:3','1:1'].includes(gc.aspectRatio))
           push(`${pathPrefix}[${si}]`, 'gameConfig.aspectRatio 必須是 16:9、4:3 或 1:1');
+        if (gc.physics && gc.physics !== 'rapier')
+          push(`${pathPrefix}[${si}]`, "gameConfig.physics 目前只支援 'rapier'");
         if (gc.gameCode) {
           try { new Function('GameAPI', gc.gameCode); }
           catch (e) { push(`${pathPrefix}[${si}]`, `gameCode 語法錯誤：${e.message}`); }
@@ -4255,8 +4257,17 @@ module.exports = MyModule;">${escapeH(serverCode)}</textarea>
             if (!['shared', 'display', 'mobile', 'sim', 'render'].includes(f.target))
               push(`${pathPrefix}[${si}]`, `程式檔「${f.name}」的 target 必須是 shared / display / mobile / sim / render`);
             if (f.code) {
-              try { new Function('GameAPI', f.code); }
-              catch (e) { push(`${pathPrefix}[${si}]`, `程式檔「${f.name}」語法錯誤：${e.message}`); }
+              // .pd 是 Pure Data patch,不是 JS。物件支援度與「有沒有發聲」由伺服器背景編譯時檢查
+              // (這份是伺服器 validateManifest 的鏡像,兩邊規則要一致,否則編輯器會讓人存不了)
+              if (typeof isPdFileName === 'function' && isPdFileName(f.name)) {
+                if (!/^#N\s+canvas/m.test(f.code))
+                  push(`${pathPrefix}[${si}]`, `聲音檔「${f.name}」看起來不是 Pure Data patch(開頭應該是 #N canvas)`);
+                if (f.target === 'sim')
+                  push(`${pathPrefix}[${si}]`, `聲音檔「${f.name}」不能放 sim(伺服器端沒有喇叭),請改 display / mobile / shared`);
+              } else {
+                try { new Function('GameAPI', f.code); }
+                catch (e) { push(`${pathPrefix}[${si}]`, `程式檔「${f.name}」語法錯誤：${e.message}`); }
+              }
             }
           });
         }

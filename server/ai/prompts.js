@@ -60,7 +60,8 @@ target:"players" 時選項自動 = 存活玩家。
   "library":"three"|"babylon"|"p5"（選填，不填 = 原生 Canvas 2D；display 與手機共用）,
   "aspectRatio":"16:9"|"4:3"|"1:1"（選填，預設 16:9，僅 display）,
   "physics":"rapier"（選填，NetKit sim 專用：注入 PHYS 物理包裝，見下方「玩法物理」）,
-  "files":[ { "name":"shared/track.js", "target":"shared"|"display"|"mobile"|"sim"|"render", "code":"..." } ],
+  "files":[ { "name":"shared/track.js", "target":"shared"|"display"|"mobile"|"sim"|"render", "code":"..." },
+            { "name":"shared/rain.pd",  "target":"display",  "code":"<Pure Data patch 原始文字>" } ],
   "gameCode":"<舊格式單檔（相容用，新程式一律用 files）>",
   "mobileCode":"<舊格式單檔（相容用）>" }
 
@@ -240,6 +241,47 @@ gameCode 以 (new Function('GameAPI', code))(GameAPI) 執行於大螢幕瀏覽�
 玩家人數是動態的（迭代 GameAPI.players）；不給 gameCode 就用內建預設視覺化（按鍵發光圓圈）。
 設計師可在編輯器按「🕹 預覽」本機模擬多人按鍵直接試玩你寫的 gameCode（同一套 GameAPI 合約）。
 run_playtest 的機器人會亂按按鈕，但「不會」執行 display 端的 gameCode — gameCode 的正確性要靠你自己寫對（存檔時會做語法檢查）。
+
+## Pure Data 聲音 patch（學生自己做的聲音，檔名以 .pd 結尾）
+
+聲音藝術課的學生會把自己在 Pure Data 做的聲音存成 .pd 檔上傳成遊戲檔案
+（例如 \`shared/rain.pd\`）。伺服器會自動把它編譯成瀏覽器能跑的 wasm，
+你的工作是**把遊戲事件接到它的入口**。學生通常不會寫 JS —— 接線是你的事。
+
+### 你拿到的 API：第三個注入參數 PD
+display 與 mobile 的程式碼簽名是 \`(GameAPI, Net, PD)\`。只要這一端有 .pd 檔，PD 就不是 null。
+- \`PD.send('名字', [數值])\` — 送訊息給 patch 裡的 \`[s 名字]\`。送 bang 用 \`PD.send('名字')\`。
+- \`PD.on('名字', msg => {...})\` — 收 patch 裡 \`[r 名字]\` 發出來的訊息（msg 是陣列）。
+- \`PD.names\` — \`{ in:[可呼叫的名字], out:[會回報的名字] }\`。**不確定有哪些名字就先 log 這個**。
+- \`PD.volume(0..1)\` — 主音量。
+- **不要**自己 \`new AudioContext()\`、不要在 \`onEnd\` 關 PD —— 框架負責解鎖與收尾。
+- \`PD\` 可能是 \`null\`（沒有 .pd、或學生的 patch 編譯失敗）。一律寫 \`if (PD) PD.send(...)\`，
+  聲音壞掉不可以讓遊戲掛掉。
+
+### ⚠ Pd 的方向跟直覺相反（最容易搞錯的一點）
+- patch 裡的 **\`[s 名字]\`** 才是「遊戲送訊息進去」的入口（它不用接任何線）。
+- patch 裡的 **\`[r 名字]\`** 是「patch 通知遊戲」的出口。
+所以學生要讓你能呼叫他的聲音，patch 裡要放一對 \`[s hit]\`（空接）+ \`[r hit]\`（接他的聲音鏈）。
+如果 \`PD.names.in\` 是空的，就是學生少放 \`[s 名字]\` —— 直接告訴他這件事，不要自己猜別的名字硬送。
+
+### target 決定聲音從哪裡出來
+\`display\` = 大螢幕喇叭（教室共用，多人遊戲的預設選擇）；\`mobile\` = 每支手機各自發聲；
+\`shared\` = 兩邊都發。**不能用 \`sim\`**（伺服器沒有喇叭）。
+
+### 接線的慣例：接在既有的事件軸上，不要另開通道
+NetKit 遊戲：權威端 \`Sim.emit('hit', {pid, semi})\` → render 端 \`Net.on('hit', d => PD.send('hit', [d.semi]))\`。
+舊式遊戲：display 收 \`GameAPI.onInput\` / \`onPlayerState\` 後 \`PD.send(...)\`。
+手機端的聲音可以直接在本地觸發（延遲最低），不必繞伺服器。
+
+\`\`\`js
+// render 或 display 檔
+if (PD) {
+  GameAPI.log('這個 patch 的入口:', PD.names.in.join(', '));
+  Net.on('hit',  d => PD.send('hit', [d.semi || 60]));
+  Net.on('dead', () => PD.send('dead'));          // 沒有參數 = 送 bang
+  PD.on('beat', () => spawnPulse());               // patch 的節拍反過來驅動畫面
+}
+\`\`\`
 
 ## 素材庫（圖片/音效）
 設計師用聊天框的 📎 上傳素材到 public/uploads/assets/（同時會附預覽圖給你看 + URL）。你可以：

@@ -1070,10 +1070,16 @@ Config.initUI = function() {
 // ── 遊戲程式檔案合成（多檔案 gameConfig.files → 單一可執行字串）──────
 // target: 'display' | 'mobile'。shared 檔案先載入；同端所有檔案共享頂層作用域。
 // 沒有 files（舊格式）時退回 gameCode / mobileCode。
+// 檔名以 .pd 結尾 = Pure Data 聲音 patch,不是 JS —— 絕對不能串進可執行字串。
+// 它走另一條路:伺服器編成 wasm,前端由 webpdkit 載入後以 PD 參數注入。
+function isPdFileName(name) {
+  return typeof name === 'string' && name.trim().toLowerCase().endsWith('.pd');
+}
+
 function composeGameCode(cfg, target) {
   if (!cfg) return '';
   if (Array.isArray(cfg.files) && cfg.files.length) {
-    const parts = cfg.files.filter(f => f && (f.target === 'shared' || f.target === target));
+    const parts = cfg.files.filter(f => f && !isPdFileName(f.name) && (f.target === 'shared' || f.target === target));
     if (parts.length) {
       return parts.map(f => `// ═══ ${f.name || 'file'} ═══\n${f.code || ''}`).join('\n\n');
     }

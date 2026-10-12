@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { runPlaytest } = require('./playtest');
+const pdCompile = require('../pd-compile');
 
 function isValidModuleId(id) {
   return typeof id === 'string' && /^[a-z0-9][a-z0-9_-]{0,39}$/i.test(id);
@@ -56,6 +57,8 @@ function createTools(deps) {
     if (errors.length) return { ok: false, errors };
     if (!fs.existsSync(moduleDir)) fs.mkdirSync(moduleDir, { recursive: true });
     atomicWriteJSON(manifestPath, next);
+    pdCompile.compileModulePatches(id, next);   // .pd 檔背景編譯(學生上傳的聲音 patch)
+    pdCompile.pruneModulePatches(id, next);
     moduleLoader._scanModules();
     notifyHostsModulesUpdated();
     console.log(`[AI] 模組已儲存: ${id}`);

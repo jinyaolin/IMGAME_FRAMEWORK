@@ -846,6 +846,7 @@
     document.write('<script src="' + IMGAME_BASE + '/shared/netclient.js"><\/script>');
     document.write('<script src="' + IMGAME_BASE + '/shared/p2p.js"><\/script>');
     document.write('<script src="' + IMGAME_BASE + '/shared/vendor/NoSleep.min.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/webpdkit.js"><\/script>');
   </script>
   <script>
     // ════════════════════════════════════════════════════════════════
@@ -1456,7 +1457,7 @@
           if (data.isReconnect && mg && lastGameStageId === data.stageId) {
             console.log('[Mobile] 重連且遊戲畫面仍在,跳過重建');
           } else {
-            startCustomGame(data.gameConfig || {});
+            startCustomGame(data.gameConfig || {}, data.moduleId);
             lastGameStageId = data.stageId;
           }
         } else {
@@ -2089,7 +2090,7 @@
       addEventListener('pointermove', e => { if (drag && sel) { sel.faceY += (e.clientX - lx) * 0.01; lx = e.clientX; } });
     })();
 
-    function startCustomGame(cfg) {
+    function startCustomGame(cfg, moduleId) {
       stopCustomGame();
       document.getElementById('cardZone').style.display = 'none';
       document.getElementById('actionbar').style.display = 'none';
@@ -2133,11 +2134,12 @@
       }
 
       if (isNK && window.NetClientKit) {
-        // 客戶端預測:在本地建同一份 sim 推進「自己」→ 輸入零延遲(收 snapshot 後 replay 對帳)
+        // 客戶端預測:在本地建同一份 sim 推進「自己」→ 輸入零延遲(收 snapshot 後 replay 對帳)。
+        // 物理遊戲(gameConfig.physics)例外:sim 依賴 host 端的 PHYS/Rapier,手機不載物理引擎 → 純內插(不預測)。
         let localSim = null;
-        try {
+        if (!cfg.physics) try {
           const simCode = composeGameCode(cfg, 'sim');
-          if (simCode) { const S = {}; (new Function('Sim', simCode))(S); if (typeof S.step === 'function') { S.emit = function () {}; localSim = S; } }
+          if (simCode) { const S = {}; (new Function('Sim', 'PHYS', simCode))(S, undefined); if (typeof S.step === 'function') { S.emit = function () {}; localSim = S; } }
         } catch (e) { console.warn('[Mobile] predict sim build failed:', e && e.message); }
         const useRP = params.get('rp') === '1';   // A/B:遠端實體預測(別人也預測到 now,不內插在過去)
         mg.net = new NetClientKit.NetSurface({
@@ -2156,8 +2158,18 @@
       }
 
       if (mobileCode) {
-        mgLoadLib(lib).then(() => {
-          if (!mg || mg.canvas !== canvas) return;   // 階段已切走
+        // 手機端的 .pd:每支手機各自發聲(target:'mobile' 或 'shared')
+        const pdBoot = (window.WebPdKit && WebPdKit.hasPd(cfg, 'mobile'))
+          ? WebPdKit.boot({
+              moduleId, cfg, target: 'mobile',
+              apiBase: IMGAME_BASE,
+              runtimeUrl: Config.url('/shared/vendor/webpd-runtime.js'),
+              log: (lv, msg) => { console.log('[PD]', msg); mgPushLog(lv, msg); },
+            }).catch(e => { mgPushLog('error', '[PD] 啟動失敗: ' + e.message); return null; })
+          : Promise.resolve(null);
+        Promise.all([mgLoadLib(lib), pdBoot]).then(([, PD]) => {
+          if (!mg || mg.canvas !== canvas) { if (PD) PD.dispose(); return; }   // 階段已切走
+          if (PD) mg.cleanups.push(() => PD.dispose());   // 音訊由框架收尾
           try {
             const self = mg;
             const GameAPI = {
@@ -2174,7 +2186,7 @@
               update: cb => { self.updateFn = cb; },
               onEnd: cb => self.cleanups.push(cb),
             };
-            (new Function('GameAPI', 'Net', mobileCode))(GameAPI, self.net || null);
+            (new Function('GameAPI', 'Net', 'PD', mobileCode))(GameAPI, self.net || null, PD);
           } catch (e) {
             console.error('[Mobile] mobileCode error:', e);
             mgPushLog('error', 'mobileCode 執行錯誤: ' + mgFmtErr(e));

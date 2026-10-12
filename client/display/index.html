@@ -348,6 +348,7 @@
     document.write('<script src="' + IMGAME_BASE + '/shared/netcore.js"><\/script>');
     document.write('<script src="' + IMGAME_BASE + '/shared/netclient.js"><\/script>');
     document.write('<script src="' + IMGAME_BASE + '/shared/p2p.js"><\/script>');
+    document.write('<script src="' + IMGAME_BASE + '/shared/webpdkit.js"><\/script>');
   </script>
   <script>
     const roomId = getRoomFromUrl();
@@ -410,7 +411,7 @@
         enterGameView();
         if (data.currentStage?.stageType === 'game') {
           stopGameStage();
-          startGameStage(data.currentStage.gameConfig || {}, [...players.values()]);
+          startGameStage(data.currentStage.gameConfig || {}, [...players.values()], data.currentStage.moduleId);
         }
       }
     });
@@ -514,7 +515,7 @@
       } else if (data.stageType === 'select') {
         selBoardActive = true; renderSelectBoard();
       } else if (data.stageType === 'game') {
-        startGameStage(data.gameConfig || {}, [...players.values()]);
+        startGameStage(data.gameConfig || {}, [...players.values()], data.moduleId);
       } else if (data.stageType === 'card_play') {
         document.getElementById('moduleDisplay').innerHTML = '';
       }
@@ -1001,7 +1002,7 @@
           : null);
     }
 
-    function startGameStage(cfg, playersList) {
+    function startGameStage(cfg, playersList, moduleId) {
       inputPlayers.clear();
       playersList.forEach((p, i) => {
         inputPlayers.set(p.id, {
@@ -1045,7 +1046,7 @@
       if (isNK && window.NetClientKit) {
         const useRP = new URLSearchParams(location.search).get('rp') === '1';   // A/B:遠端實體預測
         let predictStep = null;
-        if (useRP) { try { const S = {}; (new Function('Sim', composeGameCode(cfg, 'sim')))(S); S.emit = function () {}; predictStep = S.predictStep || null; } catch (e) { console.warn('predict sim build failed', e); } }
+        if (useRP && !cfg.physics) { try { const S = {}; (new Function('Sim', 'PHYS', composeGameCode(cfg, 'sim')))(S, undefined); S.emit = function () {}; predictStep = S.predictStep || null; } catch (e) { console.warn('predict sim build failed', e); } }
         inputNet = new NetClientKit.NetSurface({ surface: 'display', selfId: null, remotePredict: useRP, predictStep });
       } else { inputNet = null; }
       inputCtx = null;
@@ -1062,8 +1063,18 @@
       inputCleanupFns = [];
 
       if (displayCode) {
-        loadGameLibrary(lib).then(() => {
-          if (!inputCanvas) return; // 階段已被切走
+        const pdBoot = (window.WebPdKit && WebPdKit.hasPd(cfg, 'display'))
+          ? WebPdKit.boot({
+              moduleId, cfg, target: 'display',
+              apiBase: IMGAME_BASE,
+              runtimeUrl: Config.url('/shared/vendor/webpd-runtime.js'),
+              log: (lv, msg) => { console.log('[PD]', msg); pushGameLog(lv, msg); },
+            }).catch(e => { pushGameLog('error', '[PD] 啟動失敗: ' + e.message); return null; })
+          : Promise.resolve(null);
+        Promise.all([loadGameLibrary(lib), pdBoot]).then(([, PD]) => {
+          if (!inputCanvas) { if (PD) PD.dispose(); return; }   // 階段已被切走
+          // 音訊由框架負責收尾,作者不用自己寫 onEnd(照 inputCleanupFns 的既有慣例)
+          if (PD) inputCleanupFns.push(() => PD.dispose());
           try {
             const GameAPI = {
               canvas: inputCanvas,
@@ -1082,7 +1093,7 @@
               onEnd:   cb => inputCleanupFns.push(cb),   // 階段結束時的清理（dispose engine 等）
               log:     (...a) => { const s = fmtLogArgs(a); console.log('[Game]', s); pushGameLog('log', s); },
             };
-            (new Function('GameAPI', 'Net', displayCode))(GameAPI, inputNet);
+            (new Function('GameAPI', 'Net', 'PD', displayCode))(GameAPI, inputNet, PD);
           } catch (e) {
             console.error('[Display] gameCode error:', e);
             pushGameLog('error', 'gameCode 執行錯誤: ' + fmtErr(e));

@@ -128,6 +128,7 @@ class BaseModule {
       stageIndex: this.stageIndex,
       roundNumber: this.roundNumber,
       gameConfig: stage.gameConfig || null,
+      moduleId: this.manifest?.id || null,   // 前端用它抓編譯好的 .pd 聲音 patch
     };
   }
 
@@ -620,6 +621,7 @@ class BaseModule {
       stageIndex: this.stageIndex,
       roundNumber: this.roundNumber,
       loopContext,
+      moduleId: this.manifest?.id || null,   // 前端用它抓編譯好的 .pd 聲音 patch
       ...(stage.gameConfig ? { gameConfig: stage.gameConfig } : {}),
       ...(actionConfig ? { actionConfig } : {})
     });
@@ -879,6 +881,7 @@ class BaseModule {
         roundNumber: this.roundNumber,
         loopContext,
         isReconnect: true,
+        moduleId: this.manifest?.id || null,   // 前端用它抓編譯好的 .pd 聲音 patch
         ...(stage.gameConfig ? { gameConfig: stage.gameConfig } : {})
       });
     }

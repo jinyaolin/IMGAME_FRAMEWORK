@@ -192,6 +192,42 @@ app.post(BASE + '/api/modules/:id/publish', auth.requireAuthAPI, (req, res) => {
 });
 
 // ── 動作手勢庫(Gesture Lab 產出;遊戲端可全量載入當內建動作)──
+const pdCompile = require('./pd-compile');
+
+// ── Pure Data patch(學生上傳的 shared/xxx.pd)──────────────────────────
+// 前端要兩樣東西才能發聲:編譯好的 wasm,以及「[s 名字] → nodeId」對應表。
+// 兩個端點都免登入(跟 GET /api/modules 一致:大螢幕與玩家手機都沒有 cookie)。
+const pdWasmUrl = (id, hash) => `${BASE}/api/modules/${encodeURIComponent(id)}/pd/${hash}.wasm`;
+
+app.get(BASE + '/api/modules/:id/pd', (req, res) => {
+  const id = req.params.id;
+  const manifestPath = path.join(__dirname, 'modules', id, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) return res.status(404).json({ error: '模組不存在' });
+  let manifest;
+  try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); }
+  catch (e) { return res.status(500).json({ error: 'manifest 解析失敗' }); }
+  if (!modVisible(manifest, auth.getUserIdFromReq(req))) return res.status(403).json({ error: '模組尚未開放' });
+  const patches = pdCompile.describeModulePatches(id, manifest);
+  // 還在編(或還沒編)的,順手推一把 —— 伺服器重啟後產物還在,但 manifest 改過就需要補編
+  if (patches.some(p => p.status === 'pending')) pdCompile.compileModulePatches(id, manifest);
+  res.json({
+    patches: patches.map(p => ({
+      ...p,
+      wasmUrl: p.status === 'ok' ? pdWasmUrl(id, p.hash) : null,
+    })),
+  });
+});
+
+app.get(BASE + '/api/modules/:id/pd/:file', (req, res) => {
+  const { id, file } = req.params;
+  if (!isValidModuleId(id) || !/^[0-9a-f]{16}\.wasm$/.test(file)) return res.status(400).end();
+  const p = path.join(pdCompile.pdDir(id), file);
+  if (!fs.existsSync(p)) return res.status(404).json({ error: '還沒編譯好' });
+  res.type('application/wasm');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');   // 檔名是內容 hash
+  res.sendFile(p);
+});
+
 const gestureStore = require('./gestures');
 app.get(BASE + '/api/gestures', (req, res) => res.json(gestureStore.list()));
 app.post(BASE + '/api/gestures', auth.requireAuthAPI, (req, res) => {
@@ -795,8 +831,18 @@ function validateManifest(m) {
                 push(`${fp}.target`, 'target 必須是 shared、display 或 mobile');
               if (typeof f.code !== 'string') push(`${fp}.code`, '程式檔需要 code 字串');
               else if (f.code) {
-                try { new Function('GameAPI', f.code); }
-                catch (e) { push(`${fp}.code`, `「${f.name}」語法錯誤：${e.message}`); }
+                // 檔名以 .pd 結尾 = Pure Data patch,不是 JS,**不能**丟給 new Function。
+                // 真正的驗證(物件支援度、有沒有發聲)在 pd-compile.js 背景編譯時做,
+                // 這裡只攔「根本不是 Pd 檔」這種一眼可辨的錯。
+                if (pdCompile.isPdFile(f.name)) {
+                  if (!/^#N\s+canvas/m.test(f.code))
+                    push(`${fp}.code`, `「${f.name}」看起來不是 Pure Data patch(檔案開頭應該是 #N canvas)。請用 Pd 的「另存新檔」存出 .pd,不要貼截圖或文字說明。`);
+                  if (f.target === 'sim')
+                    push(`${fp}.target`, `「${f.name}」不能放在 sim(伺服器端沒有喇叭)。聲音要放 display(大螢幕)、mobile(手機)或 shared(兩邊都發)。`);
+                } else {
+                  try { new Function('GameAPI', f.code); }
+                  catch (e) { push(`${fp}.code`, `「${f.name}」語法錯誤：${e.message}`); }
+                }
               }
             });
           }
@@ -887,6 +933,10 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
     atomicWriteJSON(manifestPath, next);
 
     moduleLoader._scanModules();
+
+    // .pd 檔背景編譯(6-7 秒,不能讓存檔等它)。內容 hash 當快取鍵,沒改就直接命中。
+    pdCompile.compileModulePatches(id, next);
+    pdCompile.pruneModulePatches(id, next);
 
     const updatedList = moduleLoader.listModules();
     for (const session of sessions.values()) {
@@ -993,6 +1043,9 @@ app.post(BASE + '/api/modules/:sourceId/clone', (req, res) => {
     // This way, fixes to the engine automatically apply to all derived modules.
     fs.mkdirSync(dstDir);
     atomicWriteJSON(path.join(dstDir, 'manifest.json'), newManifest);
+
+    // 副本有自己的 pd/ 產物目錄(hash 相同但路徑不同,所以要各編一份)
+    pdCompile.compileModulePatches(newId, newManifest);
 
     // Re-scan so the new module is immediately loadable
     moduleLoader._scanModules();

@@ -15,3 +15,14 @@ public/uploads/
 .idea/
 *.bak
 *.bak*
+
+# Personal Claude Code settings (machine-specific hooks/permissions)
+.claude/settings.local.json
+
+# AI editor core credentials (Kimi API key)
+server/ai/ai-config.json
+.env
+
+# Pure Data patch 的編譯產物(wasm + io 對應表)
+# 真相是 manifest 裡的 .pd 原始文字;這些以內容 hash 命名、隨時可重建
+server/modules/*/pd/

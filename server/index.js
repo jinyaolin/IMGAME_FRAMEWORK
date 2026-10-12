@@ -836,10 +836,10 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
     if (isNewModule) {
       fs.mkdirSync(moduleDir, { recursive: true });
     }
-    // 「是不是新模組」要看 manifest,不能看目錄 —— 目錄常常在存 manifest 之前就被建好了
-    // (AI 先寫 server.js、上傳素材都會建目錄)。用目錄判斷的話,這種流程建出來的遊戲
-    // 永遠不會記下作者,作者當場就失去編輯權。AI 那條路徑(ai/tools.js saveManifest)
-    // 本來就是用 manifest 判斷,這裡跟它對齊。
+    // 「是不是新模組」要看 manifest,不能看目錄。目錄存在但還沒有 manifest.json 的情況:
+    // 在機器上手動建檔/搬檔、clone 在 mkdir 之後寫檔失敗留下的空目錄、或刪掉 manifest 重來。
+    // 用目錄判斷的話這些情形會走到 delete next.createdBy —— 作者當場失去編輯權且再存也補不回來。
+    // AI 那條路徑(ai/tools.js saveManifest)本來就是用 manifest 判斷,這裡跟它對齊。
     const isNewManifest = !fs.existsSync(manifestPath);
 
     // Load existing manifest or use empty object for new modules

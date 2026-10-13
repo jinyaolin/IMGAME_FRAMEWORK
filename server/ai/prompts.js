@@ -75,6 +75,10 @@ target:"players" 時選項自動 = 存活玩家。
   （選配，強烈建議）Sim.predictStep(entState, inp, dt) 純運動學一步 + Sim.reset(pid, state) → 自己角色零延遲預測
 - 預測契約：snapshot 的 s 需帶 vx,vy,gr,jm,st,mx；離散狀態(hp/role/…)也放 s，render 讀。
 - render 檔可用 Net：Net.entities(已內插)/Net.self/Net.world/Net.on(type,cb)/Net.input(obj)（手機）/Net.surface==="mobile"|"display"。
+- ⚠ Net.input(obj) 的傳輸語意（非物理遊戲會開客戶端預測，這時有損）：mx 是連續量、每 tick 都送；
+  **其他欄位當「邊緣」處理，只有真值會上線**（值會保留，但 0/false 不會送、sim 端讀到 undefined）。
+  所以離散指令用「按下設 1、下一幀歸零」最保險（sim 偵測 0→1 邊緣）；
+  要傳可能為 0 的索引（例如選了第 0 個選項）就改成 1 起算，別直接送 0。
   輸入任意欄位皆可（mx 連續、其餘視為邊緣鍵）。每幀由執行期先呼叫 Net.frame() 更新 Net.entities。
 - 完整範例：模組 fairy-brawl-nk，檔名 shared/config、sim/fairy、render/fairy（用 read_game_file 讀；很大，需要特定細節時再讀，一般照下方骨架即可）。
 - 最小可跑骨架（收金幣，直接抄改；layout:"custom"，不填 library = 原生 2D）：

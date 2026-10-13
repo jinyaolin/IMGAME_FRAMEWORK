@@ -10,6 +10,12 @@
 //   Net.on(type,cb) 離散事件(hit/cast/land…)
 //   Net.onAdd(cb) / Net.onRemove(cb)   實體出現/消失
 //   Net.input(obj)  只有手機:送出本幀輸入給 host(host-authoritative)
+//     ⚠ 開啟客戶端預測時(非物理 NetKit 遊戲),傳輸有兩條語意不同的通道:
+//       mx          → 連續量,最後一次覆寫,每 tick 都送(即使是 0)
+//       其他欄位    → 「邊緣」,只有**真值**會黏著到下個 predict tick 並保留原值,送出後清空
+//     所以 0 / false / "" 這些假值**不會上線**(sim 端讀到 undefined,等同 0)。
+//     要帶索引之類可能為 0 的數值,請改成 1 起算或另外給一個偏移。
+//     物理遊戲沒有預測 → obj 原封不動送出,不受上述限制。
 //   Net.frame()     由執行期每幀呼叫一次,回傳 {entities, world}
 // ============================================================
 (function (root) {
@@ -72,7 +78,12 @@
     if (this.surface !== 'mobile') return;
     if (this.predict) { // 併入當前輸入:mx 覆寫;其餘任意真值欄位當邊緣黏著到下個預測 tick(通用,不綁特定遊戲的按鈕名)
       if (typeof obj.mx === 'number') this._curMx = Math.max(-1, Math.min(1, obj.mx));
-      for (const k in obj) { if (k !== 'mx' && obj[k]) this._pendEdges[k] = true; }
+      // 真值欄位黏著到下個 predict tick。**保留原值、不要壓成 true** ——
+      // 壓成 true 會毀掉「遞增計數器」這種輸入:sim 做 inp[k] > prev[k] 差分時,
+      // 第一次 true > 0 觸發、prev 變成 true,之後 true > true 永遠為假 → 該按鈕一輩子只能按一次。
+      // (teacher-stonks 2026-10 踩到:12 個鍵有 11 個永久卡住,症狀像上行通道阻塞,其實是值被吃掉。)
+      // 布林輸入不受影響(true 還是 true),所以 sumo-nk / fairy-brawl-nk 行為不變。
+      for (const k in obj) { if (k !== 'mx' && obj[k]) this._pendEdges[k] = obj[k]; }
     } else { this._sendInput(obj); }   // 無預測:直接送(舊行為)
   };
   NetSurface.prototype.pushSnapshot = function (snap) {

@@ -142,15 +142,26 @@ app.get(BASE + '/api/rooms/:roomId', (req, res) => {
 // 功能上線前就存在的模組、以及任何沒成功記下作者的模組,**連它的作者自己都看不到**,
 // 只有 superuser 能編。實際清查過磁碟:19 個模組 0 個有 createdBy,13 個因此被鎖死。
 // 沒有記錄作者的模組不屬於任何人,不該被當成某人的私人草稿藏起來。
+// 共編者:manifest.collaborators = [{ email, userId }]。userId 可能是 null(邀了還沒註冊的 email),
+// 那種情況無法比對身分,所以只有「已解析出 userId 的」才算有權限。
+const isCollaborator = (m, uid) =>
+  !!uid && Array.isArray(m && m.collaborators) && m.collaborators.some(c => c && c.userId && c.userId === uid);
+
 const modVisible = (m, uid) =>
-  auth.isSuperUserId(uid) || m.published === true || !m.createdBy || (!!uid && m.createdBy === uid);
+  auth.isSuperUserId(uid) || m.published === true || !m.createdBy
+  || (!!uid && m.createdBy === uid) || isCollaborator(m, uid);
 
 // 可否修改這個模組。刻意比 modVisible 寬一格:**無主模組任何登入者都能改**。
 // 理由是不要再製造「作者被鎖在自己作品外面」—— 無主代表沒人被記為作者,
 // 鎖起來只會讓功能上線前就存在的模組變成沒人能修。有主的就只有作者(與 superuser)能動。
 // uid 'local' 是 loopback 內部呼叫(AI playtest),一律放行。
 const modEditable = (m, uid) =>
-  auth.isSuperUserId(uid) || !m || !m.createdBy || (!!uid && m.createdBy === uid);
+  auth.isSuperUserId(uid) || !m || !m.createdBy || (!!uid && m.createdBy === uid) || isCollaborator(m, uid);
+
+// 只有擁有者(與 superuser)能管理分享名單 —— 共編者可以改內容,但不能再把模組分享給別人,
+// 也不能把擁有者踢掉。無主模組沒有擁有者可言,交給 superuser 管。
+const canManageShare = (m, uid) =>
+  auth.isSuperUserId(uid) || (!!uid && !!m && m.createdBy === uid);
 
 // 寫入端點共用:讀磁碟上的 manifest 判斷,擋掉就回 403。沒有 manifest(全新模組)一律放行。
 function denyIfNotEditable(req, res, id) {
@@ -189,6 +200,100 @@ app.post(BASE + '/api/modules/:id/publish', auth.requireAuthAPI, (req, res) => {
     console.log(`[Module] ${id} published=${m.published} by ${auth.getUserIdFromReq(req)}`);
     res.json({ ok: true, published: m.published });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 分享(共編者)────────────────────────────────────────────────
+// 擁有者用 email 把別人加進來 → 對方就能看到並編輯這個模組(即使尚未開放)。
+// imgame 的 token 只有 uid、不知道 email,所以在「加入的那一刻」用 server/zai-users.js
+// 把 email 換成帳號 id 存起來;之後一律用 uid 比對(email 改了也不影響權限)。
+// 查不到的 email 存成 pending(userId=null),每次讀清單時重試解析 —— 學生之後註冊就會自動生效。
+const zaiUsers = require('./zai-users');
+
+function readManifestOr404(req, res, id) {
+  if (!isValidModuleId(id)) { res.status(400).json({ error: '模組 ID 格式錯誤' }); return null; }
+  const mp = path.join(__dirname, 'modules', id, 'manifest.json');
+  if (!fs.existsSync(mp)) { res.status(404).json({ error: '找不到模組' }); return null; }
+  try { return JSON.parse(fs.readFileSync(mp, 'utf8')); }
+  catch (e) { res.status(500).json({ error: 'manifest 解析失敗' }); return null; }
+}
+
+function writeManifest(id, m) {
+  atomicWriteJSON(path.join(__dirname, 'modules', id, 'manifest.json'), m);
+  moduleLoader._scanModules();
+}
+
+async function describeShare(id, m, uid) {
+  const owner = m.createdBy ? (await zaiUsers.findById(m.createdBy)) || { userId: m.createdBy, email: null, name: null } : null;
+  let list = Array.isArray(m.collaborators) ? m.collaborators.slice() : [];
+  // 重試解析 pending(被邀的人後來註冊了就會在這裡接上)
+  let changed = false;
+  for (const c of list) {
+    if (!c.userId) {
+      const u = await zaiUsers.findByEmail(c.email);
+      if (u) { c.userId = u.userId; changed = true; }
+    }
+  }
+  if (changed) { m.collaborators = list; writeManifest(id, m); }
+  const out = [];
+  for (const c of list) {
+    const u = c.userId ? await zaiUsers.findById(c.userId) : null;
+    out.push({ email: c.email, userId: c.userId || null, name: u ? u.name : null, pending: !c.userId });
+  }
+  return {
+    owner, collaborators: out,
+    canManage: canManageShare(m, uid),
+    unowned: !m.createdBy,
+    roster: await zaiUsers.rosterStatus(),
+  };
+}
+
+app.get(BASE + '/api/modules/:id/share', auth.requireAuthAPI, async (req, res) => {
+  const id = req.params.id;
+  const m = readManifestOr404(req, res, id); if (!m) return;
+  const uid = auth.getUserIdFromReq(req);
+  if (!modVisible(m, uid)) return res.status(403).json({ error: '模組尚未開放' });
+  try { res.json(await describeShare(id, m, uid)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post(BASE + '/api/modules/:id/share', auth.requireAuthAPI, async (req, res) => {
+  const id = req.params.id;
+  const m = readManifestOr404(req, res, id); if (!m) return;
+  const uid = auth.getUserIdFromReq(req);
+  if (!canManageShare(m, uid)) return res.status(403).json({ error: '只有這個模組的作者能管理分享名單' });
+
+  const email = zaiUsers.normEmail(req.body && req.body.email);
+  if (!zaiUsers.looksLikeEmail(email)) return res.status(400).json({ error: '請輸入有效的 email' });
+
+  const list = Array.isArray(m.collaborators) ? m.collaborators.slice() : [];
+  if (list.some(c => zaiUsers.normEmail(c.email) === email)) return res.status(409).json({ error: '這個 email 已經在名單裡' });
+
+  const u = await zaiUsers.findByEmail(email);
+  // 擁有者自己不用加;加了只會讓名單看起來很怪
+  if (u && u.userId === m.createdBy) return res.status(400).json({ error: '這是作者本人,不需要加入共編' });
+
+  list.push({ email: u ? u.email : email, userId: u ? u.userId : null });
+  m.collaborators = list;
+  writeManifest(id, m);
+  console.log(`[Share] ${id} + ${email} by ${uid}${u ? '' : ' (pending:尚未註冊)'}`);
+  res.json({ ok: true, added: { email: u ? u.email : email, userId: u ? u.userId : null, pending: !u },
+             share: await describeShare(id, m, uid) });
+});
+
+app.delete(BASE + '/api/modules/:id/share', auth.requireAuthAPI, async (req, res) => {
+  const id = req.params.id;
+  const m = readManifestOr404(req, res, id); if (!m) return;
+  const uid = auth.getUserIdFromReq(req);
+  if (!canManageShare(m, uid)) return res.status(403).json({ error: '只有這個模組的作者能管理分享名單' });
+
+  const email = zaiUsers.normEmail((req.query && req.query.email) || (req.body && req.body.email));
+  const list = Array.isArray(m.collaborators) ? m.collaborators : [];
+  const next = list.filter(c => zaiUsers.normEmail(c.email) !== email);
+  if (next.length === list.length) return res.status(404).json({ error: '名單裡沒有這個 email' });
+  if (next.length) m.collaborators = next; else delete m.collaborators;
+  writeManifest(id, m);
+  console.log(`[Share] ${id} - ${email} by ${uid}`);
+  res.json({ ok: true, share: await describeShare(id, m, uid) });
 });
 
 // ── 動作手勢庫(Gesture Lab 產出;遊戲端可全量載入當內建動作)──
@@ -926,6 +1031,12 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
     else if (isNewManifest && uid && uid !== 'local') next.createdBy = uid;
     else delete next.createdBy;
 
+    // 分享名單同樣以磁碟為準,**只能經 /share 端點修改**。
+    // 不這樣做的話,任何能存檔的人(包含共編者)只要在 manifest 裡塞一筆 collaborators
+    // 就把自己或別人加進來了 —— 直接繞過 canManageShare。
+    if (Array.isArray(current.collaborators) && current.collaborators.length) next.collaborators = current.collaborators;
+    else delete next.collaborators;
+
     // Validate
     const errors = validateManifest(next);
     if (errors.length) return res.status(400).json({ error: '驗證失敗', errors });
@@ -954,6 +1065,17 @@ app.put(BASE + '/api/modules/:id/manifest', (req, res) => {
 // Delete a module directory
 app.delete(BASE + '/api/modules/:id', (req, res) => {
   if (denyIfNotEditable(req, res, req.params.id)) return;
+  // 刪除整個模組比「編輯內容」嚴重一級:共編者可以改,但不能把別人的作品刪掉。
+  // (modEditable 現在包含共編者,所以這裡要再擋一層。)
+  {
+    const mp = path.join(__dirname, 'modules', req.params.id, 'manifest.json');
+    if (fs.existsSync(mp)) {
+      let m = null;
+      try { m = JSON.parse(fs.readFileSync(mp, 'utf8')); } catch (e) { m = null; }
+      if (m && !canManageShare(m, auth.getUserIdFromReq(req)))
+        return res.status(403).json({ error: '你是這個模組的共編者,可以修改內容但不能刪除整個模組' });
+    }
+  }
   try {
     const id = req.params.id;
     if (!isValidModuleId(id)) return res.status(400).json({ error: '模組 ID 格式錯誤' });

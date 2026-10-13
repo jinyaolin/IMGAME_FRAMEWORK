@@ -571,12 +571,14 @@
           <button class="cfg-tab"        onclick="switchCfgTab('decks')"    data-i18n="tab.decks">牌組</button>
           <button class="cfg-tab"        onclick="switchCfgTab('stages')"   data-i18n="tab.stages">階段</button>
           <button class="cfg-tab"        onclick="switchCfgTab('advanced')" data-i18n="tab.advanced">進階</button>
+          <button class="cfg-tab"        onclick="switchCfgTab('share')">🤝 分享</button>
         </div>
         <div id="cfgOverview" class="cfg-tab-content active"></div>
         <div id="cfgParams"   class="cfg-tab-content"></div>
         <div id="cfgDecks"    class="cfg-tab-content"></div>
         <div id="cfgStages"   class="cfg-tab-content"></div>
         <div id="cfgAdvanced" class="cfg-tab-content"></div>
+        <div id="cfgShare"    class="cfg-tab-content"></div>
       </div>
     </div>
   </main>
@@ -928,7 +930,7 @@
   function switchCfgTab(name) {
     activeTab = name;
     document.querySelectorAll('.cfg-tab').forEach((t, i) => {
-      t.classList.toggle('active', ['overview','params','decks','stages','advanced'][i] === name);
+      t.classList.toggle('active', ['overview','params','decks','stages','advanced','share'][i] === name);
     });
     document.querySelectorAll('.cfg-tab-content').forEach(el => el.classList.remove('active'));
     document.getElementById('cfg' + name[0].toUpperCase() + name.slice(1)).classList.add('active');
@@ -939,6 +941,111 @@
     else if (name === 'decks') renderDecksTab();
     else if (name === 'stages') renderStagesTab();
     else if (name === 'advanced') renderAdvancedTab();
+    else if (name === 'share') renderShareTab();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  TAB: SHARE(共編者)
+  //  用 email 把別人加進來 → 對方就看得到也改得動這個模組(即使還沒開放)。
+  //  imgame 的 session 只有 uid、不知道 email,所以是在「加入的那一刻」去查主站的
+  //  使用者名冊換成帳號 id;查不到就先存成「待註冊」,對方註冊後自動生效。
+  // ═══════════════════════════════════════════════════════════════
+  let shareState = null;
+
+  async function renderShareTab() {
+    const el = document.getElementById('cfgShare');
+    if (!currentId) { el.innerHTML = '<div class="help-text">先選一個模組。</div>'; return; }
+    el.innerHTML = '<div class="help-text">載入中…</div>';
+    try {
+      const r = await fetch(`/api/modules/${encodeURIComponent(currentId)}/share`);
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || ('HTTP ' + r.status)); }
+      shareState = await r.json();
+    } catch (e) { el.innerHTML = `<div class="help-text" style="color:#ff8888">讀不到分享設定:${escapeH(e.message)}</div>`; return; }
+    paintShare();
+  }
+
+  function paintShare() {
+    const el = document.getElementById('cfgShare');
+    const st = shareState || {};
+    const owner = st.owner;
+    const rosterBad = st.roster && !st.roster.ok;
+    el.innerHTML = `
+      <div class="section-title">共同編輯</div>
+      <div class="help-text" style="margin-bottom:12px">
+        加進來的人可以<b>看到並編輯</b>這個模組（即使還沒開放給一般使用者），但<b>不能再分享給別人、也不能刪除模組</b>。
+      </div>
+
+      <div class="field-row">
+        <label class="field-label">作者</label>
+        <div style="padding:6px 0;color:#ccd">${owner
+          ? escapeH(owner.email || owner.userId) + (owner.name ? ` <span style="color:#889">（${escapeH(owner.name)}）</span>` : '')
+          : '<span style="color:#998">這個模組沒有記錄作者 — 任何登入者都能編輯</span>'}</div>
+      </div>
+
+      ${rosterBad ? `<div class="help-text" style="color:#ffcc66;margin:8px 0">
+        ⚠ 查不到使用者名冊（${escapeH(st.roster.error || '')}）。現在加入的 email 會先存成「待註冊」，之後名冊恢復就會自動解析。
+      </div>` : ''}
+
+      ${st.canManage ? `
+        <div class="field-row" style="align-items:center;gap:8px">
+          <input class="field-input" id="shareEmail" placeholder="對方的 email（要用他登入 zaistudio.tw 的帳號）"
+                 onkeydown="if(event.key==='Enter')addCollaborator()" style="flex:1">
+          <button class="btn btn-primary btn-sm" onclick="addCollaborator()">加入共編</button>
+        </div>
+        <div id="shareMsg" class="help-text" style="min-height:18px"></div>
+      ` : `<div class="help-text" style="margin:10px 0;color:#998">
+        ${st.unowned ? '這個模組沒有作者，分享名單由系統管理員管理。' : '只有作者能管理分享名單。'}
+      </div>`}
+
+      <div class="section-title" style="margin-top:14px">已加入的人（${(st.collaborators || []).length}）</div>
+      ${(st.collaborators || []).length === 0
+        ? '<div class="help-text" style="color:#998">還沒有人。</div>'
+        : (st.collaborators || []).map(c => `
+          <div class="field-row" style="align-items:center">
+            <div style="flex:1;color:#ccd">
+              ${escapeH(c.email)}
+              ${c.name ? `<span style="color:#889">（${escapeH(c.name)}）</span>` : ''}
+              ${c.pending ? '<span title="這個 email 還沒有 zaistudio.tw 帳號；對方註冊後會自動生效" style="color:#ffcc66;font-size:.8rem;margin-left:6px">待註冊</span>' : ''}
+            </div>
+            ${st.canManage ? `<button class="btn btn-ghost btn-sm" onclick="removeCollaborator('${escapeH(c.email).replace(/'/g, "\\'")}')">移除</button>` : ''}
+          </div>`).join('')}
+    `;
+  }
+
+  function shareMsg(text, bad) {
+    const el = document.getElementById('shareMsg');
+    if (el) { el.textContent = text || ''; el.style.color = bad ? '#ff8888' : '#88cc99'; }
+  }
+
+  async function addCollaborator() {
+    const input = document.getElementById('shareEmail');
+    const email = (input && input.value || '').trim();
+    if (!email) return;
+    shareMsg('加入中…');
+    try {
+      const r = await fetch(`/api/modules/${encodeURIComponent(currentId)}/share`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return shareMsg(d.error || ('加入失敗（HTTP ' + r.status + '）'), true);
+      shareState = d.share;
+      paintShare();
+      shareMsg(d.added && d.added.pending
+        ? `已加入 ${d.added.email}，但這個 email 還沒有 zaistudio.tw 帳號 — 對方註冊後會自動生效`
+        : `已加入 ${d.added ? d.added.email : email}`);
+    } catch (e) { shareMsg('加入失敗:' + e.message, true); }
+  }
+
+  async function removeCollaborator(email) {
+    if (!confirm(`把 ${email} 從共編名單移除?`)) return;
+    try {
+      const r = await fetch(`/api/modules/${encodeURIComponent(currentId)}/share?email=${encodeURIComponent(email)}`,
+        { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return shareMsg(d.error || '移除失敗', true);
+      shareState = d.share;
+      paintShare();
+      shareMsg(`已移除 ${email}`);
+    } catch (e) { shareMsg('移除失敗:' + e.message, true); }
   }
 
   // ═══════════════════════════════════════════════════════════════

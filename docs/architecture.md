@@ -212,6 +212,15 @@ NetKit sim 的 `Sim.emit('score', {pid, add|score})` / `Sim.emit('set_attr', {pi
 `GameSession.applyReservedGameEvent`，Node 與 P2P `game-host.js` 兩路同形）。`score` 寫 `player.score`（result 階段排名依據）、
 `set_attr` 走 `setPlayerParam`（驗 manifest `playerAttributes` 宣告，跨階段保留）。手機端 `sendEvent` 不在攔截範圍（防自報分數）。
 
+**玩法物理（`gameConfig.physics:'rapier'`，NetKit sim 專用）**：宣告後框架在「權威端」載入 vendored Rapier 並把
+`NetPhys.wrap(RAPIER)`（`client/shared/netphys.js` 薄包裝：world/幾何工廠/ray/contacts，density 質量、collision group 組裝、
+step 內建速度封頂等引擎坑全封在包裝裡）以 `PHYS` 注入 sim 作用域（`new Function('Sim','PHYS',code)`）。載入路徑：
+Node `NetKitHost` 走 async `import()` 後啟動主執行緒 SimHost；瀏覽器（P2P host）worker 內 dynamic import（載入空窗的
+input/join 排隊重放），classic worker 不支援 import 的瀏覽器（Firefox）由 worker 回報 `physfail` → `NetKitHost` 回退主執行緒。
+render/手機**永遠不載物理引擎** — 物理遊戲無客戶端預測（mobile/display 跳過本地 sim 建構），純內插快照。
+示範模組 `sumo-nk`（相撲推擠）；迴歸 `node test/netkit/test-netphys.js`、`node test/netkit/test-sumo-sim.js`、
+E2E `node test-sumo-smoke.js`（需伺服器）。
+
 ---
 
 ## 5. 推進條件 (advance trigger)
@@ -294,7 +303,13 @@ manifest.engine = "card-battle"
 - stage.deckId 必須引用存在且 enabled 的牌組
 - advance.trigger 在合法清單內；`auto`/`timer` 必須有 duration
 
+- `gameConfig.files[].code` 會過 `new Function` 做語法檢查 —— **但檔名以 `.pd` 結尾的除外**
+  （那是 Pure Data patch、不是 JS）。`.pd` 只檢查「開頭是不是 `#N canvas`」與「不能放 `target:'sim'`」，
+  物件支援度與「有沒有真的發出聲音」由 `server/pd-compile.js` 背景編譯時檢查（見 §11）。
+
 editor client 端有同款驗證（mirror），錯誤即時顯示 banner，存檔按鈕 disable。
+⚠ 新增驗證規則時**兩邊都要改**（`server/index.js` 的 `validateManifest` 與 `client/editor/index.html` 的 `validateStage`），
+否則會出現「伺服器收但編輯器不給存」或反之。
 
 ---
 
@@ -351,7 +366,127 @@ P2P 主持模式(host 瀏覽器當權威、WebRTC DataChannel 直連手機/大�
 
 ---
 
-## 10. 已知限制 / 未來方向
+## 10. NetKit 的輸入通道語意（`Net.input`）
+
+**非物理 NetKit 遊戲會開客戶端預測**（`mobile/game.html` 在 `!cfg.physics` 且有 `sim` 檔時於手機本地建一份 sim），
+這時 `Net.input(obj)` **不是把 obj 原封不動送出**，而是拆成兩條語意不同的通道
+（`client/shared/netclient.js` 的 `NetSurface.prototype.input`）：
+
+| 欄位 | 語意 |
+|---|---|
+| `mx` | 連續量。夾到 −1..1、最後一次覆寫，**每個 predict tick 都送**（即使是 0） |
+| 其他所有欄位 | 「邊緣」。**只有真值**會黏著到下個 predict tick（保留原值），送出後 `_pendEdges` 清空 |
+
+推論出來的三條規則：
+
+1. **`0` / `false` / `""` 不會上線。** sim 端讀到 `undefined`（`inp[k] ? 1 : 0` 結果與 0 相同，所以
+   「下一幀送 0 來解除黏著」仍然有效）。但要傳**可能為 0 的數值**（例如選項索引）必須改成 1 起算。
+2. **離散指令最保險的寫法**：按下設 `1`、下一幀歸零，sim 偵測 `0→1` 邊緣後把狀態黏在 1，
+   等下一幀的 0（或缺少該欄位）解除。`fairy-brawl-nk` / `teacher-stonks` 都是這個形狀。
+3. **物理遊戲不受上述限制** —— 手機不建本地 sim（不載物理引擎）→ `predict` 為 false →
+   `Net.input` 走 `_sendInput(obj)` 原封不動送出。`sumo-nk` 因此能傳 `my` 這種非 `mx` 的連續量。
+
+⚠ **2026-10-13 修掉的坑（f51dded）**：這一行原本寫 `this._pendEdges[k] = true`，把值壓成布林。
+sim 若用「遞增計數器 + `inp[k] > prev[k]` 差分」當輸入，第一次 `true > 0` 觸發、`prev` 變成 `true`，
+之後 `true > true` 永遠為假 → **每個按鈕一輩子只能按一次**。症狀看起來像上行通道阻塞，
+但 `_pending` 其實是客戶端預測的未確認輸入緩衝、收到快照帶 `ack` 就會裁掉（卡在個位數是正常的 RTT 緩衝），
+而遊戲自報的 `ack` 若是「當下有幾個鍵還黏著」的瞬時總和，也不能用來判斷訊息有沒有送達。
+**診斷這類問題最快的方法**：`netcore.js` / `netsim.js` / `netclient.js` 都是 UMD，
+直接 `require` 進 Node 接起來跑，點 N 次數「sim 觸發幾次」，還能 A/B 新舊版。
+
+---
+
+## 11. Pure Data 聲音 patch（`shared/*.pd`）
+
+學生在 Pure Data 做好的聲音存成 `.pd`，當成遊戲檔案放進 `gameConfig.files`，伺服器自動編譯成
+AudioWorklet 能跑的 wasm，遊戲程式用注入的第三個參數 `PD` 發聲。學生只交 `.pd`，接線由遊戲程式（或 AI）負責。
+
+```json
+{ "name": "shared/synth.pd", "target": "display", "code": "<Pd patch 原始文字>" }
+```
+
+**契約（反直覺，務必照抄給作者/AI）**：
+
+| patch 裡的物件 | 角色 |
+|---|---|
+| `[s 名字]` | 遊戲**送訊息進去**的入口。**不用接任何線**（不會被圖最佳化剪掉，已驗證） |
+| `[r 名字]` | patch **通知遊戲**的出口 |
+
+`target` 決定從哪個喇叭出來：`display` 大螢幕（教室共用）/ `mobile` 每支手機 / `shared` 兩邊；
+**`sim` 會被驗證擋掉**（伺服器端沒有喇叭）。
+
+| 元件 | 位置 | 職責 |
+|---|---|---|
+| 編譯管線 | `server/pd-compile.js` | 背景編譯（約 6–7 秒），以**內容 hash** 當快取鍵；產物 `server/modules/<id>/pd/<hash>.{wasm,json}`（已 gitignore，隨時可重建） |
+| 名稱轉譯層 | `client/shared/webpdkit.js` | WebPd 的執行期 API 吃編譯器指派的不透明 `nodeId`（改 patch 就會變，送到沒宣告的 nodeId 會在 worklet 裡 throw）→ 這層讓遊戲只認名字 |
+| WebPd runtime | `client/shared/vendor/webpd-runtime.js` | 98KB，**所有 patch 共用**；沒有 `.pd` 的關卡不會下載 |
+| 狀態/產物端點 | `GET /api/modules/:id/pd`、`/api/modules/:id/pd/<hash>.wasm` | 免登入（大螢幕與玩家手機都沒有 cookie） |
+
+**遊戲端 API**：`PD.send(名字, [值])`（不給值 = 送 bang）、`PD.on(名字, cb)`、`PD.names`、`PD.volume(0..1)`、`PD.ready`。
+`PD` 可能是 `null`（沒有 `.pd`、或編譯失敗）→ 一律 `if (PD)`，**聲音壞掉不可以讓遊戲掛掉**。
+AudioContext 的惰性建立與手勢解鎖、關卡結束的 dispose 都由框架負責，作者不必寫 `onEnd`。
+
+編譯時除了產 wasm 還做兩件對教學有用的事：把 WebPd 的 `not implemented` 換成可行動的中文提示
+（含教材第 7 章那幾個不存在的物件名 `delay~`/`reverb~`/`button`/`toggle`/`slider`/`number` 的正名），
+以及**在 Node 裡真的跑一遍 patch 量波形**，判斷「送訊息進去到底有沒有發出聲音」。
+⚠ 判準是「**所有**入口都不發聲才算壞」—— 控制用入口（設音量/速度）本來就不該發聲，逐個報警會讓人學會忽略警告。
+
+⚠ **`boot()` 回來時 worklet 的引擎還沒建好，而 worklet 不回報就緒** —— 開場第一個 `send` 會在 worklet 內部
+throw 然後無聲消失。`webpdkit` 用 400ms 閘門把開場的 send 排隊（桌機實測 20ms 就緒，手機可能慢十倍；
+掉一個音效比延後 0.4 秒嚴重得多）。
+
+⚠ WebPd 是 **alpha 且上游低度維護**，授權 **LGPL-3.0**（原封不動 vendor，別編進自己的 bundle）。
+真相永遠是 manifest 裡的 `.pd` 原始文字，換引擎不會丟作品。
+教材用到但 WebPd 不支援的：`rev1~`/`rev2~`/`rev3~`（殘響，沒有替代物件）、`tabosc4~`、`ezdac~`（改 `dac~`）、`env~`、`threshold~`。
+示範模組 `pd-sound-demo`。
+
+---
+
+## 11.5 模組的擁有權與分享（共編）
+
+| 欄位（manifest） | 意義 |
+|---|---|
+| `createdBy` | 作者的**帳號 id**（`u_…`）。由伺服器在「第一次寫入 manifest.json」時記下，客戶端傳入的值一律被磁碟值覆蓋 |
+| `collaborators` | `[{ email, userId }]`。共編名單；`userId` 可能是 `null`（邀了還沒註冊的 email） |
+| `published` | superuser 才能切；開放後一般使用者在 `/labs/game` 選得到 |
+
+三層權限（`server/index.js`）：
+
+| 判斷 | 誰 | 能做什麼 |
+|---|---|---|
+| `modVisible` | 作者、共編者、superuser、或已 `published`、或**無主** | 看到／載入模組 |
+| `modEditable` | 同上但不含「已 published 就給過」 | 改 manifest／server.js |
+| `canManageShare` | **只有作者與 superuser** | 管理分享名單、**刪除整個模組** |
+
+- **「無主」（沒有 `createdBy`）一律視為可見且可編輯。** 原本把無主當私密，結果是功能上線前就存在的模組
+  連作者自己都看不到（實測 19 個模組 0 個有 `createdBy`，13 個因此被鎖死）。沒有記錄作者的模組不屬於任何人。
+- **共編者可以改內容，但不能再分享給別人、也不能刪除模組。** 刪除走 `canManageShare` 再擋一層，
+  因為 `modEditable` 已經包含共編者了。
+- ⚠ **`collaborators` 與 `createdBy` 一樣是伺服器權威、只能經 `/share` 端點修改。**
+  PUT manifest 時一律以磁碟值覆蓋 —— 否則任何能存檔的人（包含共編者）只要在 manifest 裡塞一筆
+  就把自己或別人加進來，直接繞過 `canManageShare`。
+
+### email → 帳號 id 的解析（`server/zai-users.js`）
+
+imgame 的 session token 只帶 `u=<uid>`，**它從來不知道使用者的 email**（見 §9.5），
+但「分享給某人」最自然的輸入就是 email。做法是在「加入的那一刻」查 zai_studio 的使用者名冊
+換成帳號 id 存起來，**之後一律用 uid 比對**（對方改 email 不影響權限）。
+
+- 唯讀查 `ZAI_USERS_DB`（預設 `/root/zai_studio-main/data/index.db`）的 `users` 表。
+  imgame 本來就共用主站的 `AUTH_COOKIE_SECRET` 與 `LOGIN_URL`，這是同一類耦合再加一條，而且唯讀。
+- ⚠ **刻意不用 better-sqlite3**：那是原生模組，這台沒有 `make`/`g++` 編不起來，
+  為一個查詢在正式機裝 build-essential 不值得 → 改用系統的 `sqlite3` CLI。
+- ⭐ **使用者輸入永遠不進 SQL**：名冊只有幾十筆，所以一次把 `(id, email)` 全撈出來在 JS 比對
+  （20 秒快取）。從根本上沒有 SQL 注入面，不必依賴「引號有沒有轉義乾淨」這種容易寫錯的防線。
+- 查不到的 email 存成 `userId: null`（UI 標「待註冊」），**每次讀分享清單時重試解析** ——
+  學生之後註冊就會自動生效，不需要重新邀請。
+
+端點：`GET/POST/DELETE /api/modules/:id/share`（`POST`/`DELETE` 需 `canManageShare`）。
+UI：編輯器的「🤝 分享」分頁（`renderShareTab`）；共編者看得到名單但沒有加入／移除的控制項。
+
+---
+
+## 12. 已知限制 / 未來方向
 
 | 項目 | 現況 | 目標 |
 |------|------|------|

@@ -481,6 +481,14 @@ imgame 的 session token 只帶 `u=<uid>`，**它從來不知道使用者的 ema
 - 查不到的 email 存成 `userId: null`（UI 標「待註冊」），**每次讀分享清單時重試解析** ——
   學生之後註冊就會自動生效，不需要重新邀請。
 
+**共編者不能再分享，但可以「複製一份當自己的新專案」** —— clone 只需 `modVisible`，
+所以共編者複製得動；副本的 `createdBy` = 複製的人，而且 **`published` 與 `collaborators` 都不繼承**
+（兩條 clone 路徑都要清：`/api/modules/:sourceId/clone` 與 AI 的 `clone_module`）。
+⚠ 不清 `collaborators` 的話，「自己的新專案」會帶著一群沒邀請過的人，
+複製者自己還同時是副本的擁有者兼共編者。已實測兩個普通帳號之間真的互相看不到副本
+（測這個要避開 superuser —— 它看得到一切，會讓隔離測試變成假陽性）。
+
+
 端點：`GET/POST/DELETE /api/modules/:id/share`（`POST`/`DELETE` 需 `canManageShare`）。
 UI：編輯器的「🤝 分享」分頁（`renderShareTab`）；共編者看得到名單但沒有加入／移除的控制項。
 

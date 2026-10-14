@@ -281,6 +281,7 @@ function createTools(deps) {
         const cloned = { ...src, id: newId, name: newName, ...(engine ? { engine } : {}) };
         delete cloned.published;   // clone 是新草稿:published 不繼承(saveManifest 會記 clone 者為作者)
         delete cloned.createdBy;
+        delete cloned.collaborators;   // 分享名單也不繼承(與 REST 的 /clone 同規則,見那裡的註解)
         const result = saveManifest(newId, cloned, uid);
         // 長期筆記跟著複製（衍生模組通常繼承來源的設計脈絡）
         const notesSrc = path.join(modulesDir, sourceId, 'KIMI.md');

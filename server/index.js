@@ -1142,8 +1142,11 @@ app.post(BASE + '/api/modules/:sourceId/clone', (req, res) => {
     // Point the new module at the source's engine so future engine updates apply
     newManifest.engine = sourceManifest.engine || sourceId;
     if (typeof description === 'string') newManifest.description = description;
-    // Clone 是新的草稿:作者 = 執行 clone 的人,published 不繼承(要開放需 superuser 另行操作)
+    // Clone 是新的草稿:作者 = 執行 clone 的人,published 不繼承(要開放需 superuser 另行操作),
+    // 分享名單也不繼承 —— 「複製一份當自己的新專案」是獨立出去的意思,
+    // 繼承的話複製者會莫名其妙把一群沒邀請過的人帶進自己的副本(而且自己同時是擁有者兼共編者)。
     delete newManifest.published;
+    delete newManifest.collaborators;
     if (cloneUid && cloneUid !== 'local') newManifest.createdBy = cloneUid;
     else delete newManifest.createdBy;
 

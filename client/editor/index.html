@@ -648,6 +648,7 @@
   let openDecks          = new Set();  // deck IDs that are visually expanded
   let rawMode            = false;   // raw JSON edit mode
   let activeTab          = 'basic';
+  let shareState         = null;   // 分享分頁的伺服器狀態(切換模組時由 rerenderAll 清掉)
   let globalDecks        = [];      // global decks from /api/decks
   let serverCode         = '';      // server.js code content
   let originalServerCode = '';      // original server.js code for dirty check
@@ -888,6 +889,13 @@
     renderDecksTab();
     renderStagesTab();
     renderAdvancedTab();
+    // 分享分頁的內容要去伺服器拿,所以不跟其他分頁一起無條件重畫 ——
+    // 但一定要把上一個模組的狀態清掉:不清的話切換模組後面板還留著「前一個模組的
+    // 擁有者與共編名單」,而輸入框加的人卻是進到新選的模組,看到的跟做的不是同一件事。
+    shareState = null;
+    const sh = document.getElementById('cfgShare');
+    if (sh) sh.innerHTML = '';
+    if (activeTab === 'share') renderShareTab();
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -950,7 +958,6 @@
   //  imgame 的 session 只有 uid、不知道 email,所以是在「加入的那一刻」去查主站的
   //  使用者名冊換成帳號 id;查不到就先存成「待註冊」,對方註冊後自動生效。
   // ═══════════════════════════════════════════════════════════════
-  let shareState = null;
 
   async function renderShareTab() {
     const el = document.getElementById('cfgShare');

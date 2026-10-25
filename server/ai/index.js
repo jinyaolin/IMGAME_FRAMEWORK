@@ -333,6 +333,7 @@ function attach(deps) {
         return;
       }
 
+      require('../usage').log('ai_chat', auth.socketUserId ? auth.socketUserId(socket) : null, { mod: moduleId || undefined, chars: text.length, images: validImages.length || undefined });
       ed.busy = true;
       const moduleList = moduleLoader.listModules()
         .map(m => `- ${m.id}：${m.name}（${m.minPlayers}-${m.maxPlayers} 人）`).join('\n');

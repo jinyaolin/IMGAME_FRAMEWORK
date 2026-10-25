@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>使用紀錄 · 派對遊戲</title>
+<style>
+  :root {
+    --ground:#16110c; --surface:#201811; --line:#3a2d20; --ink:#ece3d2; --mute:#8b7c64; --lamp:#e0a94e; --ok:#7fb069; --bar:#e0a94e;
+    --sans: "Noto Sans TC", system-ui, -apple-system, "PingFang TC", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink); font:14px/1.55 var(--sans); }
+  main { max-width:1180px; margin:0 auto; padding:24px 16px 64px; }
+  header { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+  h1 { font-size:22px; margin:0; font-weight:600; }
+  h2 { font-size:15px; margin:32px 0 10px; color:var(--lamp); font-weight:600; }
+  .sub { color:var(--mute); }
+  .seg { margin-left:auto; display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { background:none; border:0; color:var(--mute); padding:6px 12px; font:inherit; cursor:pointer; }
+  .seg button.on { background:var(--surface); color:var(--ink); }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .kpi { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .kpi b { display:block; font-size:26px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .kpi span { color:var(--mute); font-size:12px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px; overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mute); font-weight:500; font-size:12px; }
+  td.n, th.n { text-align:right; }
+  tr:last-child td { border-bottom:0; }
+  .uid { color:var(--mute); font-size:11px; }
+  .chip { display:inline-block; padding:1px 7px; border:1px solid var(--line); border-radius:99px; font-size:12px; margin:1px 2px; }
+  .zero { color:#5a4d3c; }
+  svg text { fill:var(--mute); font-size:10px; }
+  .feed td { font-size:13px; }
+  .empty, .err { padding:40px; text-align:center; color:var(--mute); }
+  .err { color:#e07a5f; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>遊戲編輯器使用紀錄</h1>
+    <span class="sub" id="since"></span>
+    <div class="seg" id="range">
+      <button data-d="7">7 天</button><button data-d="30" class="on">30 天</button><button data-d="90">90 天</button>
+    </div>
+  </header>
+  <div id="root"><div class="empty">載入中…</div></div>
+</main>
+<script>
+const BASE = location.pathname.replace(/\/usage\/?(index\.html)?$/, '');
+const EDIT = ['module_create','module_clone','module_save','engine_save','ai_save'];
+let days = 30;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sum = (c, keys) => keys.reduce((a, k) => a + (c[k] || 0), 0);
+const num = (n) => n ? n : '<span class="zero">0</span>';
+const when = (iso) => new Date(iso).toLocaleString('zh-TW', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false });
+const who = (name, uid) => name ? `${esc(name)}` : `<span class="uid">${esc(uid)}</span>`;
+
+document.querySelectorAll('#range button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('#range button').forEach((x) => x.classList.toggle('on', x === b));
+  days = Number(b.dataset.d); load();
+});
+
+async function load() {
+  let d;
+  try {
+    const r = await fetch(`${BASE}/api/admin/usage?days=${days}`, { credentials: 'same-origin' });
+    if (r.status === 403) { $('#root').innerHTML = '<div class="err">這一頁只有管理者(superuser)能看。</div>'; return; }
+    if (!r.ok) throw new Error(r.status);
+    d = await r.json();
+  } catch (e) { $('#root').innerHTML = `<div class="err">讀取失敗(${esc(e.message)})</div>`; return; }
+  $('#since').textContent = `自 ${new Date(d.since).toLocaleDateString('zh-TW')} 起,共 ${d.total} 筆`;
+  if (!d.total) { $('#root').innerHTML = '<div class="empty">這段期間還沒有紀錄。紀錄從啟用那天開始累積。</div>'; return; }
+  render(d);
+}
+
+function chart(byDay) {
+  // 補齊沒有活動的日子,畫每日活躍人數
+  const map = Object.fromEntries(byDay.map((x) => [x.day, x]));
+  const out = [];
+  const end = new Date(Date.now() + 8 * 3600e3);
+  for (let i = days - 1; i >= 0; i--) {
+    const k = new Date(end - i * 86400e3).toISOString().slice(0, 10);
+    out.push({ day: k, v: map[k]?.activeUsers || 0, e: map[k]?.events || 0 });
+  }
+  const W = 1000, H = 150, pad = 18, max = Math.max(1, ...out.map((x) => x.v));
+  const bw = (W - pad * 2) / out.length;
+  const bars = out.map((x, i) => {
+    const h = (x.v / max) * (H - 40);
+    const lbl = (out.length <= 31 || i % 7 === 0) ? `<text x="${pad + i * bw + bw / 2}" y="${H - 4}" text-anchor="middle">${x.day.slice(5).replace('-', '/')}</text>` : '';
+    return `<rect x="${pad + i * bw + 1}" y="${H - 20 - h}" width="${Math.max(1, bw - 2)}" height="${h}" rx="2" fill="var(--bar)" opacity="${x.v ? 0.9 : 0.15}"><title>${x.day}:${x.v} 人、${x.e} 筆</title></rect>` +
+      (x.v ? `<text x="${pad + i * bw + bw / 2}" y="${H - 24 - h}" text-anchor="middle">${x.v}</text>` : '') + lbl;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="每日活躍人數">${bars}</svg>`;
+}
+
+function render(d) {
+  const users = d.users.filter((u) => u.uid !== '(未登入)');
+  const editors = users.filter((u) => sum(u.counts, EDIT) > 0);
+  const games = d.byDay.reduce((a, x) => a + (x.counts.game_start || 0), 0);
+  const ai = d.byDay.reduce((a, x) => a + (x.counts.ai_chat || 0), 0);
+  const ev = d.events;
+
+  const userRows = users.map((u) => `<tr>
+    <td>${who(u.name, u.uid)}</td>
+    <td class="n">${u.activeDays}</td>
+    <td>${when(u.last)}</td>
+    <td class="n">${num(u.counts.editor_open)}</td>
+    <td class="n">${num(sum(u.counts, EDIT))}</td>
+    <td class="n">${num(u.counts.ai_chat)}</td>
+    <td class="n">${num(u.counts.room_create)}</td>
+    <td class="n">${num(u.counts.game_start)}</td>
+    <td>${u.modules.slice(0, 6).map((m) => `<span class="chip">${esc(m)}</span>`).join('')}${u.modules.length > 6 ? ` +${u.modules.length - 6}` : ''}</td>
+  </tr>`).join('');
+
+  const modRows = d.modules.map((m) => `<tr>
+    <td>${esc(m.mod)}</td>
+    <td>${m.users.map((u) => `<span class="chip">${who(u.name, u.uid)}</span>`).join('')}</td>
+    <td class="n">${num(sum(m.counts, EDIT))}</td>
+    <td class="n">${num(m.counts.ai_chat)}</td>
+    <td class="n">${num(m.counts.game_start)}</td>
+    <td>${when(m.last)}</td>
+  </tr>`).join('');
+
+  const feed = d.recent.slice(0, 60).map((r) => `<tr>
+    <td>${when(r.t)}</td><td>${who(r.name, r.uid || '(未登入)')}</td><td>${esc(ev[r.ev] || r.ev)}</td>
+    <td>${esc(r.mod || '')}${r.from ? ` <span class="uid">← ${esc(r.from)}</span>` : ''}${r.players ? ` <span class="uid">${r.players} 人</span>` : ''}</td>
+  </tr>`).join('');
+
+  $('#root').innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><b>${users.length}</b><span>活躍人數</span></div>
+      <div class="kpi"><b>${editors.length}</b><span>有動手改模組的人</span></div>
+      <div class="kpi"><b>${d.modules.length}</b><span>被碰過的模組</span></div>
+      <div class="kpi"><b>${ai}</b><span>問 AI 助手</span></div>
+      <div class="kpi"><b>${games}</b><span>開始遊戲</span></div>
+    </div>
+    <h2>每日活躍人數</h2>
+    <div class="card">${chart(d.byDay)}</div>
+    <h2>每個人</h2>
+    <div class="card"><table>
+      <tr><th>使用者</th><th class="n">活躍天數</th><th>最後活動</th><th class="n">開編輯器</th><th class="n">編輯</th><th class="n">問 AI</th><th class="n">開房</th><th class="n">開始遊戲</th><th>模組</th></tr>
+      ${userRows}
+    </table></div>
+    <h2>每個模組</h2>
+    <div class="card"><table>
+      <tr><th>模組</th><th>參與者</th><th class="n">編輯</th><th class="n">問 AI</th><th class="n">開始遊戲</th><th>最後活動</th></tr>
+      ${modRows}
+    </table></div>
+    <h2>最近動態</h2>
+    <div class="card feed"><table>${feed}</table></div>
+    <p class="sub" style="margin-top:18px">「編輯」= 建立/複製/儲存模組、儲存引擎碼、AI 代存;同一人同一模組 30 秒內的連續存檔算一次。</p>`;
+}
+load();
+</script>
+</body>
+</html>

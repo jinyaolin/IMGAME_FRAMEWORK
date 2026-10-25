@@ -26,3 +26,6 @@ server/ai/ai-config.json
 # Pure Data patch 的編譯產物(wasm + io 對應表)
 # 真相是 manifest 裡的 .pd 原始文字;這些以內容 hash 命名、隨時可重建
 server/modules/*/pd/
+
+# 使用紀錄(server/usage.js)
+data/

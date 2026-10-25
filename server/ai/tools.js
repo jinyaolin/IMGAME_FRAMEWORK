@@ -62,6 +62,7 @@ function createTools(deps) {
     moduleLoader._scanModules();
     notifyHostsModulesUpdated();
     console.log(`[AI] 模組已儲存: ${id}`);
+    require('../usage').log('ai_save', uid || null, { mod: id });
     return { ok: true, id, name: next.name };
   };
 

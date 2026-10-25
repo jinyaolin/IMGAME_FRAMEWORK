@@ -18,6 +18,7 @@ const server = http.createServer(app);
 const BASE = (process.env.BASE_PATH || '').replace(/\/+$/, '');
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '') || null;
 const auth = require('./auth');
+const usage = require('./usage');
 
 const io = new Server(server, {
   path: BASE + '/socket.io',
@@ -47,6 +48,17 @@ async function initializeServer() {
 // ── Static files ─────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.text({ type: 'text/plain' }));
+
+// 使用紀錄(server/usage.js):成功的請求在回應後記一筆。必須在路由之前掛。
+app.use(usage.middleware(BASE, auth.getUserIdFromReq, path.join(__dirname, 'modules')));
+
+// 使用率報表(superuser 限定)
+app.use(BASE + '/usage', auth.requireAuthPage, express.static(path.join(__dirname, '../client/usage')));
+app.get(BASE + '/api/admin/usage', auth.requireAuthAPI, (req, res) => {
+  if (!auth.reqIsSuper(req)) return res.status(403).json({ error: '需要 superuser 權限' });
+  const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
+  res.json(usage.summary(days));
+});
 
 // 合併式主持頁（host+display 合一）— zaistudio.tw/labs/game 的入口，需登入
 app.get(BASE + '/', auth.requireAuthPage, (req, res) => {
@@ -1393,6 +1405,7 @@ io.on('connection', (socket) => {
         engineCode: session.engineCode,
       });
       await session.startModule(moduleInstance, moduleName);
+      usage.log('game_start', auth.socketUserId(socket), { mod: moduleName, players: session.players.all().length });
     } catch (err) {
       socket.emit('error', { message: err.message });
       console.error(`[Module] Load failed: ${err.message}`);

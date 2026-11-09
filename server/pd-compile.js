@@ -62,6 +62,14 @@ function collectPdFiles(manifest) {
   return out;
 }
 
+// WebPd 1.0.0-alpha.14 的 bug:把註解(#X text)原文塞進一段「單引號」包住的 metadata 字串,
+// 沒有跳脫 → 註解裡只要有 ' 就產生語法錯誤的程式碼(ERROR TS1012: Unexpected token),整個 patch 編不起來。
+// 註解不影響聲音,所以編譯前把註解裡的 ' 換成全形 ’。只改內容、不刪行,物件編號(connect 用)不變。
+function sanitizeForCompiler(code) {
+  // 一筆註解可能被 Pd 換行存成好幾行,以整筆記錄(到未跳脫的 ;)為範圍
+  return code.replace(/^#X text [\s\S]*?(?<!\\);/gm, (rec) => rec.replace(/'/g, '’'));
+}
+
 const hashOf = (code) => crypto.createHash('sha256').update(code, 'utf8').digest('hex').slice(0, 16);
 const pdDir = (moduleId) => path.join(__dirname, 'modules', moduleId, 'pd');
 
@@ -212,7 +220,7 @@ async function compileOne(moduleId, file) {
   }
 
   const tmp = path.join(os.tmpdir(), `imgame-pd-${hash}.pd`);
-  fs.writeFileSync(tmp, file.code, 'utf8');
+  fs.writeFileSync(tmp, sanitizeForCompiler(file.code), 'utf8');
   const report = { hash, name: file.name, target: file.target, status: 'error', at: new Date().toISOString() };
 
   try {

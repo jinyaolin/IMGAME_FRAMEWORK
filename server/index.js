@@ -46,7 +46,7 @@ async function initializeServer() {
 }
 
 // ── Static files ─────────────────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: '300kb' }));   // 預設 100kb;大型遊戲 manifest(raw JSON 存檔)會被擋 → 放大 3 倍
 app.use(express.text({ type: 'text/plain' }));
 
 // 使用紀錄(server/usage.js):成功的請求在回應後記一筆。必須在路由之前掛。
